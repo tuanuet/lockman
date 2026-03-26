@@ -21,8 +21,15 @@ Distributed lock platform SDK prototype for Go.
 Redis integration tests read `LOCKMAN_REDIS_URL` and skip when unset.
 
 ```bash
-docker run --rm -p 6379:6379 redis:7-alpine
+docker compose up -d redis
 LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./lockkit/idempotency/redis -v
+```
+
+If `6379` is already in use:
+
+```bash
+LOCKMAN_REDIS_PORT=6380 docker compose up -d redis
+LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
 ```
 
 ## Dependency Boundaries
@@ -35,6 +42,7 @@ LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./loc
 - `go test ./...`
 - `go test ./... -cover`
 - `go run ./examples/basic`
+- `go run ./examples/phase2-basic`
 - `go run ./examples/contention`
 - `go run ./examples/no-dependency-awareness`
 - `go run ./examples/reentrant`
