@@ -3,8 +3,6 @@ package runtime
 import (
 	"context"
 	stdErrors "errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"lockman/lockkit/definitions"
@@ -12,7 +10,15 @@ import (
 	lockerrors "lockman/lockkit/errors"
 )
 
-const lockKeySeparator = ":"
+type guardKey struct {
+	definitionID string
+	resourceKey  string
+	ownerID      string
+}
+
+type guardEntry struct {
+	held bool
+}
 
 // ExecuteExclusive runs fn after successfully acquiring the requested standard lock.
 func (m *Manager) ExecuteExclusive(
@@ -32,8 +38,9 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
-	if _, loaded := m.active.LoadOrStore(key, struct{}{}); loaded {
+	key := guardKey{definitionID: def.ID, resourceKey: resourceKey, ownerID: req.Ownership.OwnerID}
+	entry := &guardEntry{}
+	if _, loaded := m.active.LoadOrStore(key, entry); loaded {
 		return lockerrors.ErrReentrantAcquire
 	}
 
@@ -74,6 +81,7 @@ func (m *Manager) ExecuteExclusive(
 	}
 
 	leaseAcquired = true
+	entry.held = true
 	m.recordActiveLocks(ctx, def.ID)
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
@@ -161,20 +169,16 @@ func (m *Manager) recordActiveLocks(ctx context.Context, definitionID string) {
 
 func (m *Manager) activeCount(definitionID string) int {
 	count := 0
-	prefix := definitionID + lockKeySeparator
-	m.active.Range(func(key, _ interface{}) bool {
-		str, ok := key.(string)
-		if !ok {
+	m.active.Range(func(key, value interface{}) bool {
+		gk, ok := key.(guardKey)
+		if !ok || gk.definitionID != definitionID {
 			return true
 		}
-		if strings.HasPrefix(str, prefix) {
+		entry, ok := value.(*guardEntry)
+		if ok && entry.held {
 			count++
 		}
 		return true
 	})
 	return count
-}
-
-func lockKey(definitionID, resourceKey, ownerID string) string {
-	return fmt.Sprintf("%s%s%s%s%s", definitionID, lockKeySeparator, resourceKey, lockKeySeparator, ownerID)
 }

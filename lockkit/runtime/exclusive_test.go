@@ -105,6 +105,49 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveGuardHandlesColonCharacters(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "Order:Lock",
+		Kind:          definitions.KindParent,
+		Resource:      "order:group",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "Order:Lock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			ServiceName: "svc",
+			InstanceID:  "one",
+			HandlerName: "UpdateOrder",
+			OwnerID:     "svc:one",
+		},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return mgr.ExecuteExclusive(ctx, req, func(ctx context.Context, nested definitions.LeaseContext) error {
+			return nil
+		})
+	})
+
+	if !errors.Is(err, lockerrors.ErrReentrantAcquire) {
+		t.Fatalf("expected reentrant acquire error with colon id, got %v", err)
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -374,6 +417,58 @@ func TestExecuteExclusiveConcurrentSameOwnerGuard(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveMetricsExcludePendingGuards(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	rec := &countingRecorder{}
+	driver := newBlockingDriver()
+	mgr, err := NewManager(reg, driver, rec)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+			return nil
+		})
+	}()
+
+	driver.WaitForAcquire()
+	if len(rec.activeCounts()) != 0 {
+		t.Fatalf("expected no active lock metrics while guard pending, got %v", rec.activeCounts())
+	}
+
+	driver.UnblockAcquire()
+	if err := <-errCh; err != nil {
+		t.Fatalf("Acquire failed: %v", err)
+	}
+
+	counts := rec.activeCounts()
+	if len(counts) != 2 || counts[0] != 1 || counts[1] != 0 {
+		t.Fatalf("unexpected active lock counts: %v", counts)
+	}
+}
+
 func TestExecuteExclusiveCancellationPropagates(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -504,4 +599,31 @@ func durationPtr(d time.Duration) *time.Duration {
 
 func maxRetriesPtr(value int) *int {
 	return &value
+}
+
+type countingRecorder struct {
+	mu     sync.Mutex
+	counts []int
+}
+
+func (c *countingRecorder) RecordAcquire(context.Context, string, time.Duration, bool) {}
+
+func (c *countingRecorder) RecordContention(context.Context, string) {}
+
+func (c *countingRecorder) RecordTimeout(context.Context, string) {}
+
+func (c *countingRecorder) RecordActiveLocks(ctx context.Context, definitionID string, count int) {
+	c.mu.Lock()
+	c.counts = append(c.counts, count)
+	c.mu.Unlock()
+}
+
+func (c *countingRecorder) RecordRelease(context.Context, string, time.Duration) {}
+
+func (c *countingRecorder) RecordPresenceCheck(context.Context, string, time.Duration) {}
+
+func (c *countingRecorder) activeCounts() []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]int(nil), c.counts...)
 }
