@@ -129,7 +129,7 @@ Responsibilities:
 
 Continues to own backend adapter abstraction for coordination primitives.
 
-Phase 2 may extend the contract where needed for worker claims and metadata inspection, but coordination policy must remain outside the driver.
+Phase 2 should keep the contract backend-agnostic and should not add a Redis-only inspection API. Presence inspection remains part of the shared driver contract through `CheckPresence`, and coordination policy must remain outside the driver.
 
 ### `lockkit/drivers/redis`
 
@@ -183,6 +183,90 @@ Owns Phase 2 policy logic that should not live in drivers:
 
 ## API and Contract Decisions
 
+### Definition Extensions
+
+Phase 2 should make the new definition shapes explicit rather than leaving them implicit in validation rules.
+
+```go
+type OverlapPolicy string
+
+const (
+    OverlapReject   OverlapPolicy = "reject"
+    OverlapEscalate OverlapPolicy = "escalate"
+)
+
+type OrderingPolicy string
+
+const (
+    OrderingCanonical OrderingPolicy = "canonical"
+)
+
+type AcquirePolicy string
+
+const (
+    AcquireAllOrNothing AcquirePolicy = "all_or_nothing"
+)
+
+type EscalationPolicy string
+
+const (
+    EscalationReject EscalationPolicy = "reject"
+)
+
+type ModeResolution string
+
+const (
+    ModeResolutionHomogeneous ModeResolution = "homogeneous"
+)
+
+type CompositeDefinition struct {
+    ID               string
+    Members          []string
+    OrderingPolicy   OrderingPolicy
+    AcquirePolicy    AcquirePolicy
+    EscalationPolicy EscalationPolicy
+    ModeResolution   ModeResolution
+    MaxMemberCount   int
+    ExecutionKind    ExecutionKind
+}
+```
+
+`LockDefinition` should extend the Phase 1 shape with `OverlapPolicy OverlapPolicy`.
+
+Phase 2 accepted values are intentionally narrow:
+
+- child definitions default to `OverlapReject`
+- runtime behavior only supports reject semantics even if the enum leaves room for future escalation
+- composite definitions must use `OrderingCanonical`, `AcquireAllOrNothing`, `EscalationReject`, and `ModeResolutionHomogeneous`
+
+### Registry Contract Extension
+
+Because Phase 2 introduces composite definitions, `lockkit/registry` should extend both storage and lookup contracts:
+
+```go
+type Reader interface {
+    MustGet(id string) definitions.LockDefinition
+    MustGetComposite(id string) definitions.CompositeDefinition
+}
+
+type Writer interface {
+    Register(def definitions.LockDefinition) error
+    RegisterComposite(def definitions.CompositeDefinition) error
+}
+
+type ValidatingReader interface {
+    Reader
+    Validate() error
+}
+```
+
+Phase 2 registry behavior should treat lock definitions and composite definitions as separate stores with shared validation:
+
+- composite registration must reject duplicate composite IDs
+- composite IDs should not collide with lock definition IDs
+- validation must cross-reference composite members against registered lock definitions
+- child definitions must continue to validate `ParentRef` against registered lock definitions
+
 ### Worker Lock Manager
 
 Phase 2 should implement the async API shape already described in the base spec:
@@ -222,6 +306,18 @@ Worker callbacks should return business errors. Outcome mapping should remain a 
 
 `WorkerOutcome` remains an internal runtime model in Phase 2 even if the public API still returns `error` as defined by the base spec. The runtime may use `WorkerOutcome` internally for integration adapters, middleware, and tests, but Phase 2 should not silently fork the public contract away from the source-of-truth spec.
 
+To bridge that public `error` surface to queue adapters, Phase 2 should expose a helper:
+
+```go
+func OutcomeFromError(err error) WorkerOutcome
+```
+
+Required behavior:
+
+- `nil` maps to `ack`
+- typed runtime policy and driver errors map to the normalized async outcomes
+- queue adapters should rely on `OutcomeFromError` rather than inspect Redis-specific or driver-specific errors directly
+
 ### Idempotency Store
 
 Phase 2 introduces a first-class interface contract:
@@ -246,11 +342,11 @@ type Record struct {
 }
 
 type BeginInput struct {
-    OwnerID      string
-    MessageID    string
+    OwnerID       string
+    MessageID     string
     ConsumerGroup string
-    Attempt      int
-    TTL          time.Duration
+    Attempt       int
+    TTL           time.Duration
 }
 
 type BeginResult struct {
@@ -286,6 +382,14 @@ Required behavior:
 - terminal completion must be queryable on later retries
 - the store must carry enough metadata for observability and operational debugging
 - `BeginResult` must let worker runtime distinguish a newly acquired processing slot from an already-terminal duplicate
+- `BeginInput.TTL` is the in-progress processing-slot TTL, not terminal retention TTL
+- `CompleteInput.TTL` and `FailInput.TTL` are terminal-record retention TTLs
+
+Idempotency key ownership is caller-driven in Phase 2:
+
+- `MessageClaimRequest.IdempotencyKey` and `CompositeClaimRequest.IdempotencyKey` must be provided by the caller when the resolved definition requires idempotency
+- runtime must reject required-idempotency requests with an empty key
+- Phase 2 should not silently derive fallback keys from message metadata because that hides queue-specific uniqueness assumptions inside the SDK
 
 Phase 2 runtime depends only on `Store`, not on Redis implementation types.
 
@@ -310,7 +414,50 @@ Important sequencing rules:
 
 - idempotency state transitions must occur through the interface contract, not via Redis calls inside worker middleware
 - runtime must not report `ack` before required idempotency terminal state is persisted
+- worker runtime remains non-reentrant inside a process; same-owner claims for the same definition and normalized resource key set must be rejected before acquire
+- idempotency protects duplicate message processing, but it does not replace local reentrancy detection
+- the SDK owns renewal; worker callbacks must not renew leases directly
+- renewal should start immediately after a successful acquire when execution may outlive one renewal interval
+- renewal uses the same baseline as sync execution: `LeaseTTL / 3`, subject to implementation safety clamps
+- renewal failure must cancel the worker callback context, mark the execution as lease-lost, and route the final error through normal outcome mapping
 - release must remain best-effort in shutdown and cancellation paths
+
+### Composite Worker Lifecycle Variant
+
+`ExecuteCompositeClaimed` follows the same high-level lifecycle, with additional composite-specific steps:
+
+1. Resolve the composite definition from the registry.
+2. Resolve every member definition referenced by the composite.
+3. Build member resource keys from `MemberInputs`.
+4. Validate composite overlap policy before any acquire begins.
+5. Canonically sort members.
+6. Acquire member claims sequentially.
+7. Roll back in reverse order if any member acquire fails.
+8. Start SDK-owned renewal for the acquired member set.
+9. Construct `ClaimContext` with `ResourceKeys`.
+10. Execute the worker callback and complete outcome mapping, idempotency, and release using the same rules as single-resource execution.
+
+Phase 2 composite worker behavior is limited to standard-mode definitions. Mixed-mode composites and strict composite claims remain out of scope.
+
+### Worker Shutdown Semantics
+
+Worker managers should implement the same lifecycle contract described in the base spec:
+
+```go
+type Lifecycle interface {
+    Shutdown(ctx context.Context) error
+}
+```
+
+During worker shutdown, Phase 2 should:
+
+- stop admitting new claims
+- keep queue pause or drain mechanics outside the SDK so the runtime stays queue-agnostic
+- cancel renewal loops owned by the SDK
+- wait for admitted in-flight executions until `ctx` expires
+- attempt best-effort release of any locally held claims before falling back to TTL expiry
+
+`Shutdown(ctx)` should remain idempotent for sync and worker managers.
 
 ## Idempotency Semantics
 
@@ -324,6 +471,8 @@ Recommended handling:
 - `failed`: default to `retry`, subject to policy
 
 Phase 2 does not attempt exactly-once guarantees. It provides deterministic coordination hooks that reduce duplicate work and allow worker middleware to make explicit retry decisions.
+
+Phase 2 does not add a background renewal loop for idempotency records themselves. `BeginInput.TTL` should therefore be sized to cover the expected worker processing window plus queue redelivery slack.
 
 ## Redis Driver Design
 
@@ -339,6 +488,12 @@ Recommended single-resource behavior:
 - presence: inspect owner and expiry metadata
 
 Ownership checks must be compare-and-set style operations rather than blind overwrites or deletes.
+
+Phase 2 does not require a separate `Inspect` method on the driver contract. Instead:
+
+- `CheckPresence` remains the contract-level inspection path
+- production drivers must populate `PresenceRecord.Lease.OwnerID` and `PresenceRecord.Lease.ExpiresAt` when a lease is present
+- worker runtime, presence APIs, and diagnostics should consume that shared contract rather than Redis-specific helpers
 
 ### Composite Standard Semantics
 
@@ -373,6 +528,8 @@ Requirements:
 - child definitions must declare `ParentRef`
 - `ParentRef` must resolve to a known definition
 - overlap with parent in the same execution tree defaults to `reject`
+- `OverlapPolicy` belongs on the child `LockDefinition`
+- Phase 2 validation should reject unsupported overlap values for runtime paths that only implement reject behavior
 
 ### Composite Locks
 
@@ -385,6 +542,8 @@ Requirements:
 - ordering must be deterministic
 - member count must respect configured cap
 - partial acquisition failure must release already acquired members in reverse order
+
+`CompositeDefinition` is not just validation metadata. It is a first-class registry object that worker and sync runtimes both resolve before execution.
 
 ## Registry Validation Additions
 
@@ -400,6 +559,13 @@ Phase 2 must extend validation beyond Phase 1 to cover:
 - unsupported backend failure policy values
 
 Additionally, because Phase 2 adopts Redis as the first production backend, startup should include a separate backend-compatibility check for the selected driver. That compatibility check may reject definitions that imply behavior the Redis-backed standard path cannot safely honor, but those checks should not redefine the backend-agnostic registry invariants themselves.
+
+Recommended backend-compatibility checks:
+
+- driver `Ping` succeeds during startup
+- Redis scripting support required for owner-checked renew and release is available
+- presence inspection can surface owner and expiry metadata through the shared driver contract
+- worker runtime is not started without a configured `IdempotencyStore` when async definitions require idempotency
 
 ## Outcome Mapping Policy
 
@@ -417,7 +583,11 @@ The exact mapping implementation should live in policy helpers, not inside drive
 
 Phase 2 should add:
 
+- an in-memory `IdempotencyStore` for worker unit tests
+- composite-capable `TestRegistry` helpers
 - worker lifecycle unit tests
+- worker reentrancy tests
+- `OutcomeFromError` mapping tests for queue adapters
 - composite ordering and rollback tests
 - child overlap rejection tests
 - Redis driver integration tests
