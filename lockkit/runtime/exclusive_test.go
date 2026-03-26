@@ -171,6 +171,65 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveInvalidOverridesDoesNotPoisonGuard(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			ServiceName: "svc",
+			InstanceID:  "one",
+			HandlerName: "UpdateOrder",
+			OwnerID:     "svc:one",
+		},
+		Overrides: &definitions.RuntimeOverrides{
+			MaxRetries: maxRetriesPtr(1),
+		},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatalf("callback should not run when overrides are invalid")
+		return nil
+	})
+
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation, got %v", err)
+	}
+
+	req.Overrides = nil
+	called := false
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		called = true
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("expected valid acquire to succeed after invalid override, got %v", err)
+	}
+	if !called {
+		t.Fatalf("expected callback to run after guard reset")
+	}
+}
+
 func TestExecuteExclusiveZeroWaitTimeoutOverride(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -441,4 +500,8 @@ func (b *blockingDriver) UnblockAcquire() {
 
 func durationPtr(d time.Duration) *time.Duration {
 	return &d
+}
+
+func maxRetriesPtr(value int) *int {
+	return &value
 }

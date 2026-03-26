@@ -27,14 +27,14 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
-	if _, loaded := m.active.LoadOrStore(key, struct{}{}); loaded {
-		return lockerrors.ErrReentrantAcquire
-	}
-
 	waitConfig, err := applyRuntimeOverrides(def, req.Overrides)
 	if err != nil {
 		return err
+	}
+
+	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
+	if _, loaded := m.active.LoadOrStore(key, struct{}{}); loaded {
+		return lockerrors.ErrReentrantAcquire
 	}
 
 	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
