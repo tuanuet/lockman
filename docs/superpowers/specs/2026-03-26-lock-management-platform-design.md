@@ -285,6 +285,21 @@ type MessageClaimRequest struct {
     Overrides      *RuntimeOverrides
 }
 
+type CompositeLockRequest struct {
+    DefinitionID string
+    MemberInputs []map[string]string
+    Ownership    OwnershipMeta
+    Overrides    *RuntimeOverrides
+}
+
+type CompositeClaimRequest struct {
+    DefinitionID   string
+    MemberInputs   []map[string]string
+    Ownership      OwnershipMeta
+    IdempotencyKey string
+    Overrides      *RuntimeOverrides
+}
+
 type PresenceCheckRequest struct {
     DefinitionID string
     KeyInput     map[string]string
@@ -294,6 +309,7 @@ type PresenceCheckRequest struct {
 type LeaseContext struct {
     DefinitionID  string
     ResourceKey   string
+    ResourceKeys  []string
     Ownership     OwnershipMeta
     FencingToken  uint64
     LeaseTTL      time.Duration
@@ -303,6 +319,7 @@ type LeaseContext struct {
 type ClaimContext struct {
     DefinitionID   string
     ResourceKey    string
+    ResourceKeys   []string
     Ownership      OwnershipMeta
     FencingToken   uint64
     LeaseTTL       time.Duration
@@ -310,9 +327,16 @@ type ClaimContext struct {
     IdempotencyKey string
 }
 
+type PresenceState int
+
+const (
+    PresenceHeld PresenceState = iota
+    PresenceNotHeld
+    PresenceUnknown
+)
+
 type PresenceStatus struct {
-    Held          bool
-    Unknown       bool
+    State         PresenceState
     Mode          string
     OwnerID       string
     LeaseDeadline time.Time
@@ -332,6 +356,12 @@ type LockManager interface {
     ExecuteExclusive(
         ctx context.Context,
         req SyncLockRequest,
+        fn func(ctx context.Context, lease LeaseContext) error,
+    ) error
+
+    ExecuteCompositeExclusive(
+        ctx context.Context,
+        req CompositeLockRequest,
         fn func(ctx context.Context, lease LeaseContext) error,
     ) error
 }
@@ -369,6 +399,8 @@ Recommended integration path:
 - enqueue dedup pre-checks
 - admin or operational inspection endpoints
 
+When the backend is unavailable or health is unknown, `CheckPresence` should return `PresenceUnknown` rather than collapsing the result into held or not-held.
+
 ### Async Worker API
 
 ```go
@@ -376,6 +408,12 @@ type WorkerLockManager interface {
     ExecuteClaimed(
         ctx context.Context,
         req MessageClaimRequest,
+        fn func(ctx context.Context, claim ClaimContext) error,
+    ) error
+
+    ExecuteCompositeClaimed(
+        ctx context.Context,
+        req CompositeClaimRequest,
         fn func(ctx context.Context, claim ClaimContext) error,
     ) error
 }
@@ -392,6 +430,16 @@ Recommended integration path:
 ### Restricted Low-Level API
 
 Low-level acquire, renew, and release primitives may exist internally or for exceptional cases, but they are not the golden path.
+
+### Lifecycle Management API
+
+Because the SDK may own background renewal goroutines and driver resources, managers should expose graceful shutdown.
+
+```go
+type Lifecycle interface {
+    Shutdown(ctx context.Context) error
+}
+```
 
 ## Execution Lifecycle
 
@@ -428,6 +476,8 @@ Renewal strategy:
 
 Renewal follows the same SDK-owned model as sync execution. Worker handlers must not own lease renewal directly.
 
+Composite execution is supported for async workers through `ExecuteCompositeClaimed`. Async composite use should remain rare and short-lived because contention and failure handling complexity grow quickly with each additional member.
+
 ### Presence Check Lifecycle
 
 1. Resolve lock definition from the registry.
@@ -445,6 +495,14 @@ Renewal follows the same SDK-owned model as sync execution. Worker handlers must
 - Once a lock is acquired, context cancellation triggers best-effort release rather than waiting for TTL expiry.
 - `LeaseTTL` remains policy-defined and cannot be widened by runtime overrides.
 - Long-running handlers should keep the critical section short even if SDK renewal is available.
+
+## Fairness and Waiter Ordering
+
+The SDK does not guarantee FIFO fairness by default.
+
+- waiter ordering is driver-dependent
+- best-effort contention handling is acceptable unless a driver explicitly documents stronger guarantees
+- applications must not assume starvation freedom unless the selected driver provides it
 
 ## Composite and Overlap Rules
 
@@ -473,6 +531,7 @@ Drivers are backend adapters, not policy owners. A driver is responsible for:
 - renew
 - release
 - check presence
+- ping or health check
 - inspect lease ownership and token metadata
 
 Coordination semantics remain in runtime, worker, and guard layers rather than in storage-specific drivers.
@@ -494,6 +553,17 @@ Recommended defaults:
 The platform is non-reentrant.
 
 If the same owner attempts to acquire the same lock again within the same process or execution tree, runtime must reject the request with a typed policy error rather than deadlocking or reference-counting implicitly.
+
+## Shutdown and Cleanup Semantics
+
+During graceful shutdown, the SDK should:
+
+- stop accepting new acquisitions
+- cancel renewal loops
+- attempt best-effort release of locally held locks
+- fall back to lease expiry if a clean release cannot be completed before shutdown deadline
+
+`Shutdown(ctx)` should be idempotent and safe to call during process termination.
 
 ## Strict Mode Contract
 
@@ -520,6 +590,15 @@ type GuardContext struct {
 ```
 
 Repository code on strict paths must accept guard metadata, not only business payload.
+
+Recommended bridge helpers:
+
+```go
+func GuardContextFromLease(lease LeaseContext) GuardContext
+func GuardContextFromClaim(claim ClaimContext) GuardContext
+```
+
+These helpers should preserve lock ID, resource key, fencing token, owner identity, and idempotency metadata when available.
 
 ## Persistence Safety Guideline
 
@@ -569,7 +648,18 @@ Recommended integration components:
 
 The golden path is integration at the application boundary. Direct low-level lock orchestration inside business code should be treated as an exception.
 
+## Registry Loading Model
+
+The registry should be programmatic-first for Go adoption.
+
+- primary path: Go code registers definitions during service startup
+- optional future path: declarative loaders may exist for generated or shared definitions
+
+Programmatic registration keeps type safety, discoverability, and refactoring support aligned with normal Go development.
+
 ## Observability
+
+Observability should be OpenTelemetry-first. The SDK may provide adapters or examples for Prometheus export, but its primary instrumentation contract should align with OpenTelemetry metrics and tracing.
 
 ### Metrics
 
@@ -649,6 +739,8 @@ type AuditHook interface {
 
 ## Error and Outcome Taxonomy
 
+Prefer typed errors over bare sentinel errors. Error values should work with `errors.Is` and `errors.As`, and retry-relevant errors should expose stable behavior through typed inspection rather than string matching.
+
 Recommended typed errors and outcomes:
 
 - `ErrLockBusy`
@@ -663,6 +755,16 @@ Recommended typed errors and outcomes:
 - `ErrGuardRejected`
 
 This taxonomy is required so application code and worker runtimes can distinguish retryable conditions from safe terminal outcomes.
+
+## Versioning and Compatibility
+
+The SDK should follow semantic versioning.
+
+- breaking API or behavioral changes require a major version bump
+- deprecated definitions and policy fields should remain supported for at least one minor release before removal
+- registry schema changes should be versioned explicitly if declarative loading is introduced later
+
+Compatibility notes must call out changes that alter locking behavior, not just type signatures.
 
 ## Adoption Plan
 
