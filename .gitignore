@@ -1,16 +1,4 @@
 .worktrees/
-
-# Go build and test artifacts
-bin/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-*.a
-*.obj
-*.prof
+.DS_Store
 coverage.out
-testdata/
+*.test

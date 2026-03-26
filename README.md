@@ -1,13 +1,8 @@
 # lockman
 
-Lightweight workspace scaffold for the lockman project.
+Distributed lock platform SDK prototype for Go.
 
-## Getting Started
+## Commands
 
-```bash
-go test ./...
-```
-
-## Tooling
-
-- `go test ./...` – run the project's tests and ensure the module loads correctly.
+- `go test ./...`
+- `go test ./... -cover`
