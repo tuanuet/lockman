@@ -9,7 +9,7 @@ func TestMessageClaimRequestCarriesIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestClaimContextSupportsCompositeResources(t *testing.T) {
+func TestPhase2ClaimContextSupportsCompositeResources(t *testing.T) {
 	claim := ClaimContext{
 		ResourceKeys:   []string{"account:a", "account:b"},
 		IdempotencyKey: "msg:123",

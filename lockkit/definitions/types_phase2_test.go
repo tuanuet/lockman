@@ -19,7 +19,7 @@ func TestCompositeDefinitionCarriesPhase2Shape(t *testing.T) {
 	}
 }
 
-func TestLockDefinitionCarriesOverlapPolicy(t *testing.T) {
+func TestPhase2LockDefinitionCarriesOverlapPolicy(t *testing.T) {
 	def := LockDefinition{
 		ID:            "order.item",
 		Kind:          KindChild,
