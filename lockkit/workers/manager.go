@@ -19,6 +19,10 @@ type reentryKey struct {
 	ownerID      string
 }
 
+type definitionSnapshotReader interface {
+	Definitions() []definitions.LockDefinition
+}
+
 // Manager orchestrates single-resource worker claim execution for Phase 2.
 type Manager struct {
 	registry    registry.Reader
@@ -56,7 +60,7 @@ func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.St
 	if err := driver.Ping(context.Background()); err != nil {
 		return nil, fmt.Errorf("%w: %v", lockerrors.ErrPolicyViolation, err)
 	}
-	if store == nil {
+	if store == nil && registryRequiresIdempotencyStore(reg) {
 		return nil, lockerrors.ErrPolicyViolation
 	}
 
@@ -69,6 +73,23 @@ func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.St
 		inFlightDrain: drain,
 		renewals:      make(map[uint64]context.CancelFunc),
 	}, nil
+}
+
+func registryRequiresIdempotencyStore(reg registry.Reader) bool {
+	snapshot, ok := reg.(definitionSnapshotReader)
+	if !ok {
+		return false
+	}
+
+	for _, def := range snapshot.Definitions() {
+		if !def.IdempotencyRequired {
+			continue
+		}
+		if def.ExecutionKind == definitions.ExecutionAsync || def.ExecutionKind == definitions.ExecutionBoth {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) isShuttingDown() bool {

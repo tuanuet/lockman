@@ -121,6 +121,18 @@ func (r *Registry) MustGetComposite(id string) definitions.CompositeDefinition {
 	return cloneCompositeDefinition(def)
 }
 
+// Definitions returns a cloned snapshot of registered lock definitions.
+func (r *Registry) Definitions() []definitions.LockDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	defs := make([]definitions.LockDefinition, 0, len(r.definitions))
+	for _, def := range r.definitions {
+		defs = append(defs, cloneDefinition(def))
+	}
+	return defs
+}
+
 func cloneDefinition(def definitions.LockDefinition) definitions.LockDefinition {
 	if def.Tags == nil {
 		return def

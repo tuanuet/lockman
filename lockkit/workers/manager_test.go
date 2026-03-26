@@ -3,10 +3,12 @@ package workers
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"lockman/lockkit/definitions"
+	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/registry"
@@ -37,6 +39,18 @@ func TestNewManagerRequiresIdempotencyStoreWhenAsyncDefinitionNeedsIt(t *testing
 	_, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing idempotency store, got %v", err)
+	}
+}
+
+func TestNewManagerAllowsNilIdempotencyStoreWhenNotRequired(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
+	if err != nil {
+		t.Fatalf("expected manager creation to succeed without idempotency store, got %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
 	}
 }
 
@@ -134,4 +148,100 @@ func TestShutdownIsIdempotent(t *testing.T) {
 	if err := mgr.Shutdown(context.Background()); err != nil {
 		t.Fatalf("second Shutdown should be idempotent, got %v", err)
 	}
+}
+
+func TestShutdownWaitsForInFlightClaimWithoutPrematureRenewalCancellation(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, true)
+	store := idempotency.NewMemoryStore()
+	driver := &renewObserveDriver{base: testkit.NewMemoryDriver()}
+
+	mgr, err := NewManager(reg, driver, store)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := messageClaimRequest()
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	execErrCh := make(chan error, 1)
+	go func() {
+		execErrCh <- mgr.ExecuteClaimed(context.Background(), req, func(ctx context.Context, claim definitions.ClaimContext) error {
+			close(callbackEntered)
+			<-releaseCallback
+			return nil
+		})
+	}()
+
+	<-callbackEntered
+
+	shutdownErrCh := make(chan error, 1)
+	go func() {
+		shutdownErrCh <- mgr.Shutdown(context.Background())
+	}()
+
+	time.Sleep(140 * time.Millisecond)
+
+	def := reg.MustGet(req.DefinitionID)
+	resourceKey, err := def.KeyBuilder.Build(req.KeyInput)
+	if err != nil {
+		t.Fatalf("key build failed: %v", err)
+	}
+
+	presence, err := driver.CheckPresence(context.Background(), drivers.PresenceRequest{
+		DefinitionID: req.DefinitionID,
+		ResourceKeys: []string{resourceKey},
+	})
+	if err != nil {
+		t.Fatalf("CheckPresence returned error: %v", err)
+	}
+	if !presence.Present {
+		t.Fatal("expected lease to remain present while shutdown drains in-flight claim")
+	}
+	if driver.renewCount() == 0 {
+		t.Fatal("expected renewal to continue while shutdown waits for in-flight claim")
+	}
+
+	select {
+	case err := <-shutdownErrCh:
+		t.Fatalf("Shutdown returned before in-flight callback drained: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releaseCallback)
+	if err := <-execErrCh; err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+	if err := <-shutdownErrCh; err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+}
+
+type renewObserveDriver struct {
+	base       *testkit.MemoryDriver
+	renewCalls atomic.Int32
+}
+
+func (d *renewObserveDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d *renewObserveDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	d.renewCalls.Add(1)
+	return d.base.Renew(ctx, lease)
+}
+
+func (d *renewObserveDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *renewObserveDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *renewObserveDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
+}
+
+func (d *renewObserveDriver) renewCount() int {
+	return int(d.renewCalls.Load())
 }
