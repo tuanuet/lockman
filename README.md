@@ -10,6 +10,21 @@ Distributed lock platform SDK prototype for Go.
 - Central registry validation plus the in-memory `testkit` driver
 - Parent-lock focused scope with baseline runtime metrics
 
+## Phase 2 Status
+
+- Worker claim execution via `ExecuteClaimed` and `ExecuteCompositeClaimed`
+- Redis production driver and Redis-backed idempotency store
+- Child overlap rejection and standard composite execution
+
+## Redis Verification
+
+Redis integration tests read `LOCKMAN_REDIS_URL` and skip when unset.
+
+```bash
+docker run --rm -p 6379:6379 redis:7-alpine
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./lockkit/idempotency/redis -v
+```
+
 ## Dependency Boundaries
 
 - `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
