@@ -343,6 +343,13 @@ type PresenceStatus struct {
 }
 ```
 
+Context field conventions:
+
+- `ResourceKey` is populated for single-resource execution
+- `ResourceKeys` is populated for composite execution
+- single-resource execution may leave `ResourceKeys` empty
+- composite execution may leave `ResourceKey` empty
+
 Override rules:
 
 - Allowed narrowing: lower `WaitTimeout`, lower retry count
@@ -522,6 +529,8 @@ Canonical ordering should be deterministic across the entire system. The recomme
 Application code must not choose acquisition order dynamically.
 
 Mixed-mode composite plans are invalid. A composite definition must contain either all `standard` members or all `strict` members.
+
+For strict composite execution, fencing semantics are composite-scoped rather than member-scoped. A successful composite acquisition yields one execution-level fencing token that must flow through guarded writes for the whole critical section. If future drivers or persistence models require per-member fencing, that behavior must be introduced explicitly as a later design change rather than inferred.
 
 ## Driver Abstraction
 
@@ -736,6 +745,8 @@ type AuditHook interface {
     OnContention(ctx context.Context, event ContentionEvent)
 }
 ```
+
+Audit hooks should be non-blocking with respect to lock lifecycle. The recommended implementation is asynchronous dispatch or buffered fire-and-forget delivery. Hook failures must not prevent release, renewal cleanup, or guarded-write completion.
 
 ## Error and Outcome Taxonomy
 
