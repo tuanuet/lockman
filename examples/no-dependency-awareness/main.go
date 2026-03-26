@@ -44,6 +44,7 @@ func run(out io.Writer) error {
 		LeaseTTL:      30 * time.Second,
 		Rank:          20,
 		ParentRef:     "OrderParentLock",
+		OverlapPolicy: definitions.OverlapReject,
 		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
 	}); err != nil {
 		return err

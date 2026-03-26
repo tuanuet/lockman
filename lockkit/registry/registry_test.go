@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"strings"
 	"testing"
 
 	"lockman/lockkit/definitions"
@@ -307,13 +308,30 @@ func TestRegistryValidateRejectsCompositeWithStrictMember(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("register strict member failed: %v", err)
 	}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:                   "account.strict.secondary",
+		Kind:                 definitions.KindParent,
+		Resource:             "account",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionSync,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("account:{account_id}:strict-secondary", []string{"account_id"}),
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  true,
+	}); err != nil {
+		t.Fatalf("register second strict member failed: %v", err)
+	}
 
-	if err := reg.RegisterComposite(validCompositeDefinition("account.strict")); err != nil {
+	if err := reg.RegisterComposite(validCompositeDefinition("account.strict", "account.strict.secondary")); err != nil {
 		t.Fatalf("register composite failed: %v", err)
 	}
 
-	if err := reg.Validate(); err == nil {
+	err := reg.Validate()
+	if err == nil {
 		t.Fatal("expected strict composite member validation failure")
+	}
+	if !strings.Contains(err.Error(), "cannot include strict members") {
+		t.Fatalf("expected strict member validation error, got: %v", err)
 	}
 }
 
@@ -340,8 +358,12 @@ func TestRegistryValidateRejectsCompositeMixedModes(t *testing.T) {
 		t.Fatalf("register composite failed: %v", err)
 	}
 
-	if err := reg.Validate(); err == nil {
+	err := reg.Validate()
+	if err == nil {
 		t.Fatal("expected mixed-mode composite validation failure")
+	}
+	if !strings.Contains(err.Error(), "homogeneous mode") {
+		t.Fatalf("expected mixed-mode validation error, got: %v", err)
 	}
 }
 

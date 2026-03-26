@@ -143,22 +143,27 @@ func ValidateCompositeDefinition(def definitions.CompositeDefinition, definition
 		return errCompositeMaxMemberCountExceeded
 	}
 
-	var expectedMode definitions.LockMode
+	var (
+		expectedMode definitions.LockMode
+		hasStrict    bool
+	)
 	for index, memberID := range def.Members {
 		member, exists := definitionsByID[memberID]
 		if !exists {
 			return fmt.Errorf("composite definition references unknown member %q", memberID)
 		}
-		if member.Mode == definitions.ModeStrict {
-			return errCompositeStrictMemberUnsupported
-		}
 		if index == 0 {
 			expectedMode = member.Mode
-			continue
 		}
 		if member.Mode != expectedMode {
 			return errCompositeMixedModesUnsupported
 		}
+		if member.Mode == definitions.ModeStrict {
+			hasStrict = true
+		}
+	}
+	if hasStrict {
+		return errCompositeStrictMemberUnsupported
 	}
 
 	return nil
