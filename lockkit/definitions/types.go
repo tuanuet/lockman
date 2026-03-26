@@ -27,6 +27,42 @@ const (
 	ExecutionBoth  ExecutionKind = "both"
 )
 
+// OverlapPolicy controls how child lock overlap is handled.
+type OverlapPolicy string
+
+const (
+	OverlapReject   OverlapPolicy = "reject"
+	OverlapEscalate OverlapPolicy = "escalate"
+)
+
+// OrderingPolicy defines ordering behavior for composite definitions.
+type OrderingPolicy string
+
+const (
+	OrderingCanonical OrderingPolicy = "canonical"
+)
+
+// AcquirePolicy defines acquire behavior for composite definitions.
+type AcquirePolicy string
+
+const (
+	AcquireAllOrNothing AcquirePolicy = "all_or_nothing"
+)
+
+// EscalationPolicy defines escalation behavior for composite definitions.
+type EscalationPolicy string
+
+const (
+	EscalationReject EscalationPolicy = "reject"
+)
+
+// ModeResolution defines how member lock modes are resolved in composite execution.
+type ModeResolution string
+
+const (
+	ModeResolutionHomogeneous ModeResolution = "homogeneous"
+)
+
 // BackendFailurePolicy describes how the system reacts to downstream failures.
 type BackendFailurePolicy string
 
@@ -38,6 +74,18 @@ const (
 // RetryPolicy defines how many times the system retries an acquire.
 type RetryPolicy struct {
 	MaxRetries int
+}
+
+// CompositeDefinition defines an ordered lock set treated as one logical operation.
+type CompositeDefinition struct {
+	ID               string
+	Members          []string
+	OrderingPolicy   OrderingPolicy
+	AcquirePolicy    AcquirePolicy
+	EscalationPolicy EscalationPolicy
+	ModeResolution   ModeResolution
+	MaxMemberCount   int
+	ExecutionKind    ExecutionKind
 }
 
 // LockDefinition captures the runtime constraints and metadata for a lock.
@@ -56,6 +104,7 @@ type LockDefinition struct {
 	CheckOnlyAllowed     bool
 	Rank                 int
 	ParentRef            string
+	OverlapPolicy        OverlapPolicy
 	KeyBuilder           KeyBuilder
 	Tags                 map[string]string // Tags must remain immutable once the definition is registered.
 }

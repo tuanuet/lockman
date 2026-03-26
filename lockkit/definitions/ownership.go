@@ -28,6 +28,32 @@ type SyncLockRequest struct {
 	Overrides    *RuntimeOverrides
 }
 
+// MessageClaimRequest is the payload for asynchronous claimed execution.
+type MessageClaimRequest struct {
+	DefinitionID   string
+	KeyInput       map[string]string
+	Ownership      OwnershipMeta
+	IdempotencyKey string
+	Overrides      *RuntimeOverrides
+}
+
+// CompositeLockRequest is the payload for synchronous composite acquire attempts.
+type CompositeLockRequest struct {
+	DefinitionID string
+	MemberInputs []map[string]string
+	Ownership    OwnershipMeta
+	Overrides    *RuntimeOverrides
+}
+
+// CompositeClaimRequest is the payload for asynchronous composite claimed execution.
+type CompositeClaimRequest struct {
+	DefinitionID   string
+	MemberInputs   []map[string]string
+	Ownership      OwnershipMeta
+	IdempotencyKey string
+	Overrides      *RuntimeOverrides
+}
+
 // PresenceCheckRequest asks whether a lock key is currently held.
 type PresenceCheckRequest struct {
 	DefinitionID string
@@ -39,9 +65,23 @@ type PresenceCheckRequest struct {
 type LeaseContext struct {
 	DefinitionID  string
 	ResourceKey   string
+	ResourceKeys  []string
 	Ownership     OwnershipMeta
+	FencingToken  uint64
 	LeaseTTL      time.Duration
 	LeaseDeadline time.Time
+}
+
+// ClaimContext tracks ownership and TTL information for a claimed execution.
+type ClaimContext struct {
+	DefinitionID   string
+	ResourceKey    string
+	ResourceKeys   []string
+	Ownership      OwnershipMeta
+	FencingToken   uint64
+	LeaseTTL       time.Duration
+	LeaseDeadline  time.Time
+	IdempotencyKey string
 }
 
 // PresenceState describes whether a lock is held, not held, or in an unknown state with PresenceUnknown as the zero value.

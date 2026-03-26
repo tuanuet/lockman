@@ -20,4 +20,13 @@ var (
 
 	// ErrReentrantAcquire is returned when the same client reacquires the lock without releasing.
 	ErrReentrantAcquire = stdErrors.New("reentrant acquire")
+
+	// ErrDuplicateIgnored indicates duplicate processing was safely ignored.
+	ErrDuplicateIgnored = stdErrors.New("duplicate ignored")
+
+	// ErrInvariantRejected indicates runtime invariant checks rejected execution.
+	ErrInvariantRejected = stdErrors.New("invariant rejected")
+
+	// ErrWorkerShuttingDown indicates worker runtime is shutting down.
+	ErrWorkerShuttingDown = stdErrors.New("worker shutting down")
 )
