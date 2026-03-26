@@ -45,7 +45,7 @@ type PresenceRequest struct {
 	ResourceKeys []string
 }
 
-// PresenceRecord surfaces whether the resource is actively leased and, if so, by whom.
+// PresenceRecord surfaces whether the resource is actively leased and, if so, lease metadata.
 type PresenceRecord struct {
 	Present      bool
 	DefinitionID string
