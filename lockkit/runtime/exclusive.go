@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	stdErrors "errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -26,7 +27,7 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	key := lockKey(def.ID, resourceKey)
+	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
 	if _, exists := m.active.Load(key); exists {
 		return lockerrors.ErrReentrantAcquire
 	}
@@ -140,6 +141,6 @@ func (m *Manager) activeCount(definitionID string) int {
 	return count
 }
 
-func lockKey(definitionID, resourceKey string) string {
-	return definitionID + lockKeySeparator + resourceKey
+func lockKey(definitionID, resourceKey, ownerID string) string {
+	return fmt.Sprintf("%s%s%s%s%s", definitionID, lockKeySeparator, resourceKey, lockKeySeparator, ownerID)
 }

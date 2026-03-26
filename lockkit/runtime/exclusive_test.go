@@ -104,6 +104,71 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			ServiceName: "svc",
+			InstanceID:  "one",
+			HandlerName: "UpdateOrder",
+			OwnerID:     "svc:one",
+		},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		other := definitions.SyncLockRequest{
+			DefinitionID: "OrderLock",
+			KeyInput: map[string]string{
+				"order_id": "123",
+			},
+			Ownership: definitions.OwnershipMeta{
+				ServiceName: "svc",
+				InstanceID:  "two",
+				HandlerName: "UpdateOrder",
+				OwnerID:     "svc:two",
+			},
+		}
+		err := mgr.ExecuteExclusive(ctx, other, func(ctx context.Context, nested definitions.LeaseContext) error {
+			return nil
+		})
+		if err == nil {
+			t.Fatalf("expected different owner to hit contention")
+		}
+		if errors.Is(err, lockerrors.ErrReentrantAcquire) {
+			t.Fatalf("expected contention path to run for different owner, got reentrant error")
+		}
+		if !errors.Is(err, drivers.ErrLeaseAlreadyHeld) {
+			t.Fatalf("expected driver contention error, got %v", err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("outer ExecuteExclusive returned error: %v", err)
+	}
+}
+
 func TestExecuteExclusiveHonorsContextDeadlineBeforeWaitTimeout(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
