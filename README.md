@@ -14,3 +14,6 @@ Distributed lock platform SDK prototype for Go.
 
 - `go test ./...`
 - `go test ./... -cover`
+- `go run ./examples/basic`
+- `go run ./examples/contention`
+- `go run ./examples/ttl`
