@@ -51,6 +51,27 @@ func TestRegistryValidateRejectsStrictWithoutFencing(t *testing.T) {
 	}
 }
 
+func TestRegistryRegisterRejectsEmptyID(t *testing.T) {
+	reg := registry.New()
+
+	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
+	err := reg.Register(definitions.LockDefinition{
+		ID:            "   ",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		KeyBuilder:    builder,
+	})
+	if err == nil {
+		t.Fatal("expected empty ID rejection")
+	}
+
+	if err := reg.Validate(); err != nil {
+		t.Fatalf("expected registry still valid after rejecting invalid definition: %v", err)
+	}
+}
+
 func TestRegistryValidateRejectsDefinitionWithoutKeyBuilder(t *testing.T) {
 	reg := registry.New()
 
@@ -86,5 +107,35 @@ func TestRegistryValidateAcceptsValidDefinition(t *testing.T) {
 
 	if err := reg.Validate(); err != nil {
 		t.Fatalf("expected valid registry: %v", err)
+	}
+}
+
+func TestRegistryClonesTagsBeforeStorage(t *testing.T) {
+	reg := registry.New()
+
+	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
+	tags := map[string]string{}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		KeyBuilder:    builder,
+		Tags:          tags,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	tags["mutate"] = "value"
+
+	stored := reg.MustGet("OrderLock")
+	if len(stored.Tags) != 0 {
+		t.Fatalf("expected stored tags to remain empty, got %v", stored.Tags)
+	}
+
+	stored.Tags["new"] = "value"
+	if _, ok := tags["new"]; ok {
+		t.Fatalf("expected original tags map to be isolated")
 	}
 }

@@ -27,6 +27,9 @@ func New() *Registry {
 
 // Register stores a lock definition.
 func (r *Registry) Register(def definitions.LockDefinition) error {
+	if err := requireDefinitionID(def); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -67,7 +70,7 @@ func (r *Registry) MustGet(id string) definitions.LockDefinition {
 }
 
 func cloneDefinition(def definitions.LockDefinition) definitions.LockDefinition {
-	if len(def.Tags) == 0 {
+	if def.Tags == nil {
 		return def
 	}
 	cloned := make(map[string]string, len(def.Tags))
