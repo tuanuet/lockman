@@ -33,6 +33,10 @@ func (m *Manager) ExecuteExclusive(
 	req definitions.SyncLockRequest,
 	fn func(context.Context, definitions.LeaseContext) error,
 ) (retErr error) {
+	if m.isShuttingDown() {
+		return lockerrors.ErrPolicyViolation
+	}
+
 	def, err := m.getDefinition(req.DefinitionID)
 	if err != nil {
 		return err
