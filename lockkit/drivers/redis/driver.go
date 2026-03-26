@@ -3,7 +3,9 @@ package redis
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,8 @@ import (
 )
 
 const defaultKeyPrefix = "lockman:lease"
+
+var errInvalidScriptResponse = errors.New("redis driver: invalid script response")
 
 // Driver implements the lock driver contract with Redis-backed lease records.
 type Driver struct {
@@ -148,21 +152,16 @@ func (d *Driver) CheckPresence(ctx context.Context, req drivers.PresenceRequest)
 	}
 
 	key := d.buildLeaseKey(req.DefinitionID, resourceKey)
-
-	owner, err := d.client.Get(ctx, key).Result()
-	switch {
-	case err == nil:
-	case err == goredis.Nil:
-		return record, nil
-	default:
-		return drivers.PresenceRecord{}, err
-	}
-
-	ttl, err := d.client.PTTL(ctx, key).Result()
+	raw, err := presenceScript.Run(ctx, d.client, []string{key}).Result()
 	if err != nil {
 		return drivers.PresenceRecord{}, err
 	}
-	if ttl <= 0 {
+
+	present, owner, ttl, err := parsePresenceResult(raw)
+	if err != nil {
+		return drivers.PresenceRecord{}, err
+	}
+	if !present {
 		return record, nil
 	}
 
@@ -193,6 +192,9 @@ func (d *Driver) Ping(ctx context.Context) error {
 	if err := releaseScript.Load(ctx, d.client).Err(); err != nil {
 		return err
 	}
+	if err := presenceScript.Load(ctx, d.client).Err(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -203,6 +205,65 @@ func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
 
 func encodeSegment(v string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(v))
+}
+
+func parsePresenceResult(raw interface{}) (bool, string, time.Duration, error) {
+	values, ok := raw.([]interface{})
+	if !ok || len(values) == 0 {
+		return false, "", 0, errInvalidScriptResponse
+	}
+
+	status, err := toInt64(values[0])
+	if err != nil {
+		return false, "", 0, err
+	}
+	if status == 0 {
+		return false, "", 0, nil
+	}
+	if len(values) != 3 {
+		return false, "", 0, errInvalidScriptResponse
+	}
+
+	owner, err := toString(values[1])
+	if err != nil {
+		return false, "", 0, err
+	}
+
+	ttlMillis, err := toInt64(values[2])
+	if err != nil {
+		return false, "", 0, err
+	}
+	if ttlMillis <= 0 {
+		return false, "", 0, nil
+	}
+
+	return true, owner, time.Duration(ttlMillis) * time.Millisecond, nil
+}
+
+func toInt64(v interface{}) (int64, error) {
+	switch value := v.(type) {
+	case int64:
+		return value, nil
+	case string:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return 0, errInvalidScriptResponse
+		}
+		return parsed, nil
+	default:
+		return 0, errInvalidScriptResponse
+	}
+}
+
+func toString(v interface{}) (string, error) {
+	switch value := v.(type) {
+	case string:
+		return value, nil
+	case []byte:
+		return string(value), nil
+	default:
+		return "", errInvalidScriptResponse
+	}
 }
 
 func (d *Driver) validateClient() error {

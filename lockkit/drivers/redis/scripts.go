@@ -37,3 +37,17 @@ end
 redis.call("DEL", KEYS[1])
 return 1
 `)
+
+var presenceScript = goredis.NewScript(`
+local current = redis.call("GET", KEYS[1])
+if not current then
+	return {0}
+end
+
+local ttl = redis.call("PTTL", KEYS[1])
+if not ttl or ttl <= 0 then
+	return {0}
+end
+
+return {1, current, ttl}
+`)
