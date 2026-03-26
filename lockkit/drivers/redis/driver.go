@@ -72,7 +72,7 @@ func (d *Driver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.
 	if err := d.validateClient(); err != nil {
 		return drivers.LeaseRecord{}, err
 	}
-	if err := validateLeaseRecord(lease); err != nil {
+	if err := validateRenewLeaseRecord(lease); err != nil {
 		return drivers.LeaseRecord{}, err
 	}
 
@@ -91,6 +91,8 @@ func (d *Driver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.
 		return drivers.LeaseRecord{}, drivers.ErrLeaseOwnerMismatch
 	case -2:
 		return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+	case -3:
+		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
 	}
 	if ttlMillis < 0 {
 		return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
@@ -183,20 +185,7 @@ func (d *Driver) Ping(ctx context.Context) error {
 		return err
 	}
 
-	if err := d.client.Ping(ctx).Err(); err != nil {
-		return err
-	}
-	if err := renewScript.Load(ctx, d.client).Err(); err != nil {
-		return err
-	}
-	if err := releaseScript.Load(ctx, d.client).Err(); err != nil {
-		return err
-	}
-	if err := presenceScript.Load(ctx, d.client).Err(); err != nil {
-		return err
-	}
-
-	return nil
+	return d.client.Ping(ctx).Err()
 }
 
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
@@ -292,6 +281,17 @@ func validateLeaseRecord(lease drivers.LeaseRecord) error {
 		return drivers.ErrInvalidRequest
 	}
 	if len(lease.ResourceKeys) != 1 || strings.TrimSpace(lease.ResourceKeys[0]) == "" {
+		return drivers.ErrInvalidRequest
+	}
+
+	return nil
+}
+
+func validateRenewLeaseRecord(lease drivers.LeaseRecord) error {
+	if err := validateLeaseRecord(lease); err != nil {
+		return err
+	}
+	if lease.LeaseTTL <= 0 {
 		return drivers.ErrInvalidRequest
 	}
 

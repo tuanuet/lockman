@@ -14,13 +14,13 @@ end
 
 local ttl = tonumber(ARGV[2])
 if not ttl or ttl <= 0 then
-	ttl = redis.call("PTTL", KEYS[1])
-	if not ttl or ttl <= 0 then
-		return -2
-	end
+	return -3
 end
 
-redis.call("PEXPIRE", KEYS[1], ttl)
+if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
+	return -2
+end
+
 return ttl
 `)
 
