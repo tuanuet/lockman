@@ -170,6 +170,24 @@ func TestExecuteExclusiveUnknownDefinitionReturnsError(t *testing.T) {
 	}
 }
 
+func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "BrokenLock",
+		Kind:          definitions.KindParent,
+		Resource:      "broken",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	_, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err == nil {
+		t.Fatal("expected invalid registry rejection")
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{

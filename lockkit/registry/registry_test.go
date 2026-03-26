@@ -90,6 +90,28 @@ func TestRegistryValidateRejectsDefinitionWithoutKeyBuilder(t *testing.T) {
 	}
 }
 
+func TestRegistryValidateRejectsInvalidFailOpenStrictDefinition(t *testing.T) {
+	reg := registry.New()
+
+	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
+	if err := reg.Register(definitions.LockDefinition{
+		ID:                   "PaymentLock",
+		Kind:                 definitions.KindParent,
+		Resource:             "payment",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionSync,
+		BackendFailurePolicy: definitions.BackendBestEffortOpen,
+		FencingRequired:      true,
+		KeyBuilder:           builder,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if err := reg.Validate(); err == nil {
+		t.Fatal("expected strict fail-open validation failure")
+	}
+}
+
 func TestRegistryValidateAcceptsValidDefinition(t *testing.T) {
 	reg := registry.New()
 

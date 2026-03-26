@@ -14,6 +14,7 @@ var definitionValidations = []definitionValidation{
 	requireDefinitionResource,
 	requireKeyBuilder,
 	requireStrictFencing,
+	requireStrictFailClosed,
 }
 
 var (
@@ -21,6 +22,7 @@ var (
 	errDefinitionResourceRequired   = errors.New("definition resource must not be empty")
 	errDefinitionKeyBuilderRequired = errors.New("definition must provide a key builder")
 	errStrictModeRequiresFencing    = errors.New("strict definitions require fencing")
+	errStrictModeRequiresFailClosed = errors.New("strict definitions must not use fail-open backend policy")
 )
 
 // ValidateDefinition applies the configured validators for a single definition.
@@ -57,6 +59,13 @@ func requireKeyBuilder(def definitions.LockDefinition) error {
 func requireStrictFencing(def definitions.LockDefinition) error {
 	if def.Mode == definitions.ModeStrict && !def.FencingRequired {
 		return errStrictModeRequiresFencing
+	}
+	return nil
+}
+
+func requireStrictFailClosed(def definitions.LockDefinition) error {
+	if def.Mode == definitions.ModeStrict && def.BackendFailurePolicy == definitions.BackendBestEffortOpen {
+		return errStrictModeRequiresFailClosed
 	}
 	return nil
 }
