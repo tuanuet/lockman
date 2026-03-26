@@ -27,12 +27,24 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
-	if _, exists := m.active.Load(key); exists {
-		return lockerrors.ErrReentrantAcquire
+	waitTimeout, err := applyRuntimeOverrides(def, req.Overrides)
+	if err != nil {
+		return err
 	}
 
-	waitTimeout := resolveWaitTimeout(def.WaitTimeout, req.Overrides)
+	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
+	if _, loaded := m.active.LoadOrStore(key, struct{}{}); loaded {
+		return lockerrors.ErrReentrantAcquire
+	}
+	m.recordActiveLocks(ctx, def.ID)
+	guardActive := true
+	defer func() {
+		if guardActive {
+			m.active.Delete(key)
+			m.recordActiveLocks(ctx, def.ID)
+		}
+	}()
+
 	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitTimeout)
 	defer cancel()
 
@@ -48,11 +60,8 @@ func (m *Manager) ExecuteExclusive(
 
 	if err != nil {
 		recordAcquireFailure(m, ctx, def.ID, err)
-		return err
+		return mapAcquireError(err)
 	}
-
-	m.active.Store(key, struct{}{})
-	m.recordActiveLocks(ctx, def.ID)
 
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
@@ -63,8 +72,6 @@ func (m *Manager) ExecuteExclusive(
 	}
 
 	defer func() {
-		m.active.Delete(key)
-		m.recordActiveLocks(ctx, def.ID)
 		held := time.Since(lease.AcquiredAt)
 		m.recorder.RecordRelease(ctx, def.ID, held)
 		if releaseErr := m.driver.Release(context.Background(), lease); releaseErr != nil {
@@ -89,21 +96,36 @@ func recordAcquireFailure(m *Manager, ctx context.Context, definitionID string, 
 	}
 }
 
-func resolveWaitTimeout(defWait time.Duration, overrides *definitions.RuntimeOverrides) time.Duration {
-	if overrides == nil || overrides.WaitTimeout == nil {
-		return defWait
+func applyRuntimeOverrides(def definitions.LockDefinition, overrides *definitions.RuntimeOverrides) (time.Duration, error) {
+	if overrides == nil {
+		return def.WaitTimeout, nil
 	}
-	override := *overrides.WaitTimeout
-	if override < 0 {
-		return 0
+	if overrides.MaxRetries != nil {
+		return 0, lockerrors.ErrPolicyViolation
 	}
-	if defWait > 0 {
-		if override > 0 && override < defWait {
-			return override
-		}
-		return defWait
+	if overrides.WaitTimeout == nil {
+		return def.WaitTimeout, nil
 	}
-	return override
+
+	wait := *overrides.WaitTimeout
+	if wait < 0 {
+		return 0, lockerrors.ErrPolicyViolation
+	}
+	if def.WaitTimeout > 0 && wait > def.WaitTimeout {
+		return 0, lockerrors.ErrPolicyViolation
+	}
+	return wait, nil
+}
+
+func mapAcquireError(err error) error {
+	switch {
+	case stdErrors.Is(err, drivers.ErrLeaseAlreadyHeld):
+		return lockerrors.ErrLockBusy
+	case stdErrors.Is(err, context.DeadlineExceeded), stdErrors.Is(err, context.Canceled):
+		return lockerrors.ErrLockAcquireTimeout
+	default:
+		return err
+	}
 }
 
 func contextWithAcquireTimeout(ctx context.Context, waitTimeout time.Duration) (context.Context, context.CancelFunc) {
