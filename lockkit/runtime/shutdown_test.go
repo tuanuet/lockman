@@ -298,3 +298,50 @@ func TestShutdownReturnsContextErrorWhenAcquireInProgressDoesNotDrain(t *testing
 		t.Fatalf("Shutdown should succeed after acquire-in-progress execution drains, got %v", err)
 	}
 }
+
+func TestShutdownNotBlockedByReentrantAdmissionFailure(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		nestedErr := mgr.ExecuteExclusive(ctx, req, func(ctx context.Context, nested definitions.LeaseContext) error {
+			return nil
+		})
+		if !errors.Is(nestedErr, lockerrors.ErrReentrantAcquire) {
+			t.Fatalf("expected nested reentrant error, got %v", nestedErr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := mgr.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown should not block on released reentrant admission, got %v", err)
+	}
+}

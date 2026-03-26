@@ -52,12 +52,22 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
+	if !m.tryAdmitInFlightExecution() {
+		return lockerrors.ErrPolicyViolation
+	}
+	admitted := true
+	defer func() {
+		if admitted {
+			m.releaseInFlightExecution()
+		}
+	}()
+
 	key := guardKey{definitionID: def.ID, resourceKey: resourceKey, ownerID: req.Ownership.OwnerID}
 	entry := guardEntry{state: guardPending}
 	if _, loaded := m.active.LoadOrStore(key, entry); loaded {
 		return lockerrors.ErrReentrantAcquire
 	}
-	m.admitInFlightExecution()
+	guardInstalled := true
 
 	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
 	defer cancel()
@@ -76,9 +86,10 @@ func (m *Manager) ExecuteExclusive(
 				}
 			}
 		}
-		m.active.Delete(key)
-		m.recordActiveLocks(ctx, def.ID)
-		m.releaseInFlightExecution()
+		if guardInstalled {
+			m.active.Delete(key)
+			m.recordActiveLocks(ctx, def.ID)
+		}
 	}()
 
 	start := time.Now()

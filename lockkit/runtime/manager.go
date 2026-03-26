@@ -53,7 +53,9 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 // waits for admitted in-flight executions to drain.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.shutdownStart.Do(func() {
+		m.lifecycleMu.Lock()
 		m.shuttingDown.Store(true)
+		m.lifecycleMu.Unlock()
 	})
 
 	drained := m.inFlightDrainChannel()
@@ -69,14 +71,19 @@ func (m *Manager) isShuttingDown() bool {
 	return m.shuttingDown.Load()
 }
 
-func (m *Manager) admitInFlightExecution() {
+func (m *Manager) tryAdmitInFlightExecution() bool {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
+
+	if m.shuttingDown.Load() {
+		return false
+	}
 
 	if m.inFlight == 0 {
 		m.inFlightDrain = make(chan struct{})
 	}
 	m.inFlight++
+	return true
 }
 
 func (m *Manager) releaseInFlightExecution() {
