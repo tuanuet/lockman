@@ -219,8 +219,10 @@ type LockDefinition struct {
 	RetryPolicy          RetryPolicy
 	BackendFailurePolicy BackendFailurePolicy
 	FencingRequired      bool
+	IdempotencyRequired  bool
 	CheckOnlyAllowed     bool
 	Rank                 int
+	ParentRef            string
 	KeyBuilder           KeyBuilder
 	Tags                 map[string]string
 }
@@ -274,6 +276,7 @@ const (
 
 type PresenceStatus struct {
 	State         PresenceState
+	Mode          LockMode
 	OwnerID       string
 	LeaseDeadline time.Time
 }
@@ -848,6 +851,37 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 	}
 	if status.State != definitions.PresenceHeld {
 		t.Fatalf("expected PresenceHeld, got %v", status.State)
+	}
+}
+
+func TestCheckPresenceRejectsDefinitionWithoutCheckOnlyAllowed(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "OrderLock",
+		Kind:             definitions.KindParent,
+		Resource:         "order",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("order:{order_id}"),
+		CheckOnlyAllowed: false,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	_, err = mgr.CheckPresence(context.Background(), definitions.PresenceCheckRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	})
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for check-only disabled, got %v", err)
 	}
 }
 
