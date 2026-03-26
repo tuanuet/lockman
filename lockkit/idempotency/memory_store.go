@@ -13,9 +13,16 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore() *MemoryStore {
+	return NewMemoryStoreWithNow(time.Now)
+}
+
+func NewMemoryStoreWithNow(now func() time.Time) *MemoryStore {
+	if now == nil {
+		now = time.Now
+	}
 	return &MemoryStore{
 		records: make(map[string]Record),
-		now:     time.Now,
+		now:     now,
 	}
 }
 
@@ -24,13 +31,12 @@ func (s *MemoryStore) Get(ctx context.Context, key string) (Record, error) {
 		return Record{}, err
 	}
 
-	now := s.now()
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
 
 	record, ok := s.records[key]
-	if !ok || record.ExpiresAt.Before(now) {
+	if !ok || isExpired(record.ExpiresAt, now) {
 		if ok {
 			delete(s.records, key)
 		}
@@ -48,13 +54,12 @@ func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (
 		return BeginResult{}, err
 	}
 
-	now := s.now()
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
 
 	if record, ok := s.records[key]; ok {
-		if !record.ExpiresAt.Before(now) {
+		if !isExpired(record.ExpiresAt, now) {
 			return BeginResult{
 				Record:    record,
 				Acquired:  false,
@@ -96,10 +101,9 @@ func (s *MemoryStore) setTerminalStatus(ctx context.Context, key, ownerID, messa
 		return err
 	}
 
-	now := s.now()
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
 
 	record := Record{
 		Key:       key,
@@ -109,19 +113,19 @@ func (s *MemoryStore) setTerminalStatus(ctx context.Context, key, ownerID, messa
 		UpdatedAt: now,
 		ExpiresAt: now.Add(ttl),
 	}
-	if existing, ok := s.records[key]; ok && !existing.ExpiresAt.Before(now) {
+	if existing, ok := s.records[key]; ok && !isExpired(existing.ExpiresAt, now) {
+		record.OwnerID = existing.OwnerID
+		record.MessageID = existing.MessageID
 		record.ConsumerGroup = existing.ConsumerGroup
 		record.Attempt = existing.Attempt
-		if record.OwnerID == "" {
-			record.OwnerID = existing.OwnerID
-		}
-		if record.MessageID == "" {
-			record.MessageID = existing.MessageID
-		}
 	}
 
 	s.records[key] = record
 	return nil
+}
+
+func isExpired(expiresAt, now time.Time) bool {
+	return !expiresAt.After(now)
 }
 
 var _ Store = (*MemoryStore)(nil)

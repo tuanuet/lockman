@@ -8,8 +8,25 @@ import (
 	"lockman/lockkit/idempotency"
 )
 
+type fakeClock struct {
+	current time.Time
+}
+
+func newFakeClock(start time.Time) *fakeClock {
+	return &fakeClock{current: start}
+}
+
+func (c *fakeClock) Now() time.Time {
+	return c.current
+}
+
+func (c *fakeClock) Advance(delta time.Duration) {
+	c.current = c.current.Add(delta)
+}
+
 func TestMemoryStoreBeginRejectsSecondActiveClaim(t *testing.T) {
-	store := idempotency.NewMemoryStore()
+	clock := newFakeClock(time.Date(2026, 3, 26, 9, 0, 0, 0, time.UTC))
+	store := idempotency.NewMemoryStoreWithNow(clock.Now)
 
 	first, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
@@ -37,5 +54,146 @@ func TestMemoryStoreBeginRejectsSecondActiveClaim(t *testing.T) {
 	}
 	if second.Acquired {
 		t.Fatal("expected duplicate Begin to be rejected")
+	}
+	if !second.Duplicate {
+		t.Fatal("expected duplicate Begin result to have Duplicate=true")
+	}
+}
+
+func TestMemoryStoreBeginAllowsReacquireAfterExpiryBoundary(t *testing.T) {
+	clock := newFakeClock(time.Date(2026, 3, 26, 10, 0, 0, 0, time.UTC))
+	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+
+	first, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       1,
+		TTL:           time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("first Begin returned error: %v", err)
+	}
+	if !first.Acquired {
+		t.Fatal("expected first Begin to acquire slot")
+	}
+
+	clock.Advance(time.Minute)
+
+	second, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
+		OwnerID:       "worker-b",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       2,
+		TTL:           2 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("second Begin returned error: %v", err)
+	}
+	if !second.Acquired {
+		t.Fatal("expected Begin to reacquire when previous record expires at now boundary")
+	}
+	if second.Duplicate {
+		t.Fatal("expected reacquire to not be marked duplicate")
+	}
+}
+
+func TestMemoryStoreCompletePreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
+	clock := newFakeClock(time.Date(2026, 3, 26, 11, 0, 0, 0, time.UTC))
+	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+
+	_, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       3,
+		TTL:           time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Begin returned error: %v", err)
+	}
+
+	clock.Advance(10 * time.Second)
+
+	if err := store.Complete(context.Background(), "msg:123", idempotency.CompleteInput{
+		OwnerID:   "worker-b",
+		MessageID: "override-me",
+		TTL:       5 * time.Minute,
+	}); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	record, err := store.Get(context.Background(), "msg:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusCompleted {
+		t.Fatalf("expected status completed, got %q", record.Status)
+	}
+	if record.OwnerID != "worker-a" {
+		t.Fatalf("expected owner metadata to be preserved, got %q", record.OwnerID)
+	}
+	if record.MessageID != "123" {
+		t.Fatalf("expected message metadata to be preserved, got %q", record.MessageID)
+	}
+	if record.ConsumerGroup != "payments" {
+		t.Fatalf("expected consumer group to be preserved, got %q", record.ConsumerGroup)
+	}
+	if record.Attempt != 3 {
+		t.Fatalf("expected attempt to be preserved, got %d", record.Attempt)
+	}
+	expectedExpiry := clock.Now().Add(5 * time.Minute)
+	if !record.ExpiresAt.Equal(expectedExpiry) {
+		t.Fatalf("expected completion retention expiry %s, got %s", expectedExpiry, record.ExpiresAt)
+	}
+}
+
+func TestMemoryStoreFailPreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
+	clock := newFakeClock(time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC))
+	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+
+	_, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       4,
+		TTL:           time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Begin returned error: %v", err)
+	}
+
+	clock.Advance(20 * time.Second)
+
+	if err := store.Fail(context.Background(), "msg:123", idempotency.FailInput{
+		OwnerID:   "worker-b",
+		MessageID: "override-me",
+		TTL:       7 * time.Minute,
+	}); err != nil {
+		t.Fatalf("Fail returned error: %v", err)
+	}
+
+	record, err := store.Get(context.Background(), "msg:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusFailed {
+		t.Fatalf("expected status failed, got %q", record.Status)
+	}
+	if record.OwnerID != "worker-a" {
+		t.Fatalf("expected owner metadata to be preserved, got %q", record.OwnerID)
+	}
+	if record.MessageID != "123" {
+		t.Fatalf("expected message metadata to be preserved, got %q", record.MessageID)
+	}
+	if record.ConsumerGroup != "payments" {
+		t.Fatalf("expected consumer group to be preserved, got %q", record.ConsumerGroup)
+	}
+	if record.Attempt != 4 {
+		t.Fatalf("expected attempt to be preserved, got %d", record.Attempt)
+	}
+	expectedExpiry := clock.Now().Add(7 * time.Minute)
+	if !record.ExpiresAt.Equal(expectedExpiry) {
+		t.Fatalf("expected failure retention expiry %s, got %s", expectedExpiry, record.ExpiresAt)
 	}
 }
