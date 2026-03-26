@@ -2,6 +2,7 @@ package definitions
 
 import "time"
 
+// LockMode controls strictness guarantees enforced by a lock definition.
 type LockMode string
 
 const (
@@ -9,6 +10,7 @@ const (
 	ModeStrict   LockMode = "strict"
 )
 
+// LockKind distinguishes parent and child definitions.
 type LockKind string
 
 const (
@@ -16,6 +18,7 @@ const (
 	KindChild  LockKind = "child"
 )
 
+// ExecutionKind describes whether a lock run is synchronous, asynchronous, or either.
 type ExecutionKind string
 
 const (
@@ -24,6 +27,7 @@ const (
 	ExecutionBoth  ExecutionKind = "both"
 )
 
+// BackendFailurePolicy describes how the system reacts to downstream failures.
 type BackendFailurePolicy string
 
 const (
@@ -31,10 +35,12 @@ const (
 	BackendBestEffortOpen BackendFailurePolicy = "best_effort_open"
 )
 
+// RetryPolicy defines how many times the system retries an acquire.
 type RetryPolicy struct {
 	MaxRetries int
 }
 
+// LockDefinition captures the runtime constraints and metadata for a lock.
 type LockDefinition struct {
 	ID                   string
 	Kind                 LockKind
@@ -51,5 +57,5 @@ type LockDefinition struct {
 	Rank                 int
 	ParentRef            string
 	KeyBuilder           KeyBuilder
-	Tags                 map[string]string
+	Tags                 map[string]string // Tags must remain immutable once the definition is registered.
 }
