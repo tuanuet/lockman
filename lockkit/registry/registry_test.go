@@ -112,6 +112,49 @@ func TestRegistryValidateRejectsInvalidFailOpenStrictDefinition(t *testing.T) {
 	}
 }
 
+func TestRegistryValidateRejectsStrictDefinitionWithoutBackendFailurePolicy(t *testing.T) {
+	reg := registry.New()
+
+	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
+	if err := reg.Register(definitions.LockDefinition{
+		ID:              "StrictMissingPolicy",
+		Kind:            definitions.KindParent,
+		Resource:        "payment",
+		Mode:            definitions.ModeStrict,
+		ExecutionKind:   definitions.ExecutionSync,
+		FencingRequired: true,
+		KeyBuilder:      builder,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if err := reg.Validate(); err == nil {
+		t.Fatal("expected strict missing backend policy validation failure")
+	}
+}
+
+func TestRegistryValidateRejectsStrictDefinitionWithUnknownBackendFailurePolicy(t *testing.T) {
+	reg := registry.New()
+
+	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
+	if err := reg.Register(definitions.LockDefinition{
+		ID:                   "StrictUnknownPolicy",
+		Kind:                 definitions.KindParent,
+		Resource:             "payment",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionSync,
+		FencingRequired:      true,
+		KeyBuilder:           builder,
+		BackendFailurePolicy: definitions.BackendFailurePolicy("unknown_policy"),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if err := reg.Validate(); err == nil {
+		t.Fatal("expected strict unknown backend policy validation failure")
+	}
+}
+
 func TestRegistryValidateAcceptsValidDefinition(t *testing.T) {
 	reg := registry.New()
 
