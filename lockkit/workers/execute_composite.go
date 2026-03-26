@@ -44,7 +44,7 @@ func (m *Manager) ExecuteCompositeClaimed(
 	memberDefs := make([]definitions.LockDefinition, len(compositeDef.Members))
 	memberKeys := make([]string, len(compositeDef.Members))
 	idempotencyRequired := false
-	minLeaseTTL := time.Duration(0)
+	idempotencyLeaseTTLBasis := time.Duration(0)
 	for i, memberID := range compositeDef.Members {
 		memberDef, memberErr := m.getDefinition(memberID)
 		if memberErr != nil {
@@ -65,8 +65,8 @@ func (m *Manager) ExecuteCompositeClaimed(
 		memberDefs[i] = memberDef
 		memberKeys[i] = memberKey
 		idempotencyRequired = idempotencyRequired || memberDef.IdempotencyRequired
-		if i == 0 || memberDef.LeaseTTL < minLeaseTTL {
-			minLeaseTTL = memberDef.LeaseTTL
+		if i == 0 || memberDef.LeaseTTL > idempotencyLeaseTTLBasis {
+			idempotencyLeaseTTLBasis = memberDef.LeaseTTL
 		}
 	}
 
@@ -74,7 +74,9 @@ func (m *Manager) ExecuteCompositeClaimed(
 		ID:                  compositeDef.ID,
 		ExecutionKind:       compositeDef.ExecutionKind,
 		IdempotencyRequired: idempotencyRequired,
-		LeaseTTL:            minLeaseTTL,
+		// Phase 2 idempotency retention is reject-first and should conservatively
+		// cover the longest-held composite member lease.
+		LeaseTTL: idempotencyLeaseTTLBasis,
 	}
 	msgReq := definitions.MessageClaimRequest{
 		DefinitionID:   req.DefinitionID,
@@ -265,6 +267,8 @@ func buildCompositeClaimContext(
 	}
 }
 
+// rejectCompositeOverlap enforces Phase 2 reject-first overlap behavior.
+// Escalation is intentionally out of scope for composite worker execution.
 func rejectCompositeOverlap(plan []policy.MemberLeasePlan) error {
 	for i := 0; i < len(plan); i++ {
 		for j := i + 1; j < len(plan); j++ {

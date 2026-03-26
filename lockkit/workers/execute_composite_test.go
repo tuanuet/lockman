@@ -139,6 +139,75 @@ func TestExecuteCompositeClaimedPersistsIdempotencyBeforeAck(t *testing.T) {
 	}
 }
 
+func TestExecuteCompositeClaimedUsesMaxMemberLeaseTTLForIdempotency(t *testing.T) {
+	shortTTL := 20 * time.Second
+	longTTL := 45 * time.Second
+
+	reg := newCompositeWorkerRegistryWithTTLs(t, shortTTL, longTTL)
+	store := idempotency.NewMemoryStore()
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeClaimed(context.Background(), compositeClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		return lockerrors.ErrLockBusy
+	})
+	if !errors.Is(err, lockerrors.ErrLockBusy) {
+		t.Fatalf("expected retry-mapped callback error, got %v", err)
+	}
+
+	record, err := store.Get(context.Background(), "transfer:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusInProgress {
+		t.Fatalf("expected in-progress idempotency status for retry path, got %q", record.Status)
+	}
+
+	remainingTTL := time.Until(record.ExpiresAt)
+	minExpected := inProgressTTL(longTTL) - 5*time.Second
+	if remainingTTL < minExpected {
+		t.Fatalf("expected in-progress ttl based on longest member lease (remaining=%s, want >= %s)", remainingTTL, minExpected)
+	}
+}
+
+func TestExecuteCompositeClaimedCancelsContextWhenAnyMemberRenewalFails(t *testing.T) {
+	reg := newCompositeWorkerRegistryForTest(t)
+	store := idempotency.NewMemoryStore()
+	driver := &multiMemberRenewFailDriver{
+		base:            testkit.NewMemoryDriver(),
+		failResourceKey: "ledger:ledger-456",
+	}
+	mgr, err := NewManager(reg, driver, store)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	callbackCanceled := make(chan struct{})
+	err = mgr.ExecuteCompositeClaimed(context.Background(), compositeClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		<-ctx.Done()
+		close(callbackCanceled)
+		return ctx.Err()
+	})
+	if !errors.Is(err, lockerrors.ErrLeaseLost) {
+		t.Fatalf("expected lease lost after member renewal failure, got %v", err)
+	}
+	select {
+	case <-callbackCanceled:
+	default:
+		t.Fatal("expected callback context cancellation on member renewal failure")
+	}
+
+	record, err := store.Get(context.Background(), "transfer:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusInProgress {
+		t.Fatalf("expected in-progress status for retry path, got %q", record.Status)
+	}
+}
+
 func TestExecuteCompositeClaimedRejectsWhenShuttingDown(t *testing.T) {
 	mgr := newCompositeWorkerManagerForTest(t)
 	if err := mgr.Shutdown(context.Background()); err != nil {
@@ -173,6 +242,10 @@ func newCompositeWorkerManagerForTest(t *testing.T) compositeWorkerManagerHarnes
 }
 
 func newCompositeWorkerRegistryForTest(t *testing.T) *registry.Registry {
+	return newCompositeWorkerRegistryWithTTLs(t, 90*time.Millisecond, 90*time.Millisecond)
+}
+
+func newCompositeWorkerRegistryWithTTLs(t *testing.T, accountTTL, ledgerTTL time.Duration) *registry.Registry {
 	t.Helper()
 
 	reg := registry.New()
@@ -188,7 +261,7 @@ func newCompositeWorkerRegistryForTest(t *testing.T) *registry.Registry {
 		Resource:            "ledger",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
-		LeaseTTL:            90 * time.Millisecond,
+		LeaseTTL:            ledgerTTL,
 		Rank:                20,
 		IdempotencyRequired: true,
 		KeyBuilder:          definitions.MustTemplateKeyBuilder("ledger:{ledger_id}", []string{"ledger_id"}),
@@ -199,7 +272,7 @@ func newCompositeWorkerRegistryForTest(t *testing.T) *registry.Registry {
 		Resource:            "account",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
-		LeaseTTL:            90 * time.Millisecond,
+		LeaseTTL:            accountTTL,
 		Rank:                10,
 		IdempotencyRequired: true,
 		KeyBuilder:          definitions.MustTemplateKeyBuilder("account:{account_id}", []string{"account_id"}),
@@ -442,4 +515,33 @@ func (d *failingCompositeClaimDriver) Ping(ctx context.Context) error {
 
 func (d *failingCompositeClaimDriver) acquireAttempts() int {
 	return int(d.acquireCount.Load())
+}
+
+type multiMemberRenewFailDriver struct {
+	base            *testkit.MemoryDriver
+	failResourceKey string
+	failed          atomic.Bool
+}
+
+func (d *multiMemberRenewFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d *multiMemberRenewFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	if len(lease.ResourceKeys) == 1 && lease.ResourceKeys[0] == d.failResourceKey && d.failed.CompareAndSwap(false, true) {
+		return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+	}
+	return d.base.Renew(ctx, lease)
+}
+
+func (d *multiMemberRenewFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *multiMemberRenewFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *multiMemberRenewFailDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
 }
