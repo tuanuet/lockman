@@ -2,9 +2,12 @@ package idempotency
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+var errInvalidTTL = errors.New("idempotency: invalid ttl")
 
 type MemoryStore struct {
 	mu      sync.Mutex
@@ -53,6 +56,9 @@ func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (
 	if err := ctx.Err(); err != nil {
 		return BeginResult{}, err
 	}
+	if input.TTL <= 0 {
+		return BeginResult{}, errInvalidTTL
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -99,6 +105,9 @@ func (s *MemoryStore) Fail(ctx context.Context, key string, input FailInput) err
 func (s *MemoryStore) setTerminalStatus(ctx context.Context, key, ownerID, messageID string, ttl time.Duration, status Status) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if ttl <= 0 {
+		return errInvalidTTL
 	}
 
 	s.mu.Lock()

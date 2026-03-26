@@ -16,13 +16,14 @@ import (
 func TestStoreBeginRejectsSecondActiveClaim(t *testing.T) {
 	store := newRedisStoreForTest(t)
 	ctx := context.Background()
+	inProgressTTL := time.Minute
 
 	first, err := store.Begin(ctx, "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
 		MessageID:     "123",
 		ConsumerGroup: "payments",
 		Attempt:       1,
-		TTL:           time.Minute,
+		TTL:           inProgressTTL,
 	})
 	if err != nil {
 		t.Fatalf("first Begin returned error: %v", err)
@@ -30,6 +31,7 @@ func TestStoreBeginRejectsSecondActiveClaim(t *testing.T) {
 	if !first.Acquired || first.Duplicate {
 		t.Fatalf("expected first begin acquire=true duplicate=false, got %#v", first)
 	}
+	assertKeyPTTLAtMostAndPositive(t, store, "msg:123", inProgressTTL)
 
 	second, err := store.Begin(ctx, "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-b",
@@ -84,25 +86,29 @@ func TestStoreCompletePersistsTerminalRecord(t *testing.T) {
 func TestStoreCompletePreservesOriginalMetadataAndUsesTerminalTTL(t *testing.T) {
 	store := newRedisStoreForTest(t)
 	ctx := context.Background()
+	inProgressTTL := 20 * time.Second
+	terminalTTL := 5 * time.Minute
 
 	_, err := store.Begin(ctx, "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
 		MessageID:     "123",
 		ConsumerGroup: "payments",
 		Attempt:       3,
-		TTL:           20 * time.Second,
+		TTL:           inProgressTTL,
 	})
 	if err != nil {
 		t.Fatalf("Begin returned error: %v", err)
 	}
+	assertKeyPTTLAtMostAndPositive(t, store, "msg:123", inProgressTTL)
 
 	if err := store.Complete(ctx, "msg:123", idempotency.CompleteInput{
 		OwnerID:   "worker-b",
 		MessageID: "override-me",
-		TTL:       5 * time.Minute,
+		TTL:       terminalTTL,
 	}); err != nil {
 		t.Fatalf("Complete returned error: %v", err)
 	}
+	assertKeyPTTLAtMostAndPositive(t, store, "msg:123", terminalTTL)
 
 	record, err := store.Get(ctx, "msg:123")
 	if err != nil {
@@ -122,25 +128,29 @@ func TestStoreCompletePreservesOriginalMetadataAndUsesTerminalTTL(t *testing.T) 
 func TestStoreFailPreservesOriginalMetadataAndUsesTerminalTTL(t *testing.T) {
 	store := newRedisStoreForTest(t)
 	ctx := context.Background()
+	inProgressTTL := 20 * time.Second
+	terminalTTL := 7 * time.Minute
 
 	_, err := store.Begin(ctx, "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
 		MessageID:     "123",
 		ConsumerGroup: "payments",
 		Attempt:       4,
-		TTL:           20 * time.Second,
+		TTL:           inProgressTTL,
 	})
 	if err != nil {
 		t.Fatalf("Begin returned error: %v", err)
 	}
+	assertKeyPTTLAtMostAndPositive(t, store, "msg:123", inProgressTTL)
 
 	if err := store.Fail(ctx, "msg:123", idempotency.FailInput{
 		OwnerID:   "worker-b",
 		MessageID: "override-me",
-		TTL:       7 * time.Minute,
+		TTL:       terminalTTL,
 	}); err != nil {
 		t.Fatalf("Fail returned error: %v", err)
 	}
+	assertKeyPTTLAtMostAndPositive(t, store, "msg:123", terminalTTL)
 
 	record, err := store.Get(ctx, "msg:123")
 	if err != nil {
@@ -179,4 +189,19 @@ func newRedisStoreForTest(t *testing.T) *Store {
 
 	prefix := fmt.Sprintf("lockman:test:idempotency:%s:%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", ":")), time.Now().UnixNano())
 	return NewStore(client, prefix)
+}
+
+func assertKeyPTTLAtMostAndPositive(t *testing.T, store *Store, key string, max time.Duration) {
+	t.Helper()
+
+	ttl, err := store.client.PTTL(context.Background(), store.buildKey(key)).Result()
+	if err != nil {
+		t.Fatalf("PTTL returned error: %v", err)
+	}
+	if ttl <= 0 {
+		t.Fatalf("expected key pttl > 0, got %s", ttl)
+	}
+	if ttl > max {
+		t.Fatalf("expected key pttl <= %s, got %s", max, ttl)
+	}
 }

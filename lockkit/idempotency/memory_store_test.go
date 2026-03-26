@@ -197,3 +197,62 @@ func TestMemoryStoreFailPreservesOriginalMetadataAndSetsRetentionTTL(t *testing.
 		t.Fatalf("expected failure retention expiry %s, got %s", expectedExpiry, record.ExpiresAt)
 	}
 }
+
+func TestMemoryStoreRejectsNonPositiveTTL(t *testing.T) {
+	store := idempotency.NewMemoryStore()
+	ctx := context.Background()
+
+	_, err := store.Begin(ctx, "msg:begin:0", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       1,
+		TTL:           0,
+	})
+	if err == nil {
+		t.Fatal("expected Begin with zero ttl to return error")
+	}
+
+	_, err = store.Begin(ctx, "msg:begin:-1", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       1,
+		TTL:           -time.Second,
+	})
+	if err == nil {
+		t.Fatal("expected Begin with negative ttl to return error")
+	}
+
+	if err := store.Complete(ctx, "msg:complete:0", idempotency.CompleteInput{
+		OwnerID:   "worker-a",
+		MessageID: "123",
+		TTL:       0,
+	}); err == nil {
+		t.Fatal("expected Complete with zero ttl to return error")
+	}
+
+	if err := store.Complete(ctx, "msg:complete:-1", idempotency.CompleteInput{
+		OwnerID:   "worker-a",
+		MessageID: "123",
+		TTL:       -time.Second,
+	}); err == nil {
+		t.Fatal("expected Complete with negative ttl to return error")
+	}
+
+	if err := store.Fail(ctx, "msg:fail:0", idempotency.FailInput{
+		OwnerID:   "worker-a",
+		MessageID: "123",
+		TTL:       0,
+	}); err == nil {
+		t.Fatal("expected Fail with zero ttl to return error")
+	}
+
+	if err := store.Fail(ctx, "msg:fail:-1", idempotency.FailInput{
+		OwnerID:   "worker-a",
+		MessageID: "123",
+		TTL:       -time.Second,
+	}); err == nil {
+		t.Fatal("expected Fail with negative ttl to return error")
+	}
+}
