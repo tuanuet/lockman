@@ -15,12 +15,12 @@ func (m *Manager) CheckPresence(
 	req definitions.PresenceCheckRequest,
 ) (definitions.PresenceStatus, error) {
 	start := time.Now()
-	defer m.recordPresenceCheck(ctx, req.DefinitionID, start)
 
 	def, err := m.getDefinition(req.DefinitionID)
 	if err != nil {
 		return definitions.PresenceStatus{State: definitions.PresenceUnknown}, err
 	}
+	defer m.recordPresenceCheck(ctx, def.ID, start)
 
 	status := definitions.PresenceStatus{
 		State: definitions.PresenceUnknown,

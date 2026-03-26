@@ -20,6 +20,9 @@ type Manager struct {
 	active        sync.Map
 	shuttingDown  atomic.Bool
 	shutdownStart sync.Once
+	lifecycleMu   sync.Mutex
+	heldLeases    int
+	heldDrain     chan struct{}
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
@@ -38,18 +41,65 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 		registry: reg,
 		driver:   driver,
 		recorder: recorder,
+		heldDrain: func() chan struct{} {
+			ch := make(chan struct{})
+			close(ch)
+			return ch
+		}(),
 	}, nil
 }
 
-// Shutdown marks the manager as unavailable for new lock acquisitions.
+// Shutdown marks the manager as unavailable for new lock acquisitions and
+// waits for held leases to drain.
 func (m *Manager) Shutdown(ctx context.Context) error {
-	_ = ctx
 	m.shutdownStart.Do(func() {
 		m.shuttingDown.Store(true)
 	})
-	return nil
+
+	drained := m.heldDrainChannel()
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *Manager) isShuttingDown() bool {
 	return m.shuttingDown.Load()
+}
+
+func (m *Manager) tryTrackHeldLease() bool {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	if m.shuttingDown.Load() {
+		return false
+	}
+
+	if m.heldLeases == 0 {
+		m.heldDrain = make(chan struct{})
+	}
+	m.heldLeases++
+	return true
+}
+
+func (m *Manager) releaseTrackedLease() {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	if m.heldLeases <= 0 {
+		return
+	}
+
+	m.heldLeases--
+	if m.heldLeases == 0 {
+		close(m.heldDrain)
+	}
+}
+
+func (m *Manager) heldDrainChannel() <-chan struct{} {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	return m.heldDrain
 }
