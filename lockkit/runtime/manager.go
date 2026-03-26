@@ -21,8 +21,8 @@ type Manager struct {
 	shuttingDown  atomic.Bool
 	shutdownStart sync.Once
 	lifecycleMu   sync.Mutex
-	heldLeases    int
-	heldDrain     chan struct{}
+	inFlight      int
+	inFlightDrain chan struct{}
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
@@ -41,7 +41,7 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 		registry: reg,
 		driver:   driver,
 		recorder: recorder,
-		heldDrain: func() chan struct{} {
+		inFlightDrain: func() chan struct{} {
 			ch := make(chan struct{})
 			close(ch)
 			return ch
@@ -50,13 +50,13 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 }
 
 // Shutdown marks the manager as unavailable for new lock acquisitions and
-// waits for held leases to drain.
+// waits for admitted in-flight executions to drain.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.shutdownStart.Do(func() {
 		m.shuttingDown.Store(true)
 	})
 
-	drained := m.heldDrainChannel()
+	drained := m.inFlightDrainChannel()
 	select {
 	case <-drained:
 		return nil
@@ -69,37 +69,32 @@ func (m *Manager) isShuttingDown() bool {
 	return m.shuttingDown.Load()
 }
 
-func (m *Manager) tryTrackHeldLease() bool {
+func (m *Manager) admitInFlightExecution() {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 
-	if m.shuttingDown.Load() {
-		return false
+	if m.inFlight == 0 {
+		m.inFlightDrain = make(chan struct{})
 	}
-
-	if m.heldLeases == 0 {
-		m.heldDrain = make(chan struct{})
-	}
-	m.heldLeases++
-	return true
+	m.inFlight++
 }
 
-func (m *Manager) releaseTrackedLease() {
+func (m *Manager) releaseInFlightExecution() {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 
-	if m.heldLeases <= 0 {
+	if m.inFlight <= 0 {
 		return
 	}
 
-	m.heldLeases--
-	if m.heldLeases == 0 {
-		close(m.heldDrain)
+	m.inFlight--
+	if m.inFlight == 0 {
+		close(m.inFlightDrain)
 	}
 }
 
-func (m *Manager) heldDrainChannel() <-chan struct{} {
+func (m *Manager) inFlightDrainChannel() <-chan struct{} {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
-	return m.heldDrain
+	return m.inFlightDrain
 }

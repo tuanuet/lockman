@@ -57,13 +57,13 @@ func (m *Manager) ExecuteExclusive(
 	if _, loaded := m.active.LoadOrStore(key, entry); loaded {
 		return lockerrors.ErrReentrantAcquire
 	}
+	m.admitInFlightExecution()
 
 	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
 	defer cancel()
 
 	var lease drivers.LeaseRecord
 	var leaseAcquired bool
-	var trackedLease bool
 	defer func() {
 		if leaseAcquired {
 			held := time.Since(lease.AcquiredAt)
@@ -78,9 +78,7 @@ func (m *Manager) ExecuteExclusive(
 		}
 		m.active.Delete(key)
 		m.recordActiveLocks(ctx, def.ID)
-		if trackedLease {
-			m.releaseTrackedLease()
-		}
+		m.releaseInFlightExecution()
 	}()
 
 	start := time.Now()
@@ -99,10 +97,6 @@ func (m *Manager) ExecuteExclusive(
 	}
 
 	leaseAcquired = true
-	if !m.tryTrackHeldLease() {
-		return lockerrors.ErrPolicyViolation
-	}
-	trackedLease = true
 
 	m.active.Store(key, guardEntry{state: guardHeld})
 	m.recordActiveLocks(ctx, def.ID)
