@@ -110,7 +110,7 @@ Distributed lock platform SDK prototype for Go.
 - [ ] **Step 3: Verify the workspace can load as a Go module**
 
 Run: `go test ./...`
-Expected: PASS with `no packages to test`
+Expected: the command resolves the Go module successfully; on an empty bootstrap workspace it may still report `matched no packages` / `no packages to test`
 
 - [ ] **Step 4: Initialize git if the workspace is still not a repository**
 
