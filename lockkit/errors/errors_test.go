@@ -1,4 +1,4 @@
-package lockerrors
+package errors
 
 import (
 	"errors"

@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Recorder captures lock lifecycle events so observers can monitor system behavior.
 type Recorder interface {
 	RecordAcquire(ctx context.Context, definitionID string, wait time.Duration, success bool)
 	RecordContention(ctx context.Context, definitionID string)
@@ -16,41 +17,21 @@ type Recorder interface {
 
 type noopRecorder struct{}
 
-func (noopRecorder) RecordAcquire(ctx context.Context, definitionID string, wait time.Duration, success bool) {
-	_ = ctx
-	_ = definitionID
-	_ = wait
-	_ = success
-}
+func (noopRecorder) RecordAcquire(context.Context, string, time.Duration, bool) {}
 
-func (noopRecorder) RecordContention(ctx context.Context, definitionID string) {
-	_ = ctx
-	_ = definitionID
-}
+func (noopRecorder) RecordContention(context.Context, string) {}
 
-func (noopRecorder) RecordTimeout(ctx context.Context, definitionID string) {
-	_ = ctx
-	_ = definitionID
-}
+func (noopRecorder) RecordTimeout(context.Context, string) {}
 
-func (noopRecorder) RecordActiveLocks(ctx context.Context, definitionID string, count int) {
-	_ = ctx
-	_ = definitionID
-	_ = count
-}
+func (noopRecorder) RecordActiveLocks(context.Context, string, int) {}
 
-func (noopRecorder) RecordRelease(ctx context.Context, definitionID string, held time.Duration) {
-	_ = ctx
-	_ = definitionID
-	_ = held
-}
+func (noopRecorder) RecordRelease(context.Context, string, time.Duration) {}
 
-func (noopRecorder) RecordPresenceCheck(ctx context.Context, definitionID string, duration time.Duration) {
-	_ = ctx
-	_ = definitionID
-	_ = duration
-}
+func (noopRecorder) RecordPresenceCheck(context.Context, string, time.Duration) {}
 
+// NewNoopRecorder produces a Recorder implementation that drops all events.
 func NewNoopRecorder() Recorder {
 	return noopRecorder{}
 }
+
+var _ Recorder = noopRecorder{}
