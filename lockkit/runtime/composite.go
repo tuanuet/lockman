@@ -59,6 +59,15 @@ func (m *Manager) ExecuteCompositeExclusive(
 		return err
 	}
 
+	waitConfigs := make([]waitConfig, len(plan))
+	for i, member := range plan {
+		cfg, waitErr := applyRuntimeOverrides(member.Definition, req.Overrides)
+		if waitErr != nil {
+			return waitErr
+		}
+		waitConfigs[i] = cfg
+	}
+
 	if !m.tryAdmitInFlightExecution() {
 		return lockerrors.ErrPolicyViolation
 	}
@@ -109,12 +118,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 	}()
 
 	for i, member := range plan {
-		waitConfig, waitErr := applyRuntimeOverrides(member.Definition, req.Overrides)
-		if waitErr != nil {
-			return waitErr
-		}
-
-		acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
+		acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfigs[i])
 		start := time.Now()
 		lease, acquireErr := m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
 			DefinitionID: member.Definition.ID,

@@ -38,6 +38,76 @@ func TestExecuteCompositeExclusiveAcquiresMembersInCanonicalOrder(t *testing.T) 
 	}
 }
 
+func TestExecuteCompositeExclusiveCanonicalOrderingUsesRankThenResourceThenKey(t *testing.T) {
+	reg := newCanonicalOrderingCoverageRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	mgr, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	var visited []string
+	err = mgr.ExecuteCompositeExclusive(context.Background(), definitions.CompositeLockRequest{
+		DefinitionID: "OrderingCoverageComposite",
+		MemberInputs: []map[string]string{
+			{"id": "b"},
+			{"id": "c"},
+			{"id": "a"},
+			{"id": "9"},
+			{"id": "a"},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		visited = append(visited, lease.ResourceKeys...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	want := []string{"zeta:9", "alpha:a", "gamma:a", "gamma:b", "gamma:c"}
+	if len(visited) != len(want) {
+		t.Fatalf("expected %d composite members, got %d (%v)", len(want), len(visited), visited)
+	}
+	for i := range want {
+		if visited[i] != want[i] {
+			t.Fatalf("unexpected canonical ordering, want %v got %v", want, visited)
+		}
+	}
+}
+
+func TestExecuteCompositeExclusiveInvalidOverridesRejectedBeforeAcquire(t *testing.T) {
+	reg := newCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	rec := &countingRecorder{}
+	mgr, err := NewManager(reg, driver, rec)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeExclusive(context.Background(), definitions.CompositeLockRequest{
+		DefinitionID: "TransferComposite",
+		MemberInputs: []map[string]string{
+			{"ledger_id": "ledger-456"},
+			{"account_id": "acct-123"},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+		Overrides: &definitions.RuntimeOverrides{
+			MaxRetries: maxRetriesPtr(1),
+		},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatal("callback should not run when overrides are invalid")
+		return nil
+	})
+
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for invalid overrides, got %v", err)
+	}
+	if got := len(rec.activeCounts()); got != 0 {
+		t.Fatalf("expected invalid overrides to fail before guard activity metrics, got %d events", got)
+	}
+}
+
 func TestExecuteCompositeExclusiveReleasesAcquiredMembersInReverseOrderOnFailure(t *testing.T) {
 	reg := newRollbackCompositeRegistry(t)
 	driver := newFailingCompositeDriver(3, drivers.ErrLeaseAlreadyHeld)
@@ -212,6 +282,83 @@ func newRollbackCompositeRegistry(t *testing.T) *registry.Registry {
 		ExecutionKind:    definitions.ExecutionSync,
 	}); err != nil {
 		t.Fatalf("register RollbackComposite failed: %v", err)
+	}
+
+	return reg
+}
+
+func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	register := func(def definitions.LockDefinition) {
+		if err := reg.Register(def); err != nil {
+			t.Fatalf("register %s failed: %v", def.ID, err)
+		}
+	}
+
+	register(definitions.LockDefinition{
+		ID:            "RankOneGammaB",
+		Kind:          definitions.KindParent,
+		Resource:      "gamma",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          1,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("gamma:{id}", []string{"id"}),
+	})
+	register(definitions.LockDefinition{
+		ID:            "RankOneGammaC",
+		Kind:          definitions.KindParent,
+		Resource:      "gamma",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          1,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("gamma:{id}", []string{"id"}),
+	})
+	register(definitions.LockDefinition{
+		ID:            "RankOneAlpha",
+		Kind:          definitions.KindParent,
+		Resource:      "alpha",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          1,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("alpha:{id}", []string{"id"}),
+	})
+	register(definitions.LockDefinition{
+		ID:            "RankZeroZeta",
+		Kind:          definitions.KindParent,
+		Resource:      "zeta",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          0,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("zeta:{id}", []string{"id"}),
+	})
+	register(definitions.LockDefinition{
+		ID:            "RankOneGammaA",
+		Kind:          definitions.KindParent,
+		Resource:      "gamma",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          1,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("gamma:{id}", []string{"id"}),
+	})
+
+	if err := reg.RegisterComposite(definitions.CompositeDefinition{
+		ID:               "OrderingCoverageComposite",
+		Members:          []string{"RankOneGammaB", "RankOneGammaC", "RankOneAlpha", "RankZeroZeta", "RankOneGammaA"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   5,
+		ExecutionKind:    definitions.ExecutionSync,
+	}); err != nil {
+		t.Fatalf("register OrderingCoverageComposite failed: %v", err)
 	}
 
 	return reg
