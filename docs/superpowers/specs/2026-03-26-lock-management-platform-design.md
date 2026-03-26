@@ -781,11 +781,11 @@ Compatibility notes must call out changes that alter locking behavior, not just 
 
 ### Phase 1
 
-- Implement `definitions`, `registry`, and `errors`.
-- Implement `testing` with `InMemoryDriver`.
-- Support `standard` mode.
-- Support parent locks.
-- Add baseline metrics.
+- Implement `definitions`, `registry`, `errors`, and the in-memory `testkit` driver.
+- Support standard-mode exclusive execution via `ExecuteExclusive`.
+- Support advisory presence checks via `CheckPresence`.
+- Support lifecycle shutdown via `Shutdown(ctx)`.
+- Support parent locks and baseline runtime metrics.
 
 ### Phase 2
 
