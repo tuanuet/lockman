@@ -28,11 +28,10 @@
 - `lockkit/drivers/contracts.go`: driver interface, lease record, presence state contract
 - `lockkit/registry/registry.go`: definition registration and lookup
 - `lockkit/registry/validation.go`: registry validation rules
-- `lockkit/testing/memory_driver.go`: in-memory driver implementation
-- `lockkit/testing/assertions.go`: test helpers for lock state assertions
+- `lockkit/testkit/memory_driver.go`: in-memory driver implementation
+- `lockkit/testkit/assertions.go`: test helpers for lock state assertions
 - `lockkit/runtime/manager.go`: standard-mode `LockManager`, `LockInspector`, lifecycle shutdown
 - `lockkit/runtime/exclusive.go`: single-resource exclusive execution flow
-- `lockkit/runtime/composite.go`: declared composite execution flow with canonical ordering
 - `lockkit/runtime/presence.go`: presence-check implementation
 - `lockkit/runtime/metrics.go`: runtime instrumentation helpers
 
@@ -41,14 +40,14 @@
 - `lockkit/definitions/key_builder_test.go`
 - `lockkit/errors/errors_test.go`
 - `lockkit/registry/registry_test.go`
-- `lockkit/testing/memory_driver_test.go`
+- `lockkit/testkit/memory_driver_test.go`
 - `lockkit/runtime/exclusive_test.go`
-- `lockkit/runtime/composite_test.go`
 - `lockkit/runtime/presence_test.go`
 - `lockkit/runtime/shutdown_test.go`
 
 ### Deferred to later phases
 
+- `lockkit/runtime/composite.go`: composite standard execution
 - `lockkit/workers/`: async worker claim flow
 - `lockkit/guard/`: strict-mode guarded writes
 - `lockkit/integration/`: boundary decorators and middleware
@@ -65,6 +64,7 @@ This plan delivers only what Phase 1 in the spec requires:
 
 It does **not** implement:
 
+- composite execution
 - strict mode
 - worker claim flow
 - guarded write helpers
@@ -192,9 +192,37 @@ const (
 	ExecutionBoth  ExecutionKind = "both"
 )
 
+type BackendFailurePolicy string
+
+const (
+	BackendFailClosed   BackendFailurePolicy = "fail_closed"
+	BackendBestEffortOpen BackendFailurePolicy = "best_effort_open"
+)
+
+type RetryPolicy struct {
+	MaxRetries int
+}
+
 type KeyBuilder interface {
 	RequiredFields() []string
 	Build(input map[string]string) (string, error)
+}
+
+type LockDefinition struct {
+	ID                   string
+	Kind                 LockKind
+	Resource             string
+	Mode                 LockMode
+	ExecutionKind        ExecutionKind
+	LeaseTTL             time.Duration
+	WaitTimeout          time.Duration
+	RetryPolicy          RetryPolicy
+	BackendFailurePolicy BackendFailurePolicy
+	FencingRequired      bool
+	CheckOnlyAllowed     bool
+	Rank                 int
+	KeyBuilder           KeyBuilder
+	Tags                 map[string]string
 }
 ```
 
@@ -208,6 +236,46 @@ type OwnershipMeta struct {
 	MessageID     string
 	Attempt       int
 	ConsumerGroup string
+}
+
+type RuntimeOverrides struct {
+	WaitTimeout *time.Duration
+	MaxRetries  *int
+}
+
+type SyncLockRequest struct {
+	DefinitionID string
+	KeyInput     map[string]string
+	Ownership    OwnershipMeta
+	Overrides    *RuntimeOverrides
+}
+
+type PresenceCheckRequest struct {
+	DefinitionID string
+	KeyInput     map[string]string
+	Ownership    OwnershipMeta
+}
+
+type LeaseContext struct {
+	DefinitionID  string
+	ResourceKey   string
+	Ownership     OwnershipMeta
+	LeaseTTL      time.Duration
+	LeaseDeadline time.Time
+}
+
+type PresenceState int
+
+const (
+	PresenceHeld PresenceState = iota
+	PresenceNotHeld
+	PresenceUnknown
+)
+
+type PresenceStatus struct {
+	State         PresenceState
+	OwnerID       string
+	LeaseDeadline time.Time
 }
 ```
 
@@ -262,6 +330,9 @@ var (
 ```go
 type Recorder interface {
 	RecordAcquire(ctx context.Context, definitionID string, wait time.Duration, success bool)
+	RecordContention(ctx context.Context, definitionID string)
+	RecordTimeout(ctx context.Context, definitionID string)
+	RecordActiveLocks(ctx context.Context, definitionID string, count int)
 	RecordRelease(ctx context.Context, definitionID string, held time.Duration)
 	RecordPresenceCheck(ctx context.Context, definitionID string, duration time.Duration)
 }
@@ -331,6 +402,23 @@ func TestRegistryValidateRejectsStrictWithoutFencing(t *testing.T) {
 		t.Fatal("expected strict validation failure")
 	}
 }
+
+func TestRegistryValidateRejectsDefinitionWithoutKeyBuilder(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "BrokenLock",
+		Kind:          definitions.KindParent,
+		Resource:      "broken",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if err := reg.Validate(); err == nil {
+		t.Fatal("expected missing key builder validation failure")
+	}
+}
 ```
 
 - [ ] **Step 2: Run the tests**
@@ -341,13 +429,15 @@ Expected: FAIL with undefined registry package or methods
 - [ ] **Step 3: Implement registry storage and validation**
 
 ```go
+type Reader interface {
+	MustGet(id string) definitions.LockDefinition
+}
+
 type Registry struct {
 	definitions map[string]definitions.LockDefinition
-	composites  map[string]definitions.CompositeDefinition
 }
 
 func (r *Registry) Register(def definitions.LockDefinition) error { ... }
-func (r *Registry) RegisterComposite(def definitions.CompositeDefinition) error { ... }
 func (r *Registry) MustGet(id string) definitions.LockDefinition { ... }
 func (r *Registry) Validate() error { ... }
 ```
@@ -368,15 +458,15 @@ git commit -m "feat: add lock registry and validation"
 
 **Files:**
 - Create: `lockkit/drivers/contracts.go`
-- Create: `lockkit/testing/memory_driver.go`
-- Create: `lockkit/testing/assertions.go`
-- Test: `lockkit/testing/memory_driver_test.go`
+- Create: `lockkit/testkit/memory_driver.go`
+- Create: `lockkit/testkit/assertions.go`
+- Test: `lockkit/testkit/memory_driver_test.go`
 
 - [ ] **Step 1: Write the failing in-memory driver tests**
 
 ```go
 func TestMemoryDriverAcquireAndRelease(t *testing.T) {
-	driver := testingdriver.NewMemoryDriver()
+	driver := testkit.NewMemoryDriver()
 
 	lease, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
 		DefinitionID: "OrderLock",
@@ -400,7 +490,7 @@ func TestMemoryDriverAcquireAndRelease(t *testing.T) {
 
 - [ ] **Step 2: Run the tests**
 
-Run: `go test ./lockkit/testing -v`
+Run: `go test ./lockkit/testkit -v`
 Expected: FAIL with undefined driver contracts
 
 - [ ] **Step 3: Implement driver interface and memory backend**
@@ -415,6 +505,10 @@ type Driver interface {
 }
 ```
 
+Driver contract note:
+- single-resource execution still uses `ResourceKeys` with exactly one entry
+- composite execution is deferred to Phase 2, but the driver shape stays future-compatible
+
 ```go
 type MemoryDriver struct {
 	mu     sync.Mutex
@@ -424,13 +518,13 @@ type MemoryDriver struct {
 
 - [ ] **Step 4: Re-run driver tests**
 
-Run: `go test ./lockkit/testing -v`
+Run: `go test ./lockkit/testkit -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lockkit/drivers/contracts.go lockkit/testing/memory_driver.go lockkit/testing/assertions.go lockkit/testing/memory_driver_test.go
+git add lockkit/drivers/contracts.go lockkit/testkit/memory_driver.go lockkit/testkit/assertions.go lockkit/testkit/memory_driver_test.go
 git commit -m "feat: add driver contract and in-memory backend"
 ```
 
@@ -458,7 +552,10 @@ func TestExecuteExclusiveRunsCallbackWhenLockAcquired(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr := runtime.NewManager(reg, testingdriver.NewMemoryDriver(), observe.NewNoopRecorder())
+	mgr, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
 
 	called := false
 	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
@@ -501,7 +598,10 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr := runtime.NewManager(reg, testingdriver.NewMemoryDriver(), observe.NewNoopRecorder())
+	mgr, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
 	req := definitions.SyncLockRequest{
 		DefinitionID: "OrderLock",
 		KeyInput: map[string]string{
@@ -515,7 +615,7 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 		},
 	}
 
-	err := mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
 		return mgr.ExecuteExclusive(ctx, req, func(ctx context.Context, nested definitions.LeaseContext) error {
 			return nil
 		})
@@ -523,6 +623,59 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 
 	if !errors.Is(err, lockerrors.ErrReentrantAcquire) {
 		t.Fatalf("expected reentrant acquire error, got %v", err)
+	}
+}
+
+func TestExecuteExclusiveHonorsContextDeadlineBeforeWaitTimeout(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		WaitTimeout:   5 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}"),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	driver := testkit.NewMemoryDriver()
+	heldLease, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+		DefinitionID: "OrderLock",
+		ResourceKeys: []string{"order:123"},
+		OwnerID:      "svc:other",
+		LeaseTTL:     30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Acquire returned error: %v", err)
+	}
+	defer driver.Release(context.Background(), heldLease)
+
+	mgr, err := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err = mgr.ExecuteExclusive(ctx, definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+
+	if err == nil {
+		t.Fatal("expected timeout or context cancellation")
+	}
+	if time.Since(start) >= time.Second {
+		t.Fatal("expected context deadline to beat wait timeout")
 	}
 }
 ```
@@ -542,6 +695,8 @@ type Manager struct {
 	active   sync.Map
 }
 
+func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Recorder) (*Manager, error) { ... }
+
 func (m *Manager) ExecuteExclusive(
 	ctx context.Context,
 	req definitions.SyncLockRequest,
@@ -550,8 +705,10 @@ func (m *Manager) ExecuteExclusive(
 ```
 
 Implementation notes:
+- `NewManager` should validate the registry before returning
 - reject reentrant acquire before hitting the driver
 - honor context deadline before acquire
+- effective acquire timeout is `min(ctx deadline, WaitTimeout)`
 - release in `defer`
 - populate `LeaseContext.ResourceKey` for single-lock execution
 
@@ -567,136 +724,76 @@ git add lockkit/runtime/manager.go lockkit/runtime/exclusive.go lockkit/runtime/
 git commit -m "feat: add standard exclusive runtime"
 ```
 
-## Task 7: Implement Composite Standard Execution
+## Task 7: Harden Validation And Runtime Construction
 
 **Files:**
-- Create: `lockkit/runtime/composite.go`
-- Test: `lockkit/runtime/composite_test.go`
+- Modify: `lockkit/registry/registry_test.go`
+- Modify: `lockkit/runtime/exclusive_test.go`
 
-- [ ] **Step 1: Write failing composite tests**
+- [ ] **Step 1: Write failing tests for remaining Phase 1 validation coverage**
 
 ```go
-func TestExecuteCompositeExclusiveAcquiresMembersInCanonicalOrder(t *testing.T) {
+func TestRegistryValidateRejectsInvalidFailOpenStrictDefinition(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
-		ID:            "AccountLock",
-		Kind:          definitions.KindParent,
-		Resource:      "account",
-		Mode:          definitions.ModeStandard,
-		ExecutionKind: definitions.ExecutionSync,
-		Rank:          100,
-		KeyBuilder:    definitions.MustTemplateKeyBuilder("account:{account_id}"),
+		ID:                   "PaymentLock",
+		Kind:                 definitions.KindParent,
+		Resource:             "payment",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionSync,
+		BackendFailurePolicy: definitions.BackendBestEffortOpen,
+		FencingRequired:      true,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("payment:{payment_id}"),
 	}); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	if err := reg.RegisterComposite(definitions.CompositeDefinition{
-		ID: "TransferAccounts",
-		Members: []definitions.CompositeMember{
-			{DefinitionID: "AccountLock"},
-			{DefinitionID: "AccountLock"},
-		},
-	}); err != nil {
-		t.Fatalf("register composite failed: %v", err)
-	}
 
-	mgr := runtime.NewManager(reg, testingdriver.NewMemoryDriver(), observe.NewNoopRecorder())
-
-	err := mgr.ExecuteCompositeExclusive(context.Background(), definitions.CompositeLockRequest{
-		DefinitionID: "TransferAccounts",
-		MemberInputs: []map[string]string{
-			{"account_id": "b"},
-			{"account_id": "a"},
-		},
-		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
-	}, func(ctx context.Context, lease definitions.LeaseContext) error {
-		expected := []string{"account:a", "account:b"}
-		if !reflect.DeepEqual(lease.ResourceKeys, expected) {
-			t.Fatalf("expected canonical ordering %v, got %v", expected, lease.ResourceKeys)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	if err := reg.Validate(); err == nil {
+		t.Fatal("expected strict fail-open validation failure")
 	}
 }
 
-func TestExecuteCompositeExclusiveRollsBackOnPartialAcquireFailure(t *testing.T) {
-	driver := newFailingCompositeDriver("account:b")
+func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
-		ID:            "AccountLock",
+		ID:            "BrokenLock",
 		Kind:          definitions.KindParent,
-		Resource:      "account",
+		Resource:      "broken",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
-		Rank:          100,
-		KeyBuilder:    definitions.MustTemplateKeyBuilder("account:{account_id}"),
 	}); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-	if err := reg.RegisterComposite(definitions.CompositeDefinition{
-		ID: "TransferAccounts",
-		Members: []definitions.CompositeMember{
-			{DefinitionID: "AccountLock"},
-			{DefinitionID: "AccountLock"},
-		},
-	}); err != nil {
-		t.Fatalf("register composite failed: %v", err)
-	}
 
-	mgr := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
-	err := mgr.ExecuteCompositeExclusive(context.Background(), definitions.CompositeLockRequest{
-		DefinitionID: "TransferAccounts",
-		MemberInputs: []map[string]string{
-			{"account_id": "a"},
-			{"account_id": "b"},
-		},
-		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
-	}, func(ctx context.Context, lease definitions.LeaseContext) error {
-		return nil
-	})
-
+	_, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
 	if err == nil {
-		t.Fatal("expected acquire failure")
-	}
-	if driver.IsHeld("account:a") {
-		t.Fatal("expected rollback release for first acquired member")
+		t.Fatal("expected invalid registry rejection")
 	}
 }
 ```
 
 - [ ] **Step 2: Run the tests**
 
-Run: `go test ./lockkit/runtime -run Composite -v`
-Expected: FAIL with undefined composite runtime methods
+Run: `go test ./lockkit/registry ./lockkit/runtime -run 'Validate|NewManager' -v`
+Expected: FAIL with missing validation or constructor behavior
 
-- [ ] **Step 3: Implement composite execution**
-
-```go
-func (m *Manager) ExecuteCompositeExclusive(
-	ctx context.Context,
-	req definitions.CompositeLockRequest,
-	fn func(context.Context, definitions.LeaseContext) error,
-) error { ... }
-```
+- [ ] **Step 3: Implement the minimal validation and constructor checks**
 
 Implementation notes:
-- resolve composite definition from registry
-- build all member keys before acquisition
-- sort members by rank, resource type, normalized key
-- release acquired members in reverse order on failure
-- populate `LeaseContext.ResourceKeys`
+- reject strict definitions that opt into fail-open behavior
+- make `NewManager` fail when the registry cannot validate
+- keep composite-specific validation out of Phase 1
 
-- [ ] **Step 4: Re-run the composite tests**
+- [ ] **Step 4: Re-run the focused tests**
 
-Run: `go test ./lockkit/runtime -run Composite -v`
+Run: `go test ./lockkit/registry ./lockkit/runtime -run 'Validate|NewManager' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lockkit/runtime/composite.go lockkit/runtime/composite_test.go
-git commit -m "feat: add composite standard execution"
+git add lockkit/registry/registry_test.go lockkit/runtime/exclusive_test.go
+git commit -m "test: harden phase 1 validation and manager construction"
 ```
 
 ## Task 8: Implement Presence Checks And Shutdown Semantics
@@ -711,7 +808,7 @@ git commit -m "feat: add composite standard execution"
 
 ```go
 func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
-	driver := testingdriver.NewMemoryDriver()
+	driver := testkit.NewMemoryDriver()
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
@@ -725,8 +822,11 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
-	_, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+	mgr, err := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	_, err = driver.Acquire(context.Background(), drivers.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "svc:one",
@@ -764,12 +864,15 @@ func TestShutdownStopsNewAcquisitions(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr := runtime.NewManager(reg, testingdriver.NewMemoryDriver(), observe.NewNoopRecorder())
+	mgr, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
 	if err := mgr.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown returned error: %v", err)
 	}
 
-	err := mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
 		DefinitionID: "OrderLock",
 		KeyInput: map[string]string{
 			"order_id": "123",
@@ -778,8 +881,8 @@ func TestShutdownStopsNewAcquisitions(t *testing.T) {
 	}, func(ctx context.Context, lease definitions.LeaseContext) error {
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected shutdown to reject new acquisitions")
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation after shutdown, got %v", err)
 	}
 }
 ```
@@ -804,12 +907,12 @@ Implementation notes:
 - return `PresenceUnknown` when driver health is unavailable
 - record presence-check metrics
 - make `Shutdown` idempotent
-- reject new acquisitions after shutdown starts
+- reject new acquisitions after shutdown starts with `ErrPolicyViolation`
 
 - [ ] **Step 4: Run full test suite**
 
 Run: `go test ./... -cover`
-Expected: PASS and non-zero coverage for `definitions`, `registry`, `testing`, and `runtime`
+Expected: PASS and non-zero coverage for `definitions`, `registry`, `testkit`, and `runtime`
 
 - [ ] **Step 5: Commit**
 
@@ -835,7 +938,6 @@ Expected: missing or incomplete references to implemented Phase 1 API surface
 ## Phase 1 status
 
 - standard-mode exclusive execution
-- composite standard execution
 - presence checks
 - in-memory driver
 - central registry and validation
@@ -843,7 +945,7 @@ Expected: missing or incomplete references to implemented Phase 1 API surface
 
 - [ ] **Step 3: Verify docs mention the shipped API**
 
-Run: `rg -n "ExecuteExclusive|ExecuteCompositeExclusive|CheckPresence|Shutdown" README.md docs/superpowers/specs/2026-03-26-lock-management-platform-design.md`
+Run: `rg -n "ExecuteExclusive|CheckPresence|Shutdown" README.md docs/superpowers/specs/2026-03-26-lock-management-platform-design.md`
 Expected: matches in both files
 
 - [ ] **Step 4: Run the full verification one last time**
