@@ -15,6 +15,7 @@ Distributed lock platform SDK prototype for Go.
 - Worker claim execution via `ExecuteClaimed` and `ExecuteCompositeClaimed`
 - Redis production driver and Redis-backed idempotency store
 - Child overlap rejection and standard-mode-only composite execution (Phase 2 reject-first overlap policy)
+- Lock definition field reference: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
 
 ## Redis Verification
 
