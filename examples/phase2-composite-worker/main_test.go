@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestRunPrintsPhase2WorkerFlow(t *testing.T) {
+func TestRunPrintsCompositeWorkerFlow(t *testing.T) {
 	redisURL := strings.TrimSpace(os.Getenv("LOCKMAN_REDIS_URL"))
 	if redisURL == "" {
 		t.Skip("LOCKMAN_REDIS_URL is not set")
@@ -20,11 +20,8 @@ func TestRunPrintsPhase2WorkerFlow(t *testing.T) {
 
 	output := out.String()
 	expected := []string{
-		"execute: callback running for order:123",
-		"presence while held: held",
-		"idempotency after ack: completed",
-		"presence after release: not_held",
-		"duplicate outcome: ignored",
+		"composite callback: account:acct-123,ledger:ledger-456",
+		"composite idempotency after ack: completed",
 		"shutdown: ok",
 	}
 

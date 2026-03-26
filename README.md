@@ -32,6 +32,18 @@ LOCKMAN_REDIS_PORT=6380 docker compose up -d redis
 LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
 ```
 
+## Phase 2 Examples
+
+Redis-backed:
+
+- `go run ./examples/phase2-basic`
+- `go run ./examples/phase2-composite-worker`
+
+Memory-backed:
+
+- `go run ./examples/phase2-composite-sync`
+- `go run ./examples/phase2-overlap-reject`
+
 ## Dependency Boundaries
 
 - `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
@@ -43,6 +55,9 @@ LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
 - `go test ./... -cover`
 - `go run ./examples/basic`
 - `go run ./examples/phase2-basic`
+- `go run ./examples/phase2-composite-sync`
+- `go run ./examples/phase2-composite-worker`
+- `go run ./examples/phase2-overlap-reject`
 - `go run ./examples/contention`
 - `go run ./examples/no-dependency-awareness`
 - `go run ./examples/reentrant`

@@ -109,6 +109,17 @@ func run(out io.Writer, redisURL string) error {
 		return err
 	}
 
+	presenceAfterRelease, err := driver.CheckPresence(context.Background(), drivers.PresenceRequest{
+		DefinitionID: req.DefinitionID,
+		ResourceKeys: []string{"order:123"},
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "presence after release: %s\n", presenceLabel(presenceAfterRelease.Present)); err != nil {
+		return err
+	}
+
 	err = mgr.ExecuteClaimed(context.Background(), req, func(ctx context.Context, claim definitions.ClaimContext) error {
 		return errors.New("duplicate callback should not execute")
 	})
