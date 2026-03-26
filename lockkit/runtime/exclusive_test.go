@@ -148,6 +148,28 @@ func TestExecuteExclusiveGuardHandlesColonCharacters(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveUnknownDefinitionReturnsError(t *testing.T) {
+	reg := registry.New()
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "MissingLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for missing definition, got %v", err)
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{

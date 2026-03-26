@@ -16,8 +16,15 @@ type guardKey struct {
 	ownerID      string
 }
 
+type guardState int
+
+const (
+	guardPending guardState = iota
+	guardHeld
+)
+
 type guardEntry struct {
-	held bool
+	state guardState
 }
 
 // ExecuteExclusive runs fn after successfully acquiring the requested standard lock.
@@ -26,7 +33,10 @@ func (m *Manager) ExecuteExclusive(
 	req definitions.SyncLockRequest,
 	fn func(context.Context, definitions.LeaseContext) error,
 ) (retErr error) {
-	def := m.registry.MustGet(req.DefinitionID)
+	def, err := m.getDefinition(req.DefinitionID)
+	if err != nil {
+		return err
+	}
 
 	resourceKey, err := def.KeyBuilder.Build(req.KeyInput)
 	if err != nil {
@@ -39,7 +49,7 @@ func (m *Manager) ExecuteExclusive(
 	}
 
 	key := guardKey{definitionID: def.ID, resourceKey: resourceKey, ownerID: req.Ownership.OwnerID}
-	entry := &guardEntry{}
+	entry := guardEntry{state: guardPending}
 	if _, loaded := m.active.LoadOrStore(key, entry); loaded {
 		return lockerrors.ErrReentrantAcquire
 	}
@@ -81,7 +91,7 @@ func (m *Manager) ExecuteExclusive(
 	}
 
 	leaseAcquired = true
-	entry.held = true
+	m.active.Store(key, guardEntry{state: guardHeld})
 	m.recordActiveLocks(ctx, def.ID)
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
@@ -174,11 +184,21 @@ func (m *Manager) activeCount(definitionID string) int {
 		if !ok || gk.definitionID != definitionID {
 			return true
 		}
-		entry, ok := value.(*guardEntry)
-		if ok && entry.held {
+		entry, ok := value.(guardEntry)
+		if ok && entry.state == guardHeld {
 			count++
 		}
 		return true
 	})
 	return count
+}
+
+func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = lockerrors.ErrPolicyViolation
+		}
+	}()
+	def = m.registry.MustGet(id)
+	return def, err
 }
