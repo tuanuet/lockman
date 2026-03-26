@@ -1,0 +1,46 @@
+package policy
+
+import (
+	"context"
+	"errors"
+
+	lockerrors "lockman/lockkit/errors"
+)
+
+// WorkerOutcome normalizes worker callback and runtime errors for queue adapters.
+type WorkerOutcome string
+
+const (
+	OutcomeAck   WorkerOutcome = "ack"
+	OutcomeRetry WorkerOutcome = "retry"
+	OutcomeDrop  WorkerOutcome = "drop"
+	OutcomeDLQ   WorkerOutcome = "dlq"
+)
+
+// OutcomeFromError maps runtime and callback errors into normalized queue outcomes.
+func OutcomeFromError(err error) WorkerOutcome {
+	switch {
+	case err == nil:
+		return OutcomeAck
+	case errors.Is(err, lockerrors.ErrDuplicateIgnored):
+		return OutcomeAck
+	case errors.Is(err, lockerrors.ErrPolicyViolation):
+		return OutcomeDrop
+	case errors.Is(err, lockerrors.ErrInvariantRejected):
+		return OutcomeDrop
+	case errors.Is(err, lockerrors.ErrWorkerShuttingDown):
+		return OutcomeRetry
+	case errors.Is(err, lockerrors.ErrLockBusy):
+		return OutcomeRetry
+	case errors.Is(err, lockerrors.ErrLockAcquireTimeout):
+		return OutcomeRetry
+	case errors.Is(err, lockerrors.ErrLeaseLost):
+		return OutcomeRetry
+	case errors.Is(err, context.Canceled):
+		return OutcomeRetry
+	case errors.Is(err, context.DeadlineExceeded):
+		return OutcomeRetry
+	default:
+		return OutcomeRetry
+	}
+}

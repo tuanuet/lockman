@@ -1,0 +1,115 @@
+package workers
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"lockman/lockkit/drivers"
+	lockerrors "lockman/lockkit/errors"
+)
+
+const (
+	minRenewInterval = 25 * time.Millisecond
+	maxRenewInterval = 30 * time.Second
+)
+
+type renewalSession struct {
+	stop func()
+	done chan struct{}
+
+	errMu sync.Mutex
+	err   error
+}
+
+func (s *renewalSession) stopAndWait() {
+	if s == nil {
+		return
+	}
+	if s.stop != nil {
+		s.stop()
+	}
+	if s.done != nil {
+		<-s.done
+	}
+}
+
+func (s *renewalSession) failure() error {
+	if s == nil {
+		return nil
+	}
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.err
+}
+
+func (s *renewalSession) setFailure(err error) {
+	if err == nil {
+		return
+	}
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	if s.err == nil {
+		s.err = err
+	}
+}
+
+func (m *Manager) startLeaseRenewal(
+	lease drivers.LeaseRecord,
+	onFailureCancel context.CancelFunc,
+) *renewalSession {
+	interval := renewalInterval(lease.LeaseTTL)
+	renewCtx, renewCancel := context.WithCancel(context.Background())
+	session := &renewalSession{
+		done: make(chan struct{}),
+	}
+	registrationID := m.registerRenewalCancel(renewCancel)
+	session.stop = func() {
+		renewCancel()
+		m.unregisterRenewalCancel(registrationID)
+	}
+
+	go func() {
+		defer close(session.done)
+		defer m.unregisterRenewalCancel(registrationID)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		current := lease
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			updated, err := m.driver.Renew(renewCtx, current)
+			if err != nil {
+				session.setFailure(fmt.Errorf("%w: %v", lockerrors.ErrLeaseLost, err))
+				if onFailureCancel != nil {
+					onFailureCancel()
+				}
+				return
+			}
+			current = updated
+		}
+	}()
+
+	return session
+}
+
+func renewalInterval(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return minRenewInterval
+	}
+	interval := ttl / 3
+	if interval < minRenewInterval {
+		return minRenewInterval
+	}
+	if interval > maxRenewInterval {
+		return maxRenewInterval
+	}
+	return interval
+}
