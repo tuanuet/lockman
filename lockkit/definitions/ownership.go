@@ -40,6 +40,7 @@ type MessageClaimRequest struct {
 // CompositeLockRequest is the payload for synchronous composite acquire attempts.
 type CompositeLockRequest struct {
 	DefinitionID string
+	// MemberInputs must follow the CompositeDefinition.Members order.
 	MemberInputs []map[string]string
 	Ownership    OwnershipMeta
 	Overrides    *RuntimeOverrides
@@ -62,6 +63,7 @@ type PresenceCheckRequest struct {
 }
 
 // LeaseContext tracks ownership and TTL information for a granted lease.
+// ResourceKey is used for single-resource execution; ResourceKeys is populated for composite execution.
 type LeaseContext struct {
 	DefinitionID  string
 	ResourceKey   string
@@ -73,6 +75,7 @@ type LeaseContext struct {
 }
 
 // ClaimContext tracks ownership and TTL information for a claimed execution.
+// ResourceKey is used for single-resource execution; ResourceKeys is populated for composite execution.
 type ClaimContext struct {
 	DefinitionID   string
 	ResourceKey    string
