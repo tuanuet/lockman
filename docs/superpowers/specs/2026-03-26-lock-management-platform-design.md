@@ -119,6 +119,7 @@ Presence checks are advisory only. They must not be used as a correctness guaran
 - Runtime overrides may narrow behavior but must not break registry policy.
 - Nested lock acquisition is rejected unless it goes through a declared composite plan.
 - Startup fails if the registry is invalid.
+- Lock ownership is non-reentrant by default and same-owner re-acquisition is rejected.
 
 ## Registry Model
 
@@ -134,6 +135,7 @@ Each lock definition should include at minimum:
 - `LeaseTTL`
 - `WaitTimeout`
 - `RetryPolicy`
+- `BackendFailurePolicy`
 - `FencingRequired`
 - `IdempotencyRequired`
 - `Rank`
@@ -152,7 +154,25 @@ Each composite definition should include at minimum:
 - `AcquirePolicy`
 - `EscalationPolicy`
 - `ModeResolution`
+- `MaxMemberCount`
 - `ExecutionKind`
+
+Recommended default: cap composite member count at `5` unless a stronger use case justifies a higher limit.
+
+### KeyBuilder
+
+`KeyBuilder` must be deterministic and introspectable by validation logic.
+
+Recommended interface:
+
+```go
+type KeyBuilder interface {
+    RequiredFields() []string
+    Build(input map[string]string) (string, error)
+}
+```
+
+The SDK may provide template-backed builders such as `order:{order_id}:item:{item_id}`, but validation must still know the required fields and guarantee stable output for identical input.
 
 ## Validation Rules
 
@@ -164,8 +184,12 @@ Registry validation must fail fast when:
 - ordering metadata is incomplete
 - strict locks do not require fencing
 - strict async locks do not require idempotency
+- non-reentrant policy is overridden by a definition
+- composite plans mix `standard` and `strict` members
+- composite plans exceed configured member limits
 - key builders cannot build deterministic keys from required input
 - invalid parent-child overlap policy is declared
+- unsupported backend failure policy is declared
 
 ## Architecture
 
@@ -179,6 +203,7 @@ lockkit/
   workers/
   guard/
   integration/
+  testing/
   drivers/
   observe/
   errors/
@@ -193,9 +218,18 @@ Responsibilities:
 - `workers`: async claim lifecycle and outcome mapping
 - `guard`: persistence safety contracts
 - `integration`: decorators, middleware, and repository-facing helper contracts
+- `testing`: in-memory driver, relaxed test registry, and assertion helpers
 - `drivers`: backend adapter abstraction
 - `observe`: metrics, tracing, audit hooks
 - `errors`: typed runtime errors and write outcomes
+
+`registry` owns definition storage and validation. `internal/policy` owns runtime rule evaluation such as override narrowing, overlap handling, degradation behavior, and context-deadline reconciliation.
+
+Minimum testing support:
+
+- `InMemoryDriver` implementing the driver contract
+- `TestRegistry` with intentionally lighter setup friction for unit tests
+- assertion helpers for acquired, released, and lease-lost states
 
 ## Ownership and Execution Metadata
 
@@ -214,6 +248,82 @@ Minimum metadata:
 This metadata must be attached to lock acquisition, guard context, metrics, traces, and audit events.
 
 ## Runtime APIs
+
+### Minimum Request and Context Shapes
+
+The exact implementation may evolve, but the minimum request and context shapes must be explicit.
+
+```go
+type OwnershipMeta struct {
+    ServiceName   string
+    InstanceID    string
+    HandlerName   string
+    OwnerID       string
+    RequestID     string
+    MessageID     string
+    Attempt       int
+    ConsumerGroup string
+}
+
+type RuntimeOverrides struct {
+    WaitTimeout *time.Duration
+    MaxRetries  *int
+}
+
+type SyncLockRequest struct {
+    DefinitionID string
+    KeyInput     map[string]string
+    Ownership    OwnershipMeta
+    Overrides    *RuntimeOverrides
+}
+
+type MessageClaimRequest struct {
+    DefinitionID   string
+    KeyInput       map[string]string
+    Ownership      OwnershipMeta
+    IdempotencyKey string
+    Overrides      *RuntimeOverrides
+}
+
+type PresenceCheckRequest struct {
+    DefinitionID string
+    KeyInput     map[string]string
+    Ownership    OwnershipMeta
+}
+
+type LeaseContext struct {
+    DefinitionID  string
+    ResourceKey   string
+    Ownership     OwnershipMeta
+    FencingToken  uint64
+    LeaseTTL      time.Duration
+    LeaseDeadline time.Time
+}
+
+type ClaimContext struct {
+    DefinitionID   string
+    ResourceKey    string
+    Ownership      OwnershipMeta
+    FencingToken   uint64
+    LeaseTTL       time.Duration
+    LeaseDeadline  time.Time
+    IdempotencyKey string
+}
+
+type PresenceStatus struct {
+    Held          bool
+    Unknown       bool
+    Mode          string
+    OwnerID       string
+    LeaseDeadline time.Time
+}
+```
+
+Override rules:
+
+- Allowed narrowing: lower `WaitTimeout`, lower retry count
+- Disallowed widening: higher `LeaseTTL`, mode changes, fencing changes, idempotency changes
+- Unknown or unsupported overrides must be rejected at runtime
 
 ### Sync API
 
@@ -296,6 +406,13 @@ Low-level acquire, renew, and release primitives may exist internally or for exc
 7. Release the lock.
 8. Emit metrics, tracing, and audit events.
 
+Renewal strategy:
+
+- The SDK owns lease renewal, not application code.
+- Renewal starts automatically for executions that outlive one renewal interval.
+- The default renewal interval is `LeaseTTL / 3`, subject to implementation-level min and max safety clamps.
+- Renewal failure marks the lease as lost, cancels the callback context, emits `ErrLeaseLost`, and triggers best-effort cleanup or release.
+
 ### Async Worker Lifecycle
 
 1. Resolve lock definition from the registry.
@@ -309,6 +426,8 @@ Low-level acquire, renew, and release primitives may exist internally or for exc
 9. Release the claim.
 10. Emit metrics, tracing, and audit events.
 
+Renewal follows the same SDK-owned model as sync execution. Worker handlers must not own lease renewal directly.
+
 ### Presence Check Lifecycle
 
 1. Resolve lock definition from the registry.
@@ -318,12 +437,23 @@ Low-level acquire, renew, and release primitives may exist internally or for exc
 5. Return advisory presence metadata.
 6. Emit metrics and tracing events.
 
+## Context and Deadline Semantics
+
+- Caller `context.Context` deadline always wins over configured `WaitTimeout`.
+- Effective acquire timeout is `min(context deadline, WaitTimeout)`.
+- Context cancellation stops waiting immediately.
+- Once a lock is acquired, context cancellation triggers best-effort release rather than waiting for TTL expiry.
+- `LeaseTTL` remains policy-defined and cannot be widened by runtime overrides.
+- Long-running handlers should keep the critical section short even if SDK renewal is available.
+
 ## Composite and Overlap Rules
 
 - Composite lock plans are all-or-nothing.
 - Runtime acquires composite members using canonical ordering.
 - When parent and child locks overlap within the same resource tree, runtime either escalates to parent or rejects, based on declared policy.
 - Parent lock is the default recommendation for aggregate-critical write paths.
+- Partial composite acquisition failure triggers rollback by releasing already acquired members in reverse acquisition order.
+- Composite plans may overlap with other composite plans as long as canonical ordering remains global and deterministic.
 
 Canonical ordering should be deterministic across the entire system. The recommended default is:
 
@@ -332,6 +462,8 @@ Canonical ordering should be deterministic across the entire system. The recomme
 3. sort by normalized resource key
 
 Application code must not choose acquisition order dynamically.
+
+Mixed-mode composite plans are invalid. A composite definition must contain either all `standard` members or all `strict` members.
 
 ## Driver Abstraction
 
@@ -344,6 +476,24 @@ Drivers are backend adapters, not policy owners. A driver is responsible for:
 - inspect lease ownership and token metadata
 
 Coordination semantics remain in runtime, worker, and guard layers rather than in storage-specific drivers.
+
+## Graceful Degradation Policy
+
+Backend outage behavior must be explicit rather than inferred.
+
+Recommended defaults:
+
+- `standard` mode: fail closed by default; an explicit `best_effort_open` policy may be allowed for low-risk paths
+- `strict` mode: always fail closed
+- presence check: return `Unknown` status and an error, never pretend the resource is unlocked
+
+`BackendFailurePolicy` must be declared per definition and validated against mode constraints. `strict` definitions may not opt into fail-open behavior.
+
+## Reentrancy Policy
+
+The platform is non-reentrant.
+
+If the same owner attempts to acquire the same lock again within the same process or execution tree, runtime must reject the request with a typed policy error rather than deadlocking or reference-counting implicitly.
 
 ## Strict Mode Contract
 
@@ -432,9 +582,13 @@ Minimum metrics:
 - timeout count
 - renew count
 - lease lost count
+- active lock count
+- hold duration
 - duplicate count
 - stale reject count
+- guarded write latency
 - guarded write outcome count
+- composite member count
 
 Minimum tags:
 
@@ -450,12 +604,25 @@ Minimum tags:
 
 Recommended spans:
 
+- `lock.execution`
 - `lock.resolve`
 - `lock.acquire`
 - `lock.renew`
 - `handler.execute`
 - `guarded_write`
 - `lock.release`
+
+Recommended hierarchy:
+
+```text
+lock.execution
+├── lock.resolve
+├── lock.acquire
+├── handler.execute
+│   └── guarded_write
+├── lock.renew (0..N)
+└── lock.release
+```
 
 ### Audit and Introspection
 
@@ -466,6 +633,19 @@ Operators should be able to inspect:
 - lease expiry
 - fencing token
 - recent contention behavior
+
+### Audit Hook
+
+Recommended interface:
+
+```go
+type AuditHook interface {
+    OnAcquire(ctx context.Context, event AcquireEvent)
+    OnRelease(ctx context.Context, event ReleaseEvent)
+    OnGuardedWrite(ctx context.Context, event GuardWriteEvent)
+    OnContention(ctx context.Context, event ContentionEvent)
+}
+```
 
 ## Error and Outcome Taxonomy
 
@@ -479,6 +659,7 @@ Recommended typed errors and outcomes:
 - `ErrIdempotencyConflict`
 - `ErrRegistryViolation`
 - `ErrPolicyViolation`
+- `ErrReentrantAcquire`
 - `ErrGuardRejected`
 
 This taxonomy is required so application code and worker runtimes can distinguish retryable conditions from safe terminal outcomes.
@@ -488,6 +669,7 @@ This taxonomy is required so application code and worker runtimes can distinguis
 ### Phase 1
 
 - Implement `definitions`, `registry`, and `errors`.
+- Implement `testing` with `InMemoryDriver`.
 - Support `standard` mode.
 - Support parent locks.
 - Add baseline metrics.
@@ -495,15 +677,23 @@ This taxonomy is required so application code and worker runtimes can distinguis
 ### Phase 2
 
 - Add `workers`.
+- Ship the first production driver.
 - Add idempotency contracts.
 - Add child and composite locks.
 - Harden registry validation.
 
-### Phase 3
+### Phase 3a
 
 - Add `strict` mode.
 - Add fencing token support.
+
+### Phase 3b
+
 - Add guarded write contracts.
+- Add repository helper contracts.
+
+### Phase 3c
+
 - Add tracing, audit hooks, and introspection.
 
 ### Phase 4
@@ -527,3 +717,5 @@ This taxonomy is required so application code and worker runtimes can distinguis
 - Which driver should be implemented first for internal adoption?
 - Should guarded write helpers be generic interfaces or opinionated repository adapters?
 - Should parent-child overlap default to escalation or explicit rejection?
+- What is the operational migration strategy if a service changes lock backend drivers?
+- What clock-skew assumptions are acceptable for lease inspection and operator-facing expiry visibility?
