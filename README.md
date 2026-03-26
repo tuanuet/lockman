@@ -10,10 +10,17 @@ Distributed lock platform SDK prototype for Go.
 - Central registry validation plus the in-memory `testkit` driver
 - Parent-lock focused scope with baseline runtime metrics
 
+## Dependency Boundaries
+
+- `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
+- `go run ./examples/no-dependency-awareness` shows a child-like lock with `ParentRef` can still nest under a parent lock because Phase 1 does not enforce parent-child dependency semantics.
+
 ## Commands
 
 - `go test ./...`
 - `go test ./... -cover`
 - `go run ./examples/basic`
 - `go run ./examples/contention`
+- `go run ./examples/no-dependency-awareness`
+- `go run ./examples/reentrant`
 - `go run ./examples/ttl`
