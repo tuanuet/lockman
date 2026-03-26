@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/observe"
@@ -104,4 +105,14 @@ func (m *Manager) inFlightDrainChannel() <-chan struct{} {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	return m.inFlightDrain
+}
+
+func (m *Manager) getCompositeDefinition(id string) (def definitions.CompositeDefinition, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = lockerrors.ErrPolicyViolation
+		}
+	}()
+	def = m.registry.MustGetComposite(id)
+	return def, err
 }

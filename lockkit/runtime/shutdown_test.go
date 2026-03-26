@@ -135,6 +135,47 @@ func TestShutdownWaitsForInFlightExecutionToDrain(t *testing.T) {
 	}
 }
 
+func TestShutdownWaitsForInFlightCompositeExecutionToDrain(t *testing.T) {
+	reg := newCompositeRegistry(t)
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	execErrCh := make(chan error, 1)
+	go func() {
+		execErrCh <- mgr.ExecuteCompositeExclusive(context.Background(), compositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(callbackEntered)
+			<-releaseCallback
+			return nil
+		})
+	}()
+
+	<-callbackEntered
+
+	shutdownErrCh := make(chan error, 1)
+	go func() {
+		shutdownErrCh <- mgr.Shutdown(context.Background())
+	}()
+
+	select {
+	case err := <-shutdownErrCh:
+		t.Fatalf("Shutdown returned before in-flight composite execution drained: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releaseCallback)
+
+	if err := <-shutdownErrCh; err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	if err := <-execErrCh; err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+}
+
 func TestShutdownReturnsContextErrorWhenInFlightDoesNotDrain(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
