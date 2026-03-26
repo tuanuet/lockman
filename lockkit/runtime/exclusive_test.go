@@ -171,6 +171,46 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveZeroWaitTimeoutOverride(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		WaitTimeout:   5 * time.Second,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	driver := &contextSensitiveDriver{}
+	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+		Overrides: &definitions.RuntimeOverrides{
+			WaitTimeout: durationPtr(0),
+		},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatalf("callback should not execute")
+		return nil
+	})
+
+	if !errors.Is(err, lockerrors.ErrLockAcquireTimeout) {
+		t.Fatalf("expected timeout error for zero override, got %v", err)
+	}
+}
+
 func TestExecuteExclusiveHonorsContextDeadlineBeforeWaitTimeout(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -275,6 +315,51 @@ func TestExecuteExclusiveConcurrentSameOwnerGuard(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveCancellationPropagates(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	driver := newBlockingDriver()
+	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- mgr.ExecuteExclusive(ctx, req, func(ctx context.Context, lease definitions.LeaseContext) error {
+			return nil
+		})
+	}()
+
+	driver.WaitForAcquire()
+	cancel()
+
+	err = <-errCh
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
 type contextSensitiveDriver struct{}
 
 func (contextSensitiveDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
@@ -352,4 +437,8 @@ func (b *blockingDriver) WaitForAcquire() {
 
 func (b *blockingDriver) UnblockAcquire() {
 	b.resumeOnce.Do(func() { close(b.resume) })
+}
+
+func durationPtr(d time.Duration) *time.Duration {
+	return &d
 }

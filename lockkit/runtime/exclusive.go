@@ -27,29 +27,39 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	waitTimeout, err := applyRuntimeOverrides(def, req.Overrides)
-	if err != nil {
-		return err
-	}
-
 	key := lockKey(def.ID, resourceKey, req.Ownership.OwnerID)
 	if _, loaded := m.active.LoadOrStore(key, struct{}{}); loaded {
 		return lockerrors.ErrReentrantAcquire
 	}
-	m.recordActiveLocks(ctx, def.ID)
-	guardActive := true
-	defer func() {
-		if guardActive {
-			m.active.Delete(key)
-			m.recordActiveLocks(ctx, def.ID)
-		}
-	}()
 
-	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitTimeout)
+	waitConfig, err := applyRuntimeOverrides(def, req.Overrides)
+	if err != nil {
+		return err
+	}
+
+	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
 	defer cancel()
 
+	var lease drivers.LeaseRecord
+	var leaseAcquired bool
+	defer func() {
+		if leaseAcquired {
+			held := time.Since(lease.AcquiredAt)
+			m.recorder.RecordRelease(ctx, def.ID, held)
+			if releaseErr := m.driver.Release(context.Background(), lease); releaseErr != nil {
+				if retErr == nil {
+					retErr = releaseErr
+				} else {
+					retErr = stdErrors.Join(retErr, releaseErr)
+				}
+			}
+		}
+		m.active.Delete(key)
+		m.recordActiveLocks(ctx, def.ID)
+	}()
+
 	start := time.Now()
-	lease, err := m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
+	lease, err = m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
 		DefinitionID: def.ID,
 		ResourceKeys: []string{resourceKey},
 		OwnerID:      req.Ownership.OwnerID,
@@ -63,6 +73,8 @@ func (m *Manager) ExecuteExclusive(
 		return mapAcquireError(err)
 	}
 
+	leaseAcquired = true
+	m.recordActiveLocks(ctx, def.ID)
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
 		ResourceKey:   resourceKey,
@@ -70,18 +82,6 @@ func (m *Manager) ExecuteExclusive(
 		LeaseTTL:      lease.LeaseTTL,
 		LeaseDeadline: lease.ExpiresAt,
 	}
-
-	defer func() {
-		held := time.Since(lease.AcquiredAt)
-		m.recorder.RecordRelease(ctx, def.ID, held)
-		if releaseErr := m.driver.Release(context.Background(), lease); releaseErr != nil {
-			if retErr == nil {
-				retErr = releaseErr
-			} else {
-				retErr = stdErrors.Join(retErr, releaseErr)
-			}
-		}
-	}()
 
 	retErr = fn(ctx, leaseCtx)
 	return retErr
@@ -96,44 +96,56 @@ func recordAcquireFailure(m *Manager, ctx context.Context, definitionID string, 
 	}
 }
 
-func applyRuntimeOverrides(def definitions.LockDefinition, overrides *definitions.RuntimeOverrides) (time.Duration, error) {
+type waitConfig struct {
+	timeout  time.Duration
+	explicit bool
+}
+
+func applyRuntimeOverrides(def definitions.LockDefinition, overrides *definitions.RuntimeOverrides) (waitConfig, error) {
+	cfg := waitConfig{timeout: def.WaitTimeout}
 	if overrides == nil {
-		return def.WaitTimeout, nil
+		return cfg, nil
 	}
 	if overrides.MaxRetries != nil {
-		return 0, lockerrors.ErrPolicyViolation
+		return waitConfig{}, lockerrors.ErrPolicyViolation
 	}
 	if overrides.WaitTimeout == nil {
-		return def.WaitTimeout, nil
+		return cfg, nil
 	}
 
 	wait := *overrides.WaitTimeout
 	if wait < 0 {
-		return 0, lockerrors.ErrPolicyViolation
+		return waitConfig{}, lockerrors.ErrPolicyViolation
 	}
 	if def.WaitTimeout > 0 && wait > def.WaitTimeout {
-		return 0, lockerrors.ErrPolicyViolation
+		return waitConfig{}, lockerrors.ErrPolicyViolation
 	}
-	return wait, nil
+
+	cfg.timeout = wait
+	cfg.explicit = true
+	return cfg, nil
 }
 
 func mapAcquireError(err error) error {
 	switch {
 	case stdErrors.Is(err, drivers.ErrLeaseAlreadyHeld):
 		return lockerrors.ErrLockBusy
-	case stdErrors.Is(err, context.DeadlineExceeded), stdErrors.Is(err, context.Canceled):
+	case stdErrors.Is(err, context.DeadlineExceeded):
 		return lockerrors.ErrLockAcquireTimeout
 	default:
 		return err
 	}
 }
 
-func contextWithAcquireTimeout(ctx context.Context, waitTimeout time.Duration) (context.Context, context.CancelFunc) {
-	if waitTimeout <= 0 {
+func contextWithAcquireTimeout(ctx context.Context, cfg waitConfig) (context.Context, context.CancelFunc) {
+	if cfg.timeout <= 0 {
+		if cfg.explicit {
+			return context.WithDeadline(ctx, time.Now())
+		}
 		return ctx, func() {}
 	}
 
-	deadline := time.Now().Add(waitTimeout)
+	deadline := time.Now().Add(cfg.timeout)
 	if ctxDeadline, ok := ctx.Deadline(); ok {
 		if !deadline.Before(ctxDeadline) {
 			return ctx, func() {}
