@@ -16,7 +16,6 @@ import (
 type reentryKey struct {
 	definitionID string
 	resourceKey  string
-	ownerID      string
 }
 
 type definitionSnapshotReader interface {

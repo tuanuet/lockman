@@ -112,6 +112,45 @@ func TestExecuteClaimedTreatsCompletedDuplicateAsAckWithoutCallback(t *testing.T
 	}
 }
 
+func TestExecuteClaimedTreatsFailedDuplicateAsAckWithoutCallback(t *testing.T) {
+	mgr := newWorkerManagerForTest(t)
+	if _, err := mgr.testStore.Begin(context.Background(), "msg:123", idempotency.BeginInput{
+		OwnerID:       "worker-a",
+		MessageID:     "123",
+		ConsumerGroup: "payments",
+		Attempt:       1,
+		TTL:           30 * time.Second,
+	}); err != nil {
+		t.Fatalf("Begin returned error: %v", err)
+	}
+	if err := mgr.testStore.Fail(context.Background(), "msg:123", idempotency.FailInput{
+		OwnerID:   "worker-a",
+		MessageID: "123",
+		TTL:       5 * time.Minute,
+	}); err != nil {
+		t.Fatalf("Fail returned error: %v", err)
+	}
+
+	called := false
+	err := mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		called = true
+		return nil
+	})
+	if got := policy.OutcomeFromError(err); got != policy.OutcomeAck {
+		t.Fatalf("expected failed duplicate outcome ack, got %q (err=%v)", got, err)
+	}
+	if called {
+		t.Fatal("callback must not run for failed duplicate")
+	}
+	record, err := mgr.testStore.Get(context.Background(), "msg:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusFailed {
+		t.Fatalf("expected failed status retention, got %q", record.Status)
+	}
+}
+
 func TestExecuteClaimedSameProcessReentrantRejected(t *testing.T) {
 	mgr := newWorkerManagerForTest(t)
 	req := messageClaimRequest()
@@ -141,6 +180,120 @@ func TestExecuteClaimedSameProcessReentrantRejected(t *testing.T) {
 	}
 }
 
+func TestExecuteClaimedReentrantSameResourceDifferentOwnerRejected(t *testing.T) {
+	mgr := newWorkerManagerForTest(t)
+	firstReq := messageClaimRequest()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- mgr.ExecuteClaimed(context.Background(), firstReq, func(ctx context.Context, claim definitions.ClaimContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	secondReq := messageClaimRequest()
+	secondReq.IdempotencyKey = "msg:second-owner"
+	secondReq.Ownership.OwnerID = "worker-b"
+	secondReq.Ownership.MessageID = "124"
+	err := mgr.ExecuteClaimed(context.Background(), secondReq, func(ctx context.Context, claim definitions.ClaimContext) error {
+		t.Fatal("callback should not run for same-resource reentrant claim with different owner")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrReentrantAcquire) {
+		t.Fatalf("expected reentrant error, got %v", err)
+	}
+
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first ExecuteClaimed returned error: %v", err)
+	}
+}
+
+func TestExecuteClaimedValidatesIdempotencyMetadataWhenRequired(t *testing.T) {
+	mgr := newWorkerManagerForTest(t)
+	cases := []struct {
+		name   string
+		mutate func(*definitions.MessageClaimRequest)
+	}{
+		{
+			name: "missing message id",
+			mutate: func(req *definitions.MessageClaimRequest) {
+				req.Ownership.MessageID = ""
+			},
+		},
+		{
+			name: "missing consumer group",
+			mutate: func(req *definitions.MessageClaimRequest) {
+				req.Ownership.ConsumerGroup = ""
+			},
+		},
+		{
+			name: "non-positive attempt",
+			mutate: func(req *definitions.MessageClaimRequest) {
+				req.Ownership.Attempt = 0
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := messageClaimRequest()
+			tc.mutate(&req)
+
+			called := false
+			err := mgr.ExecuteClaimed(context.Background(), req, func(ctx context.Context, claim definitions.ClaimContext) error {
+				called = true
+				return nil
+			})
+			if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+				t.Fatalf("expected policy violation, got %v", err)
+			}
+			if called {
+				t.Fatal("callback should not execute when idempotency metadata is invalid")
+			}
+		})
+	}
+}
+
+func TestExecuteClaimedDetectsRenewalFailureAfterCallbackReturns(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, true)
+	store := idempotency.NewMemoryStore()
+	driver := newPostCallbackRenewFailDriver()
+
+	mgr, err := NewManager(reg, driver, store)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	callbackReturned := make(chan struct{})
+	go func() {
+		<-callbackReturned
+		driver.releaseRenew()
+	}()
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		<-driver.renewStarted()
+		close(callbackReturned)
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrLeaseLost) {
+		t.Fatalf("expected lease lost when renew fails after callback return, got %v", err)
+	}
+
+	record, err := store.Get(context.Background(), "msg:123")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if record.Status != idempotency.StatusInProgress {
+		t.Fatalf("expected in-progress status for retry path, got %q", record.Status)
+	}
+}
+
 func TestOutcomeFromErrorMapsWorkerErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -150,6 +303,7 @@ func TestOutcomeFromErrorMapsWorkerErrors(t *testing.T) {
 		{name: "nil", err: nil, want: policy.OutcomeAck},
 		{name: "busy", err: lockerrors.ErrLockBusy, want: policy.OutcomeRetry},
 		{name: "duplicate ignored", err: lockerrors.ErrDuplicateIgnored, want: policy.OutcomeAck},
+		{name: "dlq wrapped", err: policy.DLQ(errors.New("poison message")), want: policy.OutcomeDLQ},
 		{name: "policy violation", err: lockerrors.ErrPolicyViolation, want: policy.OutcomeDrop},
 	}
 
@@ -229,6 +383,54 @@ func messageClaimRequest() definitions.MessageClaimRequest {
 			HandlerName:   "HandlePayment",
 		},
 	}
+}
+
+type postCallbackRenewFailDriver struct {
+	base             *testkit.MemoryDriver
+	renewStartedCh   chan struct{}
+	allowRenewResult chan struct{}
+}
+
+func newPostCallbackRenewFailDriver() *postCallbackRenewFailDriver {
+	return &postCallbackRenewFailDriver{
+		base:             testkit.NewMemoryDriver(),
+		renewStartedCh:   make(chan struct{}),
+		allowRenewResult: make(chan struct{}),
+	}
+}
+
+func (d *postCallbackRenewFailDriver) renewStarted() <-chan struct{} {
+	return d.renewStartedCh
+}
+
+func (d *postCallbackRenewFailDriver) releaseRenew() {
+	close(d.allowRenewResult)
+}
+
+func (d *postCallbackRenewFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d *postCallbackRenewFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	select {
+	case <-d.renewStartedCh:
+	default:
+		close(d.renewStartedCh)
+	}
+	<-d.allowRenewResult
+	return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+}
+
+func (d *postCallbackRenewFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *postCallbackRenewFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *postCallbackRenewFailDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
 }
 
 type renewFailDriver struct {

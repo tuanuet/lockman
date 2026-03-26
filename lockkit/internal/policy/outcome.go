@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	lockerrors "lockman/lockkit/errors"
 )
@@ -17,11 +18,23 @@ const (
 	OutcomeDLQ   WorkerOutcome = "dlq"
 )
 
+var errDLQ = errors.New("worker dlq")
+
+// DLQ wraps an error to force DLQ mapping through OutcomeFromError.
+func DLQ(err error) error {
+	if err == nil {
+		return errDLQ
+	}
+	return fmt.Errorf("%w: %w", errDLQ, err)
+}
+
 // OutcomeFromError maps runtime and callback errors into normalized queue outcomes.
 func OutcomeFromError(err error) WorkerOutcome {
 	switch {
 	case err == nil:
 		return OutcomeAck
+	case errors.Is(err, errDLQ):
+		return OutcomeDLQ
 	case errors.Is(err, lockerrors.ErrDuplicateIgnored):
 		return OutcomeAck
 	case errors.Is(err, lockerrors.ErrPolicyViolation):

@@ -58,7 +58,6 @@ func (m *Manager) ExecuteClaimed(
 	guard := reentryKey{
 		definitionID: def.ID,
 		resourceKey:  resourceKey,
-		ownerID:      req.Ownership.OwnerID,
 	}
 	if _, loaded := m.active.LoadOrStore(guard, struct{}{}); loaded {
 		return lockerrors.ErrReentrantAcquire
@@ -98,7 +97,12 @@ func (m *Manager) ExecuteClaimed(
 	callbackCtx, callbackCancel := context.WithCancel(ctx)
 	defer callbackCancel()
 	renewal := m.startLeaseRenewal(lease, callbackCancel)
-	defer renewal.stopAndWait()
+	renewalStopped := false
+	defer func() {
+		if !renewalStopped {
+			renewal.stopAndWait()
+		}
+	}()
 
 	callbackErr := fn(callbackCtx, definitions.ClaimContext{
 		DefinitionID:   def.ID,
@@ -108,6 +112,9 @@ func (m *Manager) ExecuteClaimed(
 		LeaseDeadline:  lease.ExpiresAt,
 		IdempotencyKey: req.IdempotencyKey,
 	})
+
+	renewal.stopAndWait()
+	renewalStopped = true
 
 	if renewErr := renewal.failure(); renewErr != nil {
 		callbackErr = renewErr
@@ -137,6 +144,17 @@ func validateClaimRequest(def definitions.LockDefinition, req definitions.Messag
 	}
 	if def.IdempotencyRequired && strings.TrimSpace(req.IdempotencyKey) == "" {
 		return lockerrors.ErrPolicyViolation
+	}
+	if shouldUseIdempotency(def, req) {
+		if strings.TrimSpace(req.Ownership.MessageID) == "" {
+			return lockerrors.ErrPolicyViolation
+		}
+		if strings.TrimSpace(req.Ownership.ConsumerGroup) == "" {
+			return lockerrors.ErrPolicyViolation
+		}
+		if req.Ownership.Attempt <= 0 {
+			return lockerrors.ErrPolicyViolation
+		}
 	}
 	return nil
 }
@@ -197,7 +215,14 @@ func (m *Manager) handleIdempotencyRecord(
 		}
 		return lockerrors.ErrDuplicateIgnored
 	case idempotency.StatusFailed:
-		return lockerrors.ErrLockBusy
+		if err := m.idempotency.Fail(context.Background(), req.IdempotencyKey, idempotency.FailInput{
+			OwnerID:   req.Ownership.OwnerID,
+			MessageID: req.Ownership.MessageID,
+			TTL:       terminalTTL(def.LeaseTTL),
+		}); err != nil {
+			return err
+		}
+		return lockerrors.ErrDuplicateIgnored
 	default:
 		return lockerrors.ErrLockBusy
 	}

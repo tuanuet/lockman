@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -87,6 +88,9 @@ func (m *Manager) startLeaseRenewal(
 
 			updated, err := m.driver.Renew(renewCtx, current)
 			if err != nil {
+				if renewCtx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+					return
+				}
 				session.setFailure(fmt.Errorf("%w: %v", lockerrors.ErrLeaseLost, err))
 				if onFailureCancel != nil {
 					onFailureCancel()
