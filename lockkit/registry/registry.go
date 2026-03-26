@@ -10,18 +10,21 @@ import (
 // Reader provides read-only access to registered lock definitions.
 type Reader interface {
 	MustGet(id string) definitions.LockDefinition
+	MustGetComposite(id string) definitions.CompositeDefinition
 }
 
-// Registry holds lock definitions in Phase 1.
+// Registry holds lock and composite definitions.
 type Registry struct {
 	mu          sync.RWMutex
 	definitions map[string]definitions.LockDefinition
+	composites  map[string]definitions.CompositeDefinition
 }
 
 // New creates an empty lock registry.
 func New() *Registry {
 	return &Registry{
 		definitions: make(map[string]definitions.LockDefinition),
+		composites:  make(map[string]definitions.CompositeDefinition),
 	}
 }
 
@@ -36,8 +39,31 @@ func (r *Registry) Register(def definitions.LockDefinition) error {
 	if _, exists := r.definitions[def.ID]; exists {
 		return fmt.Errorf("lock definition %q already registered", def.ID)
 	}
+	if _, exists := r.composites[def.ID]; exists {
+		return fmt.Errorf("lock definition %q collides with registered composite definition", def.ID)
+	}
 
 	r.definitions[def.ID] = cloneDefinition(def)
+	return nil
+}
+
+// RegisterComposite stores a composite definition.
+func (r *Registry) RegisterComposite(def definitions.CompositeDefinition) error {
+	if err := requireCompositeDefinitionID(def); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.composites[def.ID]; exists {
+		return fmt.Errorf("composite definition %q already registered", def.ID)
+	}
+	if _, exists := r.definitions[def.ID]; exists {
+		return fmt.Errorf("composite definition %q collides with lock definition ID", def.ID)
+	}
+
+	r.composites[def.ID] = cloneCompositeDefinition(def)
 	return nil
 }
 
@@ -45,14 +71,29 @@ func (r *Registry) Register(def definitions.LockDefinition) error {
 func (r *Registry) Validate() error {
 	r.mu.RLock()
 	defs := make([]definitions.LockDefinition, 0, len(r.definitions))
+	defByID := make(map[string]definitions.LockDefinition, len(r.definitions))
 	for _, def := range r.definitions {
-		defs = append(defs, def)
+		cloned := cloneDefinition(def)
+		defs = append(defs, cloned)
+		defByID[cloned.ID] = cloned
+	}
+	composites := make([]definitions.CompositeDefinition, 0, len(r.composites))
+	for _, def := range r.composites {
+		composites = append(composites, cloneCompositeDefinition(def))
 	}
 	r.mu.RUnlock()
 
 	for _, def := range defs {
 		if err := ValidateDefinition(def); err != nil {
 			return fmt.Errorf("definition %q: %w", def.ID, err)
+		}
+		if err := ValidateDefinitionAgainstRegistry(def, defByID); err != nil {
+			return fmt.Errorf("definition %q: %w", def.ID, err)
+		}
+	}
+	for _, composite := range composites {
+		if err := ValidateCompositeDefinition(composite, defByID); err != nil {
+			return fmt.Errorf("composite definition %q: %w", composite.ID, err)
 		}
 	}
 	return nil
@@ -69,6 +110,17 @@ func (r *Registry) MustGet(id string) definitions.LockDefinition {
 	return cloneDefinition(def)
 }
 
+// MustGetComposite returns the stored composite definition or panics if it is unknown.
+func (r *Registry) MustGetComposite(id string) definitions.CompositeDefinition {
+	r.mu.RLock()
+	def, exists := r.composites[id]
+	r.mu.RUnlock()
+	if !exists {
+		panic(fmt.Sprintf("composite definition %q not found", id))
+	}
+	return cloneCompositeDefinition(def)
+}
+
 func cloneDefinition(def definitions.LockDefinition) definitions.LockDefinition {
 	if def.Tags == nil {
 		return def
@@ -78,5 +130,13 @@ func cloneDefinition(def definitions.LockDefinition) definitions.LockDefinition 
 		cloned[key] = value
 	}
 	def.Tags = cloned
+	return def
+}
+
+func cloneCompositeDefinition(def definitions.CompositeDefinition) definitions.CompositeDefinition {
+	if def.Members == nil {
+		return def
+	}
+	def.Members = append([]string(nil), def.Members...)
 	return def
 }
