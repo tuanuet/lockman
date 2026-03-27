@@ -6,6 +6,10 @@ var (
 	// ErrLockBusy is returned when another client holds the lock.
 	ErrLockBusy = stdErrors.New("lock busy")
 
+	// ErrOverlapRejected is returned when lineage overlap is rejected.
+	// This must remain distinct from ErrLockBusy so workers can normalize retry behavior explicitly.
+	ErrOverlapRejected = stdErrors.New("overlap rejected")
+
 	// ErrLockAcquireTimeout is returned when lock acquisition exceeds the configured timeout.
 	ErrLockAcquireTimeout = stdErrors.New("lock acquire timeout")
 

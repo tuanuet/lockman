@@ -37,3 +37,17 @@ func TestDriverContractHasNoInspectMethod(t *testing.T) {
 		t.Fatalf("driver contract must not expose redis-specific inspect method")
 	}
 }
+
+func TestLineageDriverContractIsOptional(t *testing.T) {
+	driverType := reflect.TypeOf((*Driver)(nil)).Elem()
+	if _, exists := driverType.MethodByName("AcquireWithLineage"); exists {
+		t.Fatalf("drivers.Driver must remain exact-key only; lineage is an optional capability")
+	}
+
+	lineageType := reflect.TypeOf((*LineageDriver)(nil)).Elem()
+	for _, name := range []string{"AcquireWithLineage", "RenewWithLineage", "ReleaseWithLineage"} {
+		if _, exists := lineageType.MethodByName(name); !exists {
+			t.Fatalf("LineageDriver contract missing method %s", name)
+		}
+	}
+}

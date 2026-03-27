@@ -45,6 +45,8 @@ func OutcomeFromError(err error) WorkerOutcome {
 		return OutcomeRetry
 	case errors.Is(err, lockerrors.ErrLockBusy):
 		return OutcomeRetry
+	case errors.Is(err, lockerrors.ErrOverlapRejected):
+		return OutcomeRetry
 	case errors.Is(err, lockerrors.ErrLockAcquireTimeout):
 		return OutcomeRetry
 	case errors.Is(err, lockerrors.ErrLeaseLost):

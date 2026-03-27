@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"lockman/lockkit/definitions"
 )
 
 var (
@@ -60,4 +62,38 @@ type Driver interface {
 	Release(ctx context.Context, lease LeaseRecord) error
 	CheckPresence(ctx context.Context, req PresenceRequest) (PresenceRecord, error)
 	Ping(ctx context.Context) error
+}
+
+// AncestorKey describes an ancestor lock resource key for lineage-aware operations.
+type AncestorKey struct {
+	DefinitionID string
+	ResourceKey  string
+}
+
+// LineageLeaseMeta includes the lineage details drivers must persist or return for
+// lineage-aware renew/release operations.
+type LineageLeaseMeta struct {
+	LeaseID      string
+	Kind         definitions.LockKind
+	AncestorKeys []AncestorKey
+}
+
+// LineageAcquireRequest describes the inputs required to acquire a lineage-aware lease.
+type LineageAcquireRequest struct {
+	DefinitionID string
+	ResourceKey  string
+	OwnerID      string
+	LeaseTTL     time.Duration
+	Lineage      LineageLeaseMeta
+}
+
+// LineageDriver is an optional capability for backends that can execute lineage-aware
+// acquire/renew/release operations (e.g. parent-child overlap protection).
+//
+// Drivers must also implement Driver; callers can feature-detect this interface via
+// a type assertion.
+type LineageDriver interface {
+	AcquireWithLineage(ctx context.Context, req LineageAcquireRequest) (LeaseRecord, error)
+	RenewWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) (LeaseRecord, LineageLeaseMeta, error)
+	ReleaseWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) error
 }
