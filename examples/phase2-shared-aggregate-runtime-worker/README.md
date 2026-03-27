@@ -19,6 +19,8 @@ The example uses split sync and async definitions over the same aggregate key bo
 
 That does not automatically mean `ExecutionKind=both` is wrong. A single shared definition can still be acceptable when both paths really protect the same business meaning and deserve the same review semantics. This example keeps them split because it is easier to teach and easier to govern.
 
+One important nuance: split definitions over the same key shape do not automatically create one shared lease namespace. If you need `runtime` and `workers` to contend on the exact same lock record, use one shared `ExecutionKind=both` definition instead.
+
 ## Run
 
 ```bash
