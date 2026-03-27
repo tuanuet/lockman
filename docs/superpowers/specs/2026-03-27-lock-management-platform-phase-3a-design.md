@@ -101,7 +101,7 @@ For a single-resource definition with `Mode=strict`:
 
 - strict definitions remain fail-closed
 - if the configured driver does not support fencing, manager construction fails
-- if a strict acquire cannot obtain a fencing token, acquisition fails
+- if a strict acquire cannot obtain a fencing token, acquisition fails and the underlying driver error should propagate rather than being rewritten as a policy error
 - if renewal loses the strict lease, the callback is cancelled and the execution ends with `ErrLeaseLost`
 
 ### What Phase 3a Does Not Promise
@@ -163,6 +163,11 @@ type StrictDriver interface {
 }
 ```
 
+`RenewStrict` returns a refreshed `FencedLeaseRecord`:
+
+- `Lease` must contain the updated lease timings after a successful renew
+- `FencingToken` must remain identical to the token issued at acquire time
+
 ### Why A Separate Strict Capability
 
 A separate capability is preferred over mutating the existing `Driver` methods because:
@@ -184,6 +189,22 @@ For one `(definitionID, resourceKey)` strict boundary:
 Tokens are scoped to one strict lease namespace. They do not need to be globally increasing across all definitions.
 
 ## Manager Construction Rules
+
+Phase 3a should follow the same detection pattern introduced for Phase 2a lineage support.
+
+Recommended registry helpers:
+
+```go
+func RequiresStrictRuntimeDriver(reg Reader) bool
+func RequiresStrictWorkerDriver(reg Reader) bool
+```
+
+Semantics:
+
+- `RequiresStrictRuntimeDriver` returns true when any registered definition has `Mode=strict` and `ExecutionKind` of `sync` or `both`
+- `RequiresStrictWorkerDriver` returns true when any registered definition has `Mode=strict` and `ExecutionKind` of `async` or `both`
+
+This keeps manager construction aligned with the shared-registry pattern already used across runtime and workers.
 
 ### Runtime Manager
 
@@ -223,6 +244,18 @@ Strict execution still follows the current lifecycle:
 7. renew if needed
 8. release strict lease
 
+### Renewal Clarification
+
+Phase 3a does not add a renewal loop to `runtime.ExecuteExclusive`.
+
+That means:
+
+- strict runtime execution must still complete within one lease TTL window in this phase
+- `StrictDriver.RenewStrict` exists for contract completeness and for worker usage
+- runtime strict renewals remain a later-phase concern unless the runtime execution model itself grows a renewal loop
+
+This intentionally preserves the current asymmetry where worker execution has SDK-owned renewal and runtime execution does not.
+
 ### Reentrancy And Active Guards
 
 Same-process reentrancy remains unchanged. The local guard key stays:
@@ -232,6 +265,8 @@ Same-process reentrancy remains unchanged. The local guard key stays:
 - owner ID
 
 Strict mode does not weaken reentrancy policy.
+
+Phase 3a does not introduce a same-process reentrant execution fast-path. If the same runtime manager re-enters the exact same boundary, it is still rejected with the existing reentrancy error rather than executing a nested callback with copied lease state.
 
 ### Renewal
 
@@ -243,6 +278,22 @@ Strict renewals must preserve token identity:
 
 If renew fails because the lease is lost, the callback context is cancelled just as in standard mode.
 
+### Internal State Note
+
+The internal runtime lease holder should gain an optional fencing token alongside the existing lease metadata.
+
+Recommended shape:
+
+```go
+type heldLease struct {
+    lease         drivers.LeaseRecord
+    lineage       *drivers.LineageLeaseMeta
+    fencingToken  uint64
+}
+```
+
+The zero value keeps standard mode unchanged. Non-zero means the held lease came from the strict driver path.
+
 ## Worker Execution Design
 
 ### Acquire Path
@@ -251,6 +302,8 @@ When `ExecuteClaimed` resolves a definition:
 
 - standard mode keeps current behavior
 - strict mode uses strict-driver acquire and stores the fencing token in `ClaimContext`
+
+If a `strict + lineage` request somehow reaches `ExecuteClaimed` despite registry validation, the worker manager should still fail closed and return `ErrPolicyViolation` rather than attempting an undefined acquire path.
 
 ### Idempotency Requirement
 
@@ -268,6 +321,26 @@ Phase 3a does not change the existing worker terminal outcome mapping beyond car
 
 What changes is that the worker callback now receives the fencing token needed by future guarded-write integration.
 
+Strict-specific failure behavior in this phase is:
+
+- manager construction failure because the driver lacks `StrictDriver` happens before worker execution begins, so it does not participate in worker outcome mapping
+- strict acquire failure because a fencing token cannot be issued should propagate the underlying driver error
+- those acquire-time driver errors continue to flow through the existing `OutcomeFromError(...)` default behavior rather than introducing any new strict-only outcome mapping in Phase 3a
+
+### Internal State Note
+
+The worker renewal state should mirror the runtime pattern by carrying an optional fencing token:
+
+```go
+type renewableLease struct {
+    lease         drivers.LeaseRecord
+    lineage       *drivers.LineageLeaseMeta
+    fencingToken  uint64
+}
+```
+
+Again, `0` preserves standard-mode behavior and non-zero marks a strict claim.
+
 ## Definitions And Registry Rules
 
 Phase 3a keeps the current registry validation rules and clarifies them operationally:
@@ -282,12 +355,35 @@ No new definition fields are required in Phase 3a.
 Additional Phase 3a restriction:
 
 - strict definitions with `Kind=child` and a non-empty `ParentRef` remain unsupported
+- standard child definitions may not reference strict parents because Phase 2a lineage validation already requires both sides of the lineage chain to remain `ModeStandard`
+
+These restrictions should be enforced during registry validation rather than deferred until runtime or worker execution.
 
 Reason:
 
 - Phase 2a lineage enforcement is currently standard-mode focused
 - strict lineage raises extra questions about ancestor overlap, token scope, and future guarded-write semantics
 - Phase 3a should not partially invent strict lineage behavior without a dedicated design
+
+Strict definitions with `Kind=parent` and no children referencing them remain fully supported as single-resource strict locks.
+
+## Mode And Lineage Composition
+
+Phase 3a combines two independent dimensions:
+
+- lock mode: `standard` or `strict`
+- lineage participation: no lineage or lineage-aware
+
+The execution matrix is:
+
+| Mode | Lineage | Driver Path | Phase 3a Status |
+|---|---|---|---|
+| `standard` | none | `Driver.Acquire` | supported |
+| `standard` | present | `LineageDriver.AcquireWithLineage` | supported from Phase 2a |
+| `strict` | none | `StrictDriver.AcquireStrict` | supported in Phase 3a |
+| `strict` | present | blocked | unsupported in Phase 3a |
+
+The blocked `strict + lineage` case is enforced by registry validation rather than by ad hoc runtime branching.
 
 ## Driver Implementations
 
@@ -304,6 +400,7 @@ Recommended design:
 - on renew:
   - verify the same owner still holds the lease
   - return the same token already associated with that lease
+  - return a refreshed `LeaseRecord` inside the `FencedLeaseRecord`
 - on release:
   - verify owner and token match the active lease
 
@@ -315,6 +412,12 @@ Recommended key families:
 
 The exact Redis representation may be one Lua-backed atomic structure or a small atomic script set, but the driver must guarantee that lease acquisition and token issuance are one atomic decision.
 
+Key namespace requirement:
+
+- fencing counter keys must use a distinct prefix such as `lockman:lease:fence:{definition}:{resource}`
+- any token metadata keys must also use a dedicated strict-mode namespace
+- strict fencing keys must not collide with existing lease keys or lineage keys
+
 ### Memory Test Driver
 
 The in-memory driver in `testkit` should also implement `StrictDriver`.
@@ -322,7 +425,7 @@ The in-memory driver in `testkit` should also implement `StrictDriver`.
 It must:
 
 - issue deterministic increasing tokens per strict boundary
-- preserve token across renew
+- preserve token across renew while returning a refreshed `FencedLeaseRecord`
 - reject mismatched release attempts if token does not match the held lease
 
 This is required so strict runtime and worker behavior can be tested without Redis in the main unit suite.
@@ -363,6 +466,17 @@ Required messaging:
 - strict execution issues fencing tokens
 - full persistence safety still requires Phase 3b guarded writes
 - Phase 3a behavior is not the completed strict contract yet
+
+## Observability Boundary
+
+Phase 3a does not require a breaking change to `observe.Recorder`.
+
+The current recorder contract remains valid:
+
+- strict executions still call the existing acquire, contention, timeout, release, and active-lock hooks
+- no new strict-only recorder methods are required in this phase
+
+Operationally, strict executions are distinguished by definition metadata rather than by a new recorder API. Richer mode-aware telemetry remains a later observability increment.
 
 ## Testing Strategy
 
