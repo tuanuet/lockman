@@ -4,6 +4,8 @@ This document explains the public definition shapes in `lockkit/definitions`.
 
 It is a usage reference for application teams registering locks in the central registry. Phase-specific design rationale still lives in the spec documents under `docs/superpowers/specs/`.
 
+For guidance on choosing execution packages, see [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md).
+
 ## `LockDefinition`
 
 `LockDefinition` describes one logical lock that can later be used by `runtime`, `workers`, or both.

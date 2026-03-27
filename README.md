@@ -16,6 +16,7 @@ Distributed lock platform SDK prototype for Go.
 - Redis production driver and Redis-backed idempotency store
 - Child overlap rejection and standard-mode-only composite execution (Phase 2 reject-first overlap policy)
 - Lock definition field reference: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
+- Runtime vs workers guide: [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
 
 ## Redis Verification
 
@@ -59,6 +60,7 @@ Memory-backed:
 - `go run ./examples/phase2-composite-sync`
 - `go run ./examples/phase2-composite-worker`
 - `go run ./examples/phase2-overlap-reject`
+- `go run ./examples/phase2-parent-child-runtime`
 - `go run ./examples/contention`
 - `go run ./examples/no-dependency-awareness`
 - `go run ./examples/reentrant`
