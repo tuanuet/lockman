@@ -89,7 +89,7 @@ git commit -m "docs: scaffold lock scenarios guide"
 
 - [ ] **Step 1: Write the failing structural check for the early sections**
 
-Verify that the opening phrases already exist but the pattern body phrases do not yet exist:
+Verify that the decision-framing terms and pattern-body subheadings do not yet exist:
 
 Run: `rg -n "ordinary lock contention|parent-child overlap rejection|same-process reentrant rejection|duplicate-delivery|advisory presence|#### What It Is|#### Good Fit|#### Bad Fit|#### Trade-Offs|#### Architecture And Registry Notes" docs/lock-scenarios-and-best-practices.md`
 Expected: no matches yet
@@ -210,7 +210,7 @@ Additional scenario-specific requirements:
 
 - [ ] **Step 4: Verify the scenario section is structurally complete**
 
-Run: `test "$(rg -c "^### " docs/lock-scenarios-and-best-practices.md)" -ge 13 && test "$(rg -c "^#### Problem$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Pattern$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Execution Package$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Why This Choice$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Example Key Shape$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Best Practices$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Common Mistakes$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Architecture Note$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && echo ok`
+Run: `test "$(rg -c "^### " docs/lock-scenarios-and-best-practices.md)" -ge 13 && test "$(rg -c "^#### Problem$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Pattern$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Execution Package$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Why This Choice$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Example Key Shape$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Best Practices$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Common Mistakes$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Architecture Note$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && rg -n "one worker may process this shard at a time|independently safe and replayable|lock in producer, release in consumer|ExecutionKind=both|split definitions" docs/lock-scenarios-and-best-practices.md && echo ok`
 Expected: `ok`
 
 - [ ] **Step 5: Commit the scenario section**
