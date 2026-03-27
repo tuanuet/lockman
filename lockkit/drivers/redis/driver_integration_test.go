@@ -18,6 +18,138 @@ import (
 	lockerrors "lockman/lockkit/errors"
 )
 
+func requireRedisStrictDriver(t *testing.T, driver *Driver) drivers.StrictDriver {
+	t.Helper()
+
+	strict, ok := any(driver).(drivers.StrictDriver)
+	if !ok {
+		t.Fatal("redis driver must implement drivers.StrictDriver")
+	}
+	return strict
+}
+
+func strictAcquireRequest(ownerID string, ttl time.Duration) drivers.StrictAcquireRequest {
+	return drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      ownerID,
+		LeaseTTL:     ttl,
+	}
+}
+
+func TestDriverAcquireStrictIssuesPositiveFencingToken(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	acquired, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-a", 2*time.Second))
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	if acquired.FencingToken == 0 {
+		t.Fatal("expected fencing token > 0 for strict acquire")
+	}
+}
+
+func TestDriverAcquireStrictReacquireAfterReleaseGetsLargerToken(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	first, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-a", 2*time.Second))
+	if err != nil {
+		t.Fatalf("AcquireStrict first returned error: %v", err)
+	}
+	if err := strict.ReleaseStrict(ctx, first.Lease, first.FencingToken); err != nil {
+		t.Fatalf("ReleaseStrict first returned error: %v", err)
+	}
+
+	second, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-b", 2*time.Second))
+	if err != nil {
+		t.Fatalf("AcquireStrict second returned error: %v", err)
+	}
+	if second.FencingToken <= first.FencingToken {
+		t.Fatalf("expected second fencing token > first token, first=%d second=%d", first.FencingToken, second.FencingToken)
+	}
+}
+
+func TestDriverRenewStrictPreservesToken(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	acquired, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-a", 1500*time.Millisecond))
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	acquired.Lease.LeaseTTL = 4 * time.Second
+	renewed, err := strict.RenewStrict(ctx, acquired.Lease, acquired.FencingToken)
+	if err != nil {
+		t.Fatalf("RenewStrict returned error: %v", err)
+	}
+	if renewed.FencingToken != acquired.FencingToken {
+		t.Fatalf("expected RenewStrict token=%d, got %d", acquired.FencingToken, renewed.FencingToken)
+	}
+	if renewed.Lease.LeaseTTL < 4*time.Second {
+		t.Fatalf("expected renewed lease ttl >= 4s, got %s", renewed.Lease.LeaseTTL)
+	}
+	if !renewed.Lease.ExpiresAt.After(acquired.Lease.ExpiresAt) {
+		t.Fatalf("expected renewed expiry after %s, got %s", acquired.Lease.ExpiresAt, renewed.Lease.ExpiresAt)
+	}
+}
+
+func TestDriverReleaseStrictRejectsWrongOwner(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	acquired, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-a", 2*time.Second))
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	wrongOwnerLease := acquired.Lease
+	wrongOwnerLease.OwnerID = "worker-b"
+	err = strict.ReleaseStrict(ctx, wrongOwnerLease, acquired.FencingToken)
+	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+		t.Fatalf("expected owner mismatch for strict release with wrong owner, got %v", err)
+	}
+}
+
+func TestDriverReleaseStrictRejectsWrongToken(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	acquired, err := strict.AcquireStrict(ctx, strictAcquireRequest("worker-a", 2*time.Second))
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	err = strict.ReleaseStrict(ctx, acquired.Lease, acquired.FencingToken+1)
+	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+		t.Fatalf("expected owner mismatch for strict release with wrong token, got %v", err)
+	}
+}
+
+func TestDriverAcquireStrictRejectsEmptyResourceKey(t *testing.T) {
+	env := newRedisTestEnv(t)
+	ctx := context.Background()
+	strict := requireRedisStrictDriver(t, env.driver)
+
+	_, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "",
+		OwnerID:      "worker-a",
+		LeaseTTL:     2 * time.Second,
+	})
+	if !errors.Is(err, drivers.ErrInvalidRequest) {
+		t.Fatalf("expected invalid request for empty resource key, got %v", err)
+	}
+}
+
 func TestDriverReleaseRejectsWrongOwner(t *testing.T) {
 	driver := newRedisDriverForTest(t)
 	ctx := context.Background()
