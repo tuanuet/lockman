@@ -188,6 +188,14 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 	}
 }
 
+func TestRuntimeManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
+	reg := registryWithLineageChain(t)
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, observe.NewNoopRecorder())
+	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected manager capability rejection, got %v", err)
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -252,6 +260,66 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	if !errors.Is(innerErr, lockerrors.ErrLockBusy) {
 		t.Fatalf("expected runtime contention error, got %v", innerErr)
 	}
+}
+
+type exactOnlyDriverStub struct {
+	inner drivers.Driver
+}
+
+func (d exactOnlyDriverStub) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.inner.Acquire(ctx, req)
+}
+
+func (d exactOnlyDriverStub) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	return d.inner.Renew(ctx, lease)
+}
+
+func (d exactOnlyDriverStub) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.inner.Release(ctx, lease)
+}
+
+func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.inner.CheckPresence(ctx, req)
+}
+
+func (d exactOnlyDriverStub) Ping(ctx context.Context) error {
+	return d.inner.Ping(ctx)
+}
+
+func registryWithLineageChain(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register parent failed: %v", err)
+	}
+
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "ItemLock",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "OrderLock",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder: definitions.MustTemplateKeyBuilder(
+			"order:{order_id}:item:{item_id}",
+			[]string{"order_id", "item_id"},
+		),
+	}); err != nil {
+		t.Fatalf("register child failed: %v", err)
+	}
+
+	return reg
 }
 
 func TestExecuteExclusiveInvalidOverridesDoesNotPoisonGuard(t *testing.T) {

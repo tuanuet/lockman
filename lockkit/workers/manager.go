@@ -59,6 +59,11 @@ func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.St
 	if err := driver.Ping(context.Background()); err != nil {
 		return nil, fmt.Errorf("%w: %v", lockerrors.ErrPolicyViolation, err)
 	}
+	if registry.RequiresLineageDriver(reg) {
+		if _, ok := driver.(drivers.LineageDriver); !ok {
+			return nil, lockerrors.ErrPolicyViolation
+		}
+	}
 	if store == nil && registryRequiresIdempotencyStore(reg) {
 		return nil, lockerrors.ErrPolicyViolation
 	}

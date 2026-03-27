@@ -501,8 +501,32 @@ func (d *failingCompositeClaimDriver) Renew(ctx context.Context, lease drivers.L
 	return d.base.Renew(ctx, lease)
 }
 
+func (d *failingCompositeClaimDriver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
+	attempt := d.acquireCount.Add(1)
+	if d.failAt > 0 && attempt == d.failAt {
+		return drivers.LeaseRecord{}, d.failErr
+	}
+	return d.base.AcquireWithLineage(ctx, req)
+}
+
+func (d *failingCompositeClaimDriver) RenewWithLineage(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	lineage drivers.LineageLeaseMeta,
+) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+	return d.base.RenewWithLineage(ctx, lease, lineage)
+}
+
 func (d *failingCompositeClaimDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
+}
+
+func (d *failingCompositeClaimDriver) ReleaseWithLineage(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	lineage drivers.LineageLeaseMeta,
+) error {
+	return d.base.ReleaseWithLineage(ctx, lease, lineage)
 }
 
 func (d *failingCompositeClaimDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {

@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"lockman/lockkit/definitions"
@@ -97,6 +98,44 @@ func (r *Registry) Validate() error {
 		}
 	}
 	return nil
+}
+
+// RequiresLineageDriver returns true when the registry contains definitions that
+// participate in lineage semantics (either as a child or as a parent with descendants).
+//
+// Callers can use this to gate manager construction when a backend lacks drivers.LineageDriver.
+func RequiresLineageDriver(reg Reader) bool {
+	snapshot, ok := reg.(interface {
+		Definitions() []definitions.LockDefinition
+	})
+	if !ok {
+		return false
+	}
+
+	defs := snapshot.Definitions()
+	childrenByParent := indexChildrenByParent(defs)
+	for _, def := range defs {
+		if definitionUsesLineage(def, childrenByParent) {
+			return true
+		}
+	}
+	return false
+}
+
+func indexChildrenByParent(defs []definitions.LockDefinition) map[string][]string {
+	out := make(map[string][]string, len(defs))
+	for _, def := range defs {
+		parentID := strings.TrimSpace(def.ParentRef)
+		if parentID == "" {
+			continue
+		}
+		out[parentID] = append(out[parentID], def.ID)
+	}
+	return out
+}
+
+func definitionUsesLineage(def definitions.LockDefinition, childrenByParent map[string][]string) bool {
+	return strings.TrimSpace(def.ParentRef) != "" || len(childrenByParent[def.ID]) > 0
 }
 
 // MustGet returns the stored definition or panics if it is unknown.

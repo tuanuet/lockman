@@ -478,6 +478,27 @@ func (d *failingCompositeDriver) Renew(ctx context.Context, lease drivers.LeaseR
 	return lease, nil
 }
 
+func (d *failingCompositeDriver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
+	return d.Acquire(ctx, drivers.AcquireRequest{
+		DefinitionID: req.DefinitionID,
+		ResourceKeys: []string{req.ResourceKey},
+		OwnerID:      req.OwnerID,
+		LeaseTTL:     req.LeaseTTL,
+	})
+}
+
+func (d *failingCompositeDriver) RenewWithLineage(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	lineage drivers.LineageLeaseMeta,
+) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+	renewed, err := d.Renew(ctx, lease)
+	if err != nil {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+	}
+	return renewed, lineage, nil
+}
+
 func (d *failingCompositeDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -490,6 +511,14 @@ func (d *failingCompositeDriver) Release(ctx context.Context, lease drivers.Leas
 	delete(d.leasesByKey, key)
 	delete(d.presenceRecords, key)
 	return nil
+}
+
+func (d *failingCompositeDriver) ReleaseWithLineage(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	lineage drivers.LineageLeaseMeta,
+) error {
+	return d.Release(ctx, lease)
 }
 
 func (d *failingCompositeDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {

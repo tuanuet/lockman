@@ -35,6 +35,14 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 	if err := validator.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", lockerrors.ErrRegistryViolation, err)
 	}
+	if driver == nil {
+		return nil, lockerrors.ErrPolicyViolation
+	}
+	if registry.RequiresLineageDriver(reg) {
+		if _, ok := driver.(drivers.LineageDriver); !ok {
+			return nil, lockerrors.ErrPolicyViolation
+		}
+	}
 	if recorder == nil {
 		recorder = observe.NewNoopRecorder()
 	}

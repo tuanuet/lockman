@@ -204,6 +204,79 @@ func TestCheckPresenceSkipsMetricsWhenDefinitionLookupFails(t *testing.T) {
 	}
 }
 
+func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
+	driver := testkit.NewMemoryDriver()
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "OrderLock",
+		Kind:             definitions.KindParent,
+		Resource:         "order",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		CheckOnlyAllowed: true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register parent failed: %v", err)
+	}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "ItemLock",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "OrderLock",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder: definitions.MustTemplateKeyBuilder(
+			"order:{order_id}:item:{item_id}",
+			[]string{"order_id", "item_id"},
+		),
+	}); err != nil {
+		t.Fatalf("register child failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	childReq := drivers.LineageAcquireRequest{
+		DefinitionID: "ItemLock",
+		ResourceKey:  "order:123:item:line-1",
+		OwnerID:      "svc:child",
+		LeaseTTL:     30 * time.Second,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: "lease-child",
+			Kind:    definitions.KindChild,
+			AncestorKeys: []drivers.AncestorKey{
+				{DefinitionID: "OrderLock", ResourceKey: "order:123"},
+			},
+		},
+	}
+	childLease, err := driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+	defer func() {
+		_ = driver.ReleaseWithLineage(context.Background(), childLease, childReq.Lineage)
+	}()
+
+	status, err := mgr.CheckPresence(context.Background(), definitions.PresenceCheckRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:parent"},
+	})
+	if err != nil {
+		t.Fatalf("CheckPresence returned error: %v", err)
+	}
+	if status.State != definitions.PresenceNotHeld {
+		t.Fatalf("expected exact-key-only presence result, got %v", status.State)
+	}
+}
+
 type pingFailDriver struct {
 	inner drivers.Driver
 	err   error
