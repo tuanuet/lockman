@@ -213,11 +213,47 @@ func TestRegistryValidateRejectsParentRefCycle(t *testing.T) {
 		t.Fatalf("expected cycle validation error, got %v", err)
 	}
 }
+
+func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:         "order",
+		Kind:       definitions.KindParent,
+		Resource:   "order",
+		Mode:       definitions.ModeStandard,
+		LeaseTTL:   30 * time.Second,
+		KeyBuilder: definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "allocation",
+		Kind:          definitions.KindChild,
+		Resource:      "allocation",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "item",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}:allocation:{allocation_id}", []string{"order_id", "item_id", "allocation_id"}),
+	})
+
+	if err := reg.Validate(); err != nil {
+		t.Fatalf("expected recursive grandchild lineage to validate, got %v", err)
+	}
+}
 ```
 
 - [ ] **Step 2: Run the targeted tests to verify they fail**
 
-Run: `go test ./lockkit/definitions ./lockkit/registry -run 'TemplateKeyBuilderExposesTemplateMetadata|BrokenLineageChain|Cycle|UnknownParent' -v`
+Run: `go test ./lockkit/definitions ./lockkit/registry -run 'TemplateKeyBuilderExposesTemplateMetadata|BrokenLineageChain|Cycle|UnknownParent|GrandchildLineage' -v`
 Expected: FAIL with missing `TemplateMetadata`, missing recursive validation, or no cycle/prefix enforcement
 
 - [ ] **Step 3: Add exported template metadata access and recursive validation**
@@ -1132,7 +1168,7 @@ func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
 	reg := registryWithLineageChain(t)
 	mgr := newWorkerManagerWithDriver(t, reg, driver)
 
-	parentLease, parentMeta, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	parentReq := drivers.LineageAcquireRequest{
 		AcquireRequest: drivers.AcquireRequest{
 			DefinitionID: "order",
 			ResourceKeys: []string{"order:123"},
@@ -1141,11 +1177,17 @@ func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
 		},
 		Kind:    definitions.KindParent,
 		LeaseID: "parent-lease",
-	})
+	}
+	parentLease, err := driver.AcquireWithLineage(context.Background(), parentReq)
 	if err != nil {
 		t.Fatalf("AcquireWithLineage failed: %v", err)
 	}
-	defer func() { _ = driver.ReleaseWithLineage(context.Background(), parentLease, parentMeta) }()
+	defer func() {
+		_ = driver.ReleaseWithLineage(context.Background(), parentLease, drivers.LineageLeaseMeta{
+			LeaseID: parentReq.LeaseID,
+			Kind:    parentReq.Kind,
+		})
+	}()
 
 	err = mgr.ExecuteClaimed(context.Background(), childMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
 		t.Fatal("callback should not run")
@@ -1387,7 +1429,7 @@ func TestPresenceAPIStillIgnoresDescendantMarkers(t *testing.T) {
 		t.Fatalf("manager init failed: %v", err)
 	}
 
-	childLease, childMeta, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	childReq := drivers.LineageAcquireRequest{
 		AcquireRequest: drivers.AcquireRequest{
 			DefinitionID: "item",
 			ResourceKeys: []string{"order:123:item:line-1"},
@@ -1399,11 +1441,18 @@ func TestPresenceAPIStillIgnoresDescendantMarkers(t *testing.T) {
 		AncestorKeys: []drivers.AncestorKey{
 			{DefinitionID: "order", ResourceKey: "order:123"},
 		},
-	})
+	}
+	childLease, err := driver.AcquireWithLineage(context.Background(), childReq)
 	if err != nil {
 		t.Fatalf("child acquire failed: %v", err)
 	}
-	defer func() { _ = driver.ReleaseWithLineage(context.Background(), childLease, childMeta) }()
+	defer func() {
+		_ = driver.ReleaseWithLineage(context.Background(), childLease, drivers.LineageLeaseMeta{
+			LeaseID:      childReq.LeaseID,
+			Kind:         childReq.Kind,
+			AncestorKeys: childReq.AncestorKeys,
+		})
+	}()
 
 	record, err := mgr.CheckPresence(context.Background(), definitions.PresenceRequest{
 		DefinitionID: "order",
