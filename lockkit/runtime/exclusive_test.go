@@ -226,6 +226,138 @@ func TestRuntimeManagerAllowsStrictAsyncOnlyRegistryWithoutStrictDriver(t *testi
 	}
 }
 
+func TestExecuteExclusiveStrictPopulatesFencingToken(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "StrictOrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "runtime-a",
+		},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		if lease.FencingToken == 0 {
+			t.Fatal("expected non-zero fencing token for strict runtime execution")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+}
+
+func TestExecuteExclusiveStrictSuiteKeepsStandardFencingTokenZero(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "runtime-a",
+		},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		if lease.FencingToken != 0 {
+			t.Fatalf("expected zero fencing token for standard runtime execution, got %d", lease.FencingToken)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+}
+
+func TestExecuteExclusiveStrictReacquireAfterReleaseIncreasesToken(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "StrictOrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "runtime-a",
+		},
+	}
+
+	var firstToken uint64
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		firstToken = lease.FencingToken
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("first ExecuteExclusive returned error: %v", err)
+	}
+
+	var secondToken uint64
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		secondToken = lease.FencingToken
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("second ExecuteExclusive returned error: %v", err)
+	}
+
+	if secondToken <= firstToken {
+		t.Fatalf("expected fencing token to increase across reacquire, first=%d second=%d", firstToken, secondToken)
+	}
+}
+
+func TestExecuteExclusiveStrictRejectsReentrantAcquire(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "StrictOrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "runtime-a",
+		},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return mgr.ExecuteExclusive(ctx, req, func(ctx context.Context, nested definitions.LeaseContext) error {
+			return nil
+		})
+	})
+
+	if !errors.Is(err, lockerrors.ErrReentrantAcquire) {
+		t.Fatalf("expected reentrant acquire error, got %v", err)
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{

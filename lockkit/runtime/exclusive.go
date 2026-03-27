@@ -34,8 +34,9 @@ type runtimeAcquirePlan struct {
 }
 
 type heldLease struct {
-	lease   drivers.LeaseRecord
-	lineage *drivers.LineageLeaseMeta
+	lease        drivers.LeaseRecord
+	lineage      *drivers.LineageLeaseMeta
+	fencingToken uint64
 }
 
 // ExecuteExclusive runs fn after successfully acquiring the requested standard lock.
@@ -124,6 +125,7 @@ func (m *Manager) ExecuteExclusive(
 		Ownership:     req.Ownership,
 		LeaseTTL:      lease.lease.LeaseTTL,
 		LeaseDeadline: lease.lease.ExpiresAt,
+		FencingToken:  lease.fencingToken,
 	}
 
 	retErr = fn(ctx, leaseCtx)
@@ -260,6 +262,29 @@ func (m *Manager) acquireLease(
 	plan runtimeAcquirePlan,
 	ownerID string,
 ) (heldLease, error) {
+	if def.Mode == definitions.ModeStrict {
+		if plan.lineage != nil {
+			return heldLease{}, lockerrors.ErrPolicyViolation
+		}
+		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		if !ok {
+			return heldLease{}, lockerrors.ErrPolicyViolation
+		}
+		fenced, err := strictDriver.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+			DefinitionID: def.ID,
+			ResourceKey:  plan.resourceKey,
+			OwnerID:      ownerID,
+			LeaseTTL:     def.LeaseTTL,
+		})
+		if err != nil {
+			return heldLease{}, err
+		}
+		return heldLease{
+			lease:        fenced.Lease,
+			fencingToken: fenced.FencingToken,
+		}, nil
+	}
+
 	if plan.lineage == nil {
 		lease, err := m.driver.Acquire(ctx, drivers.AcquireRequest{
 			DefinitionID: def.ID,
@@ -297,6 +322,17 @@ func (m *Manager) acquireLease(
 }
 
 func (m *Manager) releaseLease(ctx context.Context, held heldLease) error {
+	if held.fencingToken > 0 {
+		if held.lineage != nil {
+			return lockerrors.ErrPolicyViolation
+		}
+		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		if !ok {
+			return lockerrors.ErrPolicyViolation
+		}
+		return strictDriver.ReleaseStrict(ctx, held.lease, held.fencingToken)
+	}
+
 	if held.lineage == nil {
 		return m.driver.Release(ctx, held.lease)
 	}
