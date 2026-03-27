@@ -311,8 +311,8 @@ Ensure the final related list contains all three new example READMEs.
 
 - [ ] **Step 4: Verify the new links exist in the guide**
 
-Run: `rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README" docs/lock-scenarios-and-best-practices.md && rg -n "examples/phase2-basic/README|examples/phase2-composite-sync/README|examples/phase2-composite-worker/README|examples/phase2-overlap-reject/README|examples/phase2-parent-child-runtime/README" docs/lock-scenarios-and-best-practices.md`
-Expected: matches for all three new example links and all existing example links in the guide
+Run: `awk '/^## Decision Matrix$/{flag=1;next}/^## Related Docs And Examples$/{flag=0}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README" && awk '/^## Related Docs And Examples$/{flag=1;next}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README|examples/phase2-basic/README|examples/phase2-composite-sync/README|examples/phase2-composite-worker/README|examples/phase2-overlap-reject/README|examples/phase2-parent-child-runtime/README"`
+Expected: the three new example links appear in the decision matrix rows, and both the new and existing example links appear in the final related-docs/examples section
 
 - [ ] **Step 5: Commit the wiring changes**
 
