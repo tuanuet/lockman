@@ -169,10 +169,14 @@ Required family groupings:
 - aggregate versus sub-resource concurrency
 - multi-resource coordination
 - sync and async shared boundaries
+- lifecycle and ownership boundaries
 - shard or partition ownership
 - advisory visibility
+- migration and compatibility
 
 Each family can contain one or more scenarios. The goal is to make the reader compare related design choices next to each other.
+
+The implementation should assign every required scenario to one of those families explicitly, so the regrouped structure is deterministic rather than interpretive.
 
 Each scenario should still include:
 
@@ -230,11 +234,13 @@ Required scenarios:
 
 10. **Human action and background worker touch the same aggregate**
    - explain one aggregate boundary shared across sync and async lifecycles
-   - show when one shared definition is acceptable and when the lifecycle difference still argues for split definitions
+   - show when one shared key boundary exists but the lifecycle difference still argues for split definitions
+   - treat split sync and async definitions over the same key boundary as the default teaching case
+   - explain in prose when one shared `ExecutionKind=both` definition would still be acceptable
    - tie the prose back to a runnable example
 
-11. **Cross-aggregate parent lock is enough, composite is overkill**
-   - explain a case where a team might reach for composite, but one higher aggregate parent lock already captures the real invariant
+11. **One higher aggregate parent lock is enough, composite is overkill**
+   - explain a case where a team might reach for composite because several sub-resources are involved, but one higher aggregate parent lock already captures the real invariant
    - make the “do not over-model with composite” guidance concrete
    - tie the prose back to a runnable example
 
@@ -252,6 +258,8 @@ This scope now includes three new teaching examples.
 - Create a new Redis-backed example:
   [`examples/phase2-shared-aggregate-runtime-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker)
 - The example should show one aggregate touched by a direct human action path and a background worker path.
+- The runnable example should use split sync and async definitions over the same aggregate key boundary as the recommended teaching case.
+- Its README should also explain when a single shared `ExecutionKind=both` definition would be acceptable, but the example body should not try to demonstrate both designs at once.
 - It should teach boundary choice more than low-level mechanics.
 - It should stay balanced in complexity: enough output to explain the flow, but not a mini application.
 
@@ -259,7 +267,7 @@ This scope now includes three new teaching examples.
 
 - Create a new memory-backed example:
   [`examples/phase2-parent-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite)
-- The example should show that one higher aggregate parent lock can be the right answer even when several sub-resources are involved.
+- The example should show that one higher aggregate parent lock can be the right answer even when several sub-resources inside the same business aggregate are involved.
 - It should explicitly teach why composite would be overkill in this case.
 
 ### Example 3: Bulk Import With Shard Ownership
@@ -382,6 +390,7 @@ The design is satisfied when the implementation:
 - contains a quick decision guide that gives scenario-specific package direction and links to [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md) instead of duplicating it
 - contains a pattern catalog for parent, child, composite, and presence-check-only usage
 - groups the real scenarios into the required scenario families rather than leaving them as one flat list
+- assigns each required scenario to one explicit scenario family
 - contains both scenario guidance and architecture best practices
 - clearly explains Phase 2a migration impact
 - gives concrete recommendations for all twelve required scenarios
@@ -399,4 +408,6 @@ The design is satisfied when the implementation:
   - shared aggregate runtime/worker -> Redis-backed
   - parent over composite -> memory-backed
   - bulk import with shard ownership -> Redis-backed worker
+- ensures each new example has one primary lesson, deterministic teaching output, and a `main_test.go` that validates the output contract
+- ensures the regrouped guide links to each new example README in the final related-docs/examples area and in the relevant scenario rows of the decision matrix
 - avoids duplicating large sections of existing docs verbatim
