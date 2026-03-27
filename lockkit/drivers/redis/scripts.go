@@ -101,6 +101,9 @@ end
 local expiry = now + ttl
 for i = 1, ancestor_count do
 	local lineage_key = KEYS[1 + i]
+	if not redis.call("ZSCORE", lineage_key, member) then
+		return {-4, 0}
+	end
 	redis.call("ZADD", lineage_key, "XX", expiry, member)
 	local remaining = prune_and_get_remaining(lineage_key)
 	if remaining <= 0 then

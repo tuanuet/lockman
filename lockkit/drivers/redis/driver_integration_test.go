@@ -312,6 +312,26 @@ func TestDriverExpiredChildNoLongerBlocksParentAcquire(t *testing.T) {
 	_ = driver.ReleaseWithLineage(context.Background(), childLease, childReq.Lineage)
 }
 
+func TestDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testing.T) {
+	env := newRedisTestEnv(t)
+
+	childReq := newChildAcquireRequest("child-lease", "line-1", 500*time.Millisecond)
+	childLease, err := env.driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+
+	ancestor := childReq.Lineage.AncestorKeys[0]
+	if err := env.client.Del(context.Background(), env.driver.buildLineageKey(ancestor.DefinitionID, ancestor.ResourceKey)).Err(); err != nil {
+		t.Fatalf("delete ancestor lineage key failed: %v", err)
+	}
+
+	_, _, err = env.driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
+	if !errors.Is(err, drivers.ErrLeaseExpired) {
+		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
+	}
+}
+
 func newRedisDriverForTest(t *testing.T) *Driver {
 	t.Helper()
 	return newRedisTestEnv(t).driver

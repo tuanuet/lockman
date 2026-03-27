@@ -250,6 +250,8 @@ func (d *Driver) RenewWithLineage(
 		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
 	case -3:
 		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrInvalidRequest
+	case -4:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
 	default:
 		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, errInvalidScriptResponse
 	}
