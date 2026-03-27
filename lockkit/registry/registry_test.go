@@ -3,6 +3,7 @@ package registry_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"lockman/lockkit/definitions"
 	"lockman/lockkit/registry"
@@ -229,52 +230,6 @@ func TestRegistryRegisterCompositeStoresDefinition(t *testing.T) {
 	got := reg.MustGetComposite("transfer")
 	if got.ID != "transfer" {
 		t.Fatalf("expected composite definition, got %#v", got)
-	}
-}
-
-func TestRegistryValidateRejectsUnknownParentRef(t *testing.T) {
-	reg := registry.New()
-	if err := reg.Register(definitions.LockDefinition{
-		ID:                   "account.child",
-		Kind:                 definitions.KindChild,
-		Resource:             "account",
-		Mode:                 definitions.ModeStandard,
-		ExecutionKind:        definitions.ExecutionSync,
-		ParentRef:            "account.missing",
-		OverlapPolicy:        definitions.OverlapReject,
-		KeyBuilder:           definitions.MustTemplateKeyBuilder("account:{account_id}:child", []string{"account_id"}),
-		BackendFailurePolicy: definitions.BackendBestEffortOpen,
-	}); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
-
-	if err := reg.Validate(); err == nil {
-		t.Fatal("expected unknown ParentRef validation failure")
-	}
-}
-
-func TestRegistryValidateRejectsUnsupportedOverlapPolicy(t *testing.T) {
-	reg := registry.New()
-	if err := reg.Register(validParentDefinition()); err != nil {
-		t.Fatalf("register parent failed: %v", err)
-	}
-
-	if err := reg.Register(definitions.LockDefinition{
-		ID:                   "account.child",
-		Kind:                 definitions.KindChild,
-		Resource:             "account",
-		Mode:                 definitions.ModeStandard,
-		ExecutionKind:        definitions.ExecutionSync,
-		ParentRef:            "account.parent",
-		OverlapPolicy:        definitions.OverlapEscalate,
-		KeyBuilder:           definitions.MustTemplateKeyBuilder("account:{account_id}:child", []string{"account_id"}),
-		BackendFailurePolicy: definitions.BackendBestEffortOpen,
-	}); err != nil {
-		t.Fatalf("register child failed: %v", err)
-	}
-
-	if err := reg.Validate(); err == nil {
-		t.Fatal("expected unsupported overlap policy validation failure")
 	}
 }
 
@@ -541,6 +496,154 @@ func TestRegistryValidateRejectsStrictBothWithoutIdempotency(t *testing.T) {
 	}
 }
 
+func TestRegistryValidateRejectsBrokenLineageChain(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("item:{item_id}", []string{"item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "preserve parent template prefix") {
+		t.Fatalf("expected lineage prefix validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsNonRejectOverlapForChildLineage(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapEscalate,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only support overlap policy reject") {
+		t.Fatalf("expected reject-only overlap validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsUnknownParentRef(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "missing-parent",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unknown parent") {
+		t.Fatalf("expected unknown parent validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsParentRefCycle(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "item",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("expected cycle validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "allocation",
+		Kind:          definitions.KindChild,
+		Resource:      "allocation",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "item",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}:allocation:{allocation_id}", []string{"order_id", "item_id", "allocation_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	if err := reg.Validate(); err != nil {
+		t.Fatalf("expected recursive grandchild lineage to validate, got %v", err)
+	}
+}
+
 func validParentDefinition() definitions.LockDefinition {
 	return definitions.LockDefinition{
 		ID:                   "account.parent",
@@ -563,5 +666,12 @@ func validCompositeDefinition(members ...string) definitions.CompositeDefinition
 		ModeResolution:   definitions.ModeResolutionHomogeneous,
 		MaxMemberCount:   len(members),
 		ExecutionKind:    definitions.ExecutionBoth,
+	}
+}
+
+func mustRegister(t *testing.T, reg *registry.Registry, def definitions.LockDefinition) {
+	t.Helper()
+	if err := reg.Register(def); err != nil {
+		t.Fatalf("failed to register %q: %v", def.ID, err)
 	}
 }

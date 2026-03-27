@@ -11,6 +11,23 @@ type KeyBuilder interface {
 	Build(input map[string]string) (string, error)
 }
 
+// TemplateBuilderMetadata exposes the template string and ordered fields from a template backed KeyBuilder.
+type TemplateBuilderMetadata struct {
+	Template string
+	Fields   []string
+}
+
+// TemplateMetadata tries to view the builder as a template backed KeyBuilder and returns the metadata if available.
+func TemplateMetadata(builder KeyBuilder) (TemplateBuilderMetadata, bool) {
+	view, ok := builder.(interface {
+		TemplateMetadata() TemplateBuilderMetadata
+	})
+	if !ok {
+		return TemplateBuilderMetadata{}, false
+	}
+	return view.TemplateMetadata(), true
+}
+
 type templateKeyBuilder struct {
 	template string
 	fields   []string
@@ -82,4 +99,13 @@ func (t *templateKeyBuilder) Build(input map[string]string) (string, error) {
 	}
 
 	return strings.NewReplacer(replacements...).Replace(t.template), nil
+}
+
+func (t *templateKeyBuilder) TemplateMetadata() TemplateBuilderMetadata {
+	fieldsCopy := make([]string, len(t.fields))
+	copy(fieldsCopy, t.fields)
+	return TemplateBuilderMetadata{
+		Template: t.template,
+		Fields:   fieldsCopy,
+	}
 }

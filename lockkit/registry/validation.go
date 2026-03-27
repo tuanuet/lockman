@@ -27,6 +27,11 @@ var (
 	errStrictModeRequiresFailClosed   = errors.New("strict definitions require explicit fail_closed backend policy")
 	errStrictAsyncRequiresIdempotency = errors.New("strict async and strict both definitions require idempotency")
 	errChildOverlapPolicyUnsupported  = errors.New("child definitions only support overlap policy reject in phase 2")
+	errLineageCycleDetected           = errors.New("lineage cycle detected")
+	errLineageModeUnsupported         = errors.New("lineage definitions only support standard mode")
+	errLineageTemplateRequired        = errors.New("lineage definitions require template-backed key builders")
+	errLineageTemplatePrefixInvalid   = errors.New("child definition must preserve parent template prefix")
+	errLineageFieldsIncomplete        = errors.New("child definition must include parent template fields")
 
 	errCompositeDefinitionIDRequired        = errors.New("composite definition id must not be empty")
 	errCompositeMembersRequired             = errors.New("composite definition must include at least one member")
@@ -107,13 +112,7 @@ func ValidateDefinitionAgainstRegistry(def definitions.LockDefinition, definitio
 	if parentID == "" {
 		return fmt.Errorf("child definition references unknown parent %q", def.ParentRef)
 	}
-	if _, exists := definitionsByID[parentID]; !exists {
-		return fmt.Errorf("child definition references unknown parent %q", def.ParentRef)
-	}
-	if def.OverlapPolicy != definitions.OverlapReject {
-		return errChildOverlapPolicyUnsupported
-	}
-	return nil
+	return validateLineageChain(def, definitionsByID, make(map[string]struct{}))
 }
 
 // ValidateCompositeDefinition validates a composite definition against registered members.
@@ -174,4 +173,67 @@ func requireCompositeDefinitionID(def definitions.CompositeDefinition) error {
 		return errCompositeDefinitionIDRequired
 	}
 	return nil
+}
+
+func validateLineageChain(
+	def definitions.LockDefinition,
+	definitionsByID map[string]definitions.LockDefinition,
+	visited map[string]struct{},
+) error {
+	parentID := strings.TrimSpace(def.ParentRef)
+	if parentID == "" {
+		return nil
+	}
+	if _, seen := visited[def.ID]; seen {
+		return errLineageCycleDetected
+	}
+	visited[def.ID] = struct{}{}
+
+	parent, exists := definitionsByID[parentID]
+	if !exists {
+		return fmt.Errorf("child definition references unknown parent %q", def.ParentRef)
+	}
+	if def.Mode != definitions.ModeStandard || parent.Mode != definitions.ModeStandard {
+		return errLineageModeUnsupported
+	}
+	if def.OverlapPolicy != definitions.OverlapReject {
+		return errChildOverlapPolicyUnsupported
+	}
+
+	if err := validateLineageChain(parent, definitionsByID, visited); err != nil {
+		return err
+	}
+
+	childMeta, ok := definitions.TemplateMetadata(def.KeyBuilder)
+	if !ok {
+		return errLineageTemplateRequired
+	}
+	parentMeta, ok := definitions.TemplateMetadata(parent.KeyBuilder)
+	if !ok {
+		return errLineageTemplateRequired
+	}
+	if !strings.HasPrefix(childMeta.Template, parentMeta.Template) {
+		return errLineageTemplatePrefixInvalid
+	}
+	if !fieldsContain(parentMeta.Fields, childMeta.Fields) {
+		return errLineageFieldsIncomplete
+	}
+
+	return nil
+}
+
+func fieldsContain(parentFields, childFields []string) bool {
+	if len(parentFields) == 0 {
+		return true
+	}
+	seen := make(map[string]struct{}, len(childFields))
+	for _, field := range childFields {
+		seen[field] = struct{}{}
+	}
+	for _, field := range parentFields {
+		if _, ok := seen[field]; !ok {
+			return false
+		}
+	}
+	return true
 }

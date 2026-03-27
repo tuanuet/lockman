@@ -1,6 +1,9 @@
 package definitions
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestKeyBuilderDeterminism(t *testing.T) {
 	builder, err := NewTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"})
@@ -90,4 +93,22 @@ func TestMustTemplateKeyBuilderPanics(t *testing.T) {
 		}
 	}()
 	MustTemplateKeyBuilder("lock:{id}", []string{"id", "id"})
+}
+
+func TestTemplateKeyBuilderExposesTemplateMetadata(t *testing.T) {
+	builder := MustTemplateKeyBuilder(
+		"order:{order_id}:item:{item_id}",
+		[]string{"order_id", "item_id"},
+	)
+
+	meta, ok := TemplateMetadata(builder)
+	if !ok {
+		t.Fatal("expected template metadata to be available")
+	}
+	if meta.Template != "order:{order_id}:item:{item_id}" {
+		t.Fatalf("unexpected template: %q", meta.Template)
+	}
+	if !reflect.DeepEqual(meta.Fields, []string{"order_id", "item_id"}) {
+		t.Fatalf("unexpected field order: %#v", meta.Fields)
+	}
 }
