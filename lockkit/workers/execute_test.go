@@ -451,6 +451,20 @@ func TestExecuteClaimedStrictRenewalPreservesFencingToken(t *testing.T) {
 	}
 }
 
+func TestExecuteClaimedStrictRenewalTokenMismatchReturnsLeaseLost(t *testing.T) {
+	reg := strictExecuteWorkerRegistryForTest(t)
+	driver := newStrictRenewMismatchDriver()
+	mgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	err := mgr.ExecuteClaimed(context.Background(), strictMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		time.Sleep(220 * time.Millisecond)
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrLeaseLost) {
+		t.Fatalf("expected ErrLeaseLost on strict renew token mismatch, got %v", err)
+	}
+}
+
 func TestExecuteClaimedStrictAcquireErrorReturnsDirectly(t *testing.T) {
 	reg := strictExecuteWorkerRegistryForTest(t)
 	sentinel := errors.New("strict acquire failed")
@@ -801,6 +815,51 @@ func (d *strictRenewProbeDriver) RenewStrict(ctx context.Context, lease drivers.
 }
 
 func (d *strictRenewProbeDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+	return d.base.ReleaseStrict(ctx, lease, fencingToken)
+}
+
+type strictRenewMismatchDriver struct {
+	base *testkit.MemoryDriver
+}
+
+func newStrictRenewMismatchDriver() *strictRenewMismatchDriver {
+	return &strictRenewMismatchDriver{base: testkit.NewMemoryDriver()}
+}
+
+func (d *strictRenewMismatchDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d *strictRenewMismatchDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	return d.base.Renew(ctx, lease)
+}
+
+func (d *strictRenewMismatchDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *strictRenewMismatchDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *strictRenewMismatchDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
+}
+
+func (d *strictRenewMismatchDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+	return d.base.AcquireStrict(ctx, req)
+}
+
+func (d *strictRenewMismatchDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+	updated, err := d.base.RenewStrict(ctx, lease, fencingToken)
+	if err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+	updated.FencingToken++
+	return updated, nil
+}
+
+func (d *strictRenewMismatchDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
 	return d.base.ReleaseStrict(ctx, lease, fencingToken)
 }
 
