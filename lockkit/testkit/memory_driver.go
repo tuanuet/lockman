@@ -237,6 +237,21 @@ func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease drivers.Lease
 		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
 	}
 
+	state, ok := m.lineageLeases[lineage.LeaseID]
+	if !ok {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+	}
+	for _, ancestor := range lineage.AncestorKeys {
+		ancestorKey := formatAncestorKey(ancestor)
+		members := m.descendantsByAncestor[ancestorKey]
+		if members == nil {
+			return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+		}
+		if _, ok := members[lineage.LeaseID]; !ok {
+			return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+		}
+	}
+
 	ttl := lease.LeaseTTL
 	if ttl <= 0 {
 		ttl = existing.LeaseTTL
@@ -246,11 +261,9 @@ func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease drivers.Lease
 	existing.ExpiresAt = now.Add(ttl)
 	m.leases[key] = existing
 
-	if state, ok := m.lineageLeases[lineage.LeaseID]; ok {
-		state.lease = existing
-		state.expireAt = existing.ExpiresAt
-		m.lineageLeases[lineage.LeaseID] = state
-	}
+	state.lease = existing
+	state.expireAt = existing.ExpiresAt
+	m.lineageLeases[lineage.LeaseID] = state
 
 	// Extend descendant membership TTL.
 	for _, ancestor := range lineage.AncestorKeys {

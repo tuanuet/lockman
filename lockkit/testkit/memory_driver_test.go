@@ -160,6 +160,115 @@ func TestMemoryDriverRenewWithLineageExtendsDescendantMembershipTTL(t *testing.T
 	}
 }
 
+func TestMemoryDriverRenewWithLineageFailsWhenLineageStateMissing(t *testing.T) {
+	driver := NewMemoryDriver()
+	childReq := drivers.LineageAcquireRequest{
+		DefinitionID: "item",
+		ResourceKey:  "order:123:item:line-1",
+		OwnerID:      "worker-a",
+		LeaseTTL:     25 * time.Millisecond,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: "lease-child",
+			Kind:    definitions.KindChild,
+			AncestorKeys: []drivers.AncestorKey{
+				{DefinitionID: "order", ResourceKey: "order:123"},
+			},
+		},
+	}
+
+	childLease, err := driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+
+	delete(driver.lineageLeases, childReq.Lineage.LeaseID)
+
+	childLease.LeaseTTL = 80 * time.Millisecond
+	_, _, err = driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
+	if !errors.Is(err, drivers.ErrLeaseExpired) {
+		t.Fatalf("expected renew failure when lineage state is missing, got %v", err)
+	}
+
+	time.Sleep(35 * time.Millisecond)
+
+	reacquired, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+		DefinitionID: childReq.DefinitionID,
+		ResourceKey:  childReq.ResourceKey,
+		OwnerID:      "worker-b",
+		LeaseTTL:     50 * time.Millisecond,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID:      "lease-child-reacquired",
+			Kind:         childReq.Lineage.Kind,
+			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected child lease to expire on original ttl, got %v", err)
+	}
+	if err := driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+		LeaseID:      "lease-child-reacquired",
+		Kind:         childReq.Lineage.Kind,
+		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+	}); err != nil {
+		t.Fatalf("release reacquired child failed: %v", err)
+	}
+}
+
+func TestMemoryDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testing.T) {
+	driver := NewMemoryDriver()
+	childReq := drivers.LineageAcquireRequest{
+		DefinitionID: "item",
+		ResourceKey:  "order:123:item:line-1",
+		OwnerID:      "worker-a",
+		LeaseTTL:     25 * time.Millisecond,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: "lease-child",
+			Kind:    definitions.KindChild,
+			AncestorKeys: []drivers.AncestorKey{
+				{DefinitionID: "order", ResourceKey: "order:123"},
+			},
+		},
+	}
+
+	childLease, err := driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+
+	ancestorKey := formatAncestorKey(childReq.Lineage.AncestorKeys[0])
+	delete(driver.descendantsByAncestor[ancestorKey], childReq.Lineage.LeaseID)
+
+	childLease.LeaseTTL = 80 * time.Millisecond
+	_, _, err = driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
+	if !errors.Is(err, drivers.ErrLeaseExpired) {
+		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
+	}
+
+	time.Sleep(35 * time.Millisecond)
+
+	reacquired, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+		DefinitionID: childReq.DefinitionID,
+		ResourceKey:  childReq.ResourceKey,
+		OwnerID:      "worker-b",
+		LeaseTTL:     50 * time.Millisecond,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID:      "lease-child-reacquired",
+			Kind:         childReq.Lineage.Kind,
+			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected child lease to expire on original ttl, got %v", err)
+	}
+	if err := driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+		LeaseID:      "lease-child-reacquired",
+		Kind:         childReq.Lineage.Kind,
+		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+	}); err != nil {
+		t.Fatalf("release reacquired child failed: %v", err)
+	}
+}
+
 func TestMemoryDriverReleaseWithLineageClearsDescendantMembership(t *testing.T) {
 	driver := NewMemoryDriver()
 	childReq := drivers.LineageAcquireRequest{

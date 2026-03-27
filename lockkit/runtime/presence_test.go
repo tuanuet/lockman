@@ -318,6 +318,10 @@ func (a aliasRegistry) Validate() error {
 	return nil
 }
 
+func (a aliasRegistry) Definitions() []definitions.LockDefinition {
+	return []definitions.LockDefinition{a.definition}
+}
+
 type presenceMetricRecorder struct {
 	mu  sync.Mutex
 	ids []string

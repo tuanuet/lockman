@@ -12,6 +12,7 @@ import (
 type Reader interface {
 	MustGet(id string) definitions.LockDefinition
 	MustGetComposite(id string) definitions.CompositeDefinition
+	Definitions() []definitions.LockDefinition
 }
 
 // Registry holds lock and composite definitions.
@@ -105,14 +106,7 @@ func (r *Registry) Validate() error {
 //
 // Callers can use this to gate manager construction when a backend lacks drivers.LineageDriver.
 func RequiresLineageDriver(reg Reader) bool {
-	snapshot, ok := reg.(interface {
-		Definitions() []definitions.LockDefinition
-	})
-	if !ok {
-		return false
-	}
-
-	defs := snapshot.Definitions()
+	defs := reg.Definitions()
 	childrenByParent := indexChildrenByParent(defs)
 	for _, def := range defs {
 		if definitionUsesLineage(def, childrenByParent) {

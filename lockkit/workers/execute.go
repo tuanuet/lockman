@@ -425,14 +425,7 @@ func (m *Manager) releaseClaimLease(ctx context.Context, held renewableLease) er
 }
 
 func (m *Manager) definitionsByID() map[string]definitions.LockDefinition {
-	snapshot, ok := m.registry.(interface {
-		Definitions() []definitions.LockDefinition
-	})
-	if !ok {
-		return nil
-	}
-
-	defs := snapshot.Definitions()
+	defs := m.registry.Definitions()
 	out := make(map[string]definitions.LockDefinition, len(defs))
 	for _, def := range defs {
 		out[def.ID] = def

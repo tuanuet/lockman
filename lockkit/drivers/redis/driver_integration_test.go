@@ -332,6 +332,54 @@ func TestDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testing.T) 
 	}
 }
 
+func TestDriverRenewWithLineageFailureDoesNotExtendExactLeaseTTL(t *testing.T) {
+	env := newRedisTestEnv(t)
+
+	childReq := newChildAcquireRequest("child-lease", "line-1", 180*time.Millisecond)
+	childLease, err := env.driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+
+	ancestor := childReq.Lineage.AncestorKeys[0]
+	if err := env.client.Del(context.Background(), env.driver.buildLineageKey(ancestor.DefinitionID, ancestor.ResourceKey)).Err(); err != nil {
+		t.Fatalf("delete ancestor lineage key failed: %v", err)
+	}
+
+	childLease.LeaseTTL = 900 * time.Millisecond
+	_, _, err = env.driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
+	if !errors.Is(err, drivers.ErrLeaseExpired) {
+		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
+	}
+
+	wait := time.Until(childLease.ExpiresAt.Add(40 * time.Millisecond))
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+
+	reacquired, err := env.driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+		DefinitionID: childReq.DefinitionID,
+		ResourceKey:  childReq.ResourceKey,
+		OwnerID:      "worker-b",
+		LeaseTTL:     250 * time.Millisecond,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID:      "child-lease-reacquired",
+			Kind:         childReq.Lineage.Kind,
+			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected child exact key to expire on original ttl, got %v", err)
+	}
+	if err := env.driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+		LeaseID:      "child-lease-reacquired",
+		Kind:         childReq.Lineage.Kind,
+		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+	}); err != nil {
+		t.Fatalf("release reacquired child failed: %v", err)
+	}
+}
+
 func newRedisDriverForTest(t *testing.T) *Driver {
 	t.Helper()
 	return newRedisTestEnv(t).driver

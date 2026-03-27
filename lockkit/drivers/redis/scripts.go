@@ -82,9 +82,6 @@ end
 if current ~= ARGV[1] then
 	return {-1, 0}
 end
-if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
-	return {-2, 0}
-end
 
 local function prune_and_get_remaining(key)
 	redis.call("ZREMRANGEBYSCORE", key, "-inf", now)
@@ -104,6 +101,14 @@ for i = 1, ancestor_count do
 	if not redis.call("ZSCORE", lineage_key, member) then
 		return {-4, 0}
 	end
+end
+
+if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
+	return {-2, 0}
+end
+
+for i = 1, ancestor_count do
+	local lineage_key = KEYS[1 + i]
 	redis.call("ZADD", lineage_key, "XX", expiry, member)
 	local remaining = prune_and_get_remaining(lineage_key)
 	if remaining <= 0 then
