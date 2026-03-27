@@ -644,6 +644,132 @@ func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
 	}
 }
 
+func TestRegistryValidateRejectsNonTemplateChildLineageBuilder(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder: stubKeyBuilder{
+			fields: []string{"order_id", "item_id"},
+		},
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "template-backed key builders") {
+		t.Fatalf("expected template-backed lineage validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsNonTemplateParentLineageBuilder(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder: stubKeyBuilder{
+			fields: []string{"order_id"},
+		},
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "template-backed key builders") {
+		t.Fatalf("expected template-backed lineage validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsChildMissingParentFields(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	childBuilder, err := definitions.NewTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"item_id"})
+	if err != nil {
+		t.Fatalf("failed to create child builder: %v", err)
+	}
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    childBuilder,
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err = reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "include parent template fields") {
+		t.Fatalf("expected lineage parent field validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsLineageWithNonStandardMode(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "item",
+		Kind:                 definitions.KindChild,
+		Resource:             "item",
+		Mode:                 definitions.ModeStrict,
+		LeaseTTL:             30 * time.Second,
+		ParentRef:            "order",
+		OverlapPolicy:        definitions.OverlapReject,
+		ExecutionKind:        definitions.ExecutionSync,
+		FencingRequired:      true,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only support standard mode") {
+		t.Fatalf("expected lineage mode validation error, got %v", err)
+	}
+}
+
 func validParentDefinition() definitions.LockDefinition {
 	return definitions.LockDefinition{
 		ID:                   "account.parent",
@@ -674,4 +800,18 @@ func mustRegister(t *testing.T, reg *registry.Registry, def definitions.LockDefi
 	if err := reg.Register(def); err != nil {
 		t.Fatalf("failed to register %q: %v", def.ID, err)
 	}
+}
+
+type stubKeyBuilder struct {
+	fields []string
+}
+
+func (s stubKeyBuilder) RequiredFields() []string {
+	fields := make([]string, len(s.fields))
+	copy(fields, s.fields)
+	return fields
+}
+
+func (s stubKeyBuilder) Build(input map[string]string) (string, error) {
+	return "stub", nil
 }
