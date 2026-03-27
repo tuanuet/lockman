@@ -2,7 +2,13 @@
 
 ## Summary
 
-Add a new user-facing guide at [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md) that explains how to choose lock patterns for real product scenarios and how to apply them safely.
+Expand the scenario guidance work into a combined docs-and-examples increment.
+
+The repository should:
+
+- regroup [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md) around scenario families instead of a flat scenario list
+- keep the existing scenario guidance, but rebalance it so old and new scenarios read as one coherent handbook
+- add three new runnable examples that match the new scenarios and can be used as teaching material alongside the guide
 
 The document should serve two audiences at once:
 
@@ -33,6 +39,14 @@ This guide fills that gap.
 
 It should stay scenario-driven and governance-driven. When it needs to mention package choice or field semantics, it should summarize briefly and link out rather than re-teaching the full reference material.
 
+The current example suite also misses several realistic boundaries that teams keep asking about:
+
+- one aggregate touched by both human-triggered sync actions and background workers
+- cases where a team reaches for composite but one higher aggregate lock is actually enough
+- shard or partition ownership for bulk import and large async workloads
+
+Those gaps should now be filled through additional runnable examples.
+
 ## Goals
 
 - Provide practical lock-pattern guidance for real business scenarios.
@@ -40,13 +54,15 @@ It should stay scenario-driven and governance-driven. When it needs to mention p
 - Make Phase 2a behavior clear in business terms, especially parent-child overlap enforcement.
 - Capture best practices and anti-patterns that should become team conventions.
 - Give architects enough governance notes to standardize registry design and review pull requests consistently.
+- Add runnable examples for the new scenarios so the guide links to concrete teaching artifacts, not prose alone.
 
 ## Non-Goals
 
 - Do not redefine public API contracts already covered in [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md).
 - Do not duplicate the full runtime-versus-workers explanation already covered in [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md).
-- Do not introduce new SDK behavior, new lock kinds, or new examples.
+- Do not introduce new SDK behavior or new lock kinds.
 - Do not become a backend operations manual for Redis or any other driver.
+- Do not turn the new examples into mini applications; they should stay focused teaching examples with deterministic output.
 
 ## Target Audience
 
@@ -70,11 +86,23 @@ Need governance guidance across many flows:
 
 ## Document Shape
 
-The new guide should be one standalone file:
+The guide remains one standalone file:
 
 - [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md)
 
-It should be structured in seven major sections.
+But it should no longer read like one flat scenario list. It should be regrouped around scenario families so old and new scenarios feel balanced.
+
+The new guide should use this high-level shape:
+
+1. `Who This Guide Is For`
+2. `Decision Framing`
+3. `Quick Decision Guide`
+4. `Pattern Catalog`
+5. `Scenario Families`
+6. `Best Practices`
+7. `Anti-Patterns`
+8. `Decision Matrix`
+9. `Related Docs And Examples`
 
 ## Section 1: Purpose And Decision Framing
 
@@ -131,11 +159,22 @@ The goal is consistency, so readers can compare patterns quickly.
 
 `runtime` and `workers` should not appear here as standalone catalog entries. They should be referenced inside scenario recommendations and in the quick decision guide with links to the dedicated execution-package document.
 
-## Section 4: Real Scenarios
+## Section 4: Scenario Families
 
-This is the heart of the document.
+This remains the heart of the document, but it should now be regrouped by family instead of presented as one flat list.
 
-Each scenario should include:
+Required family groupings:
+
+- single aggregate ownership
+- aggregate versus sub-resource concurrency
+- multi-resource coordination
+- sync and async shared boundaries
+- shard or partition ownership
+- advisory visibility
+
+Each family can contain one or more scenarios. The goal is to make the reader compare related design choices next to each other.
+
+Each scenario should still include:
 
 - problem statement
 - recommended pattern
@@ -188,6 +227,57 @@ Required scenarios:
    - explain when `ExecutionKind=both` is acceptable
    - explain when separate sync and async definitions are safer
    - include governance guidance for registry review
+
+10. **Human action and background worker touch the same aggregate**
+   - explain one aggregate boundary shared across sync and async lifecycles
+   - show when one shared definition is acceptable and when the lifecycle difference still argues for split definitions
+   - tie the prose back to a runnable example
+
+11. **Cross-aggregate parent lock is enough, composite is overkill**
+   - explain a case where a team might reach for composite, but one higher aggregate parent lock already captures the real invariant
+   - make the “do not over-model with composite” guidance concrete
+   - tie the prose back to a runnable example
+
+12. **Bulk import with shard ownership**
+   - explain shard or partition ownership for a large async import workload
+   - compare shard-level ownership with smaller batch-level ownership
+   - tie the prose back to a runnable example
+
+## Example Additions
+
+This scope now includes three new teaching examples.
+
+### Example 1: Shared Aggregate Across Runtime And Workers
+
+- Create a new Redis-backed example:
+  [`examples/phase2-shared-aggregate-runtime-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker)
+- The example should show one aggregate touched by a direct human action path and a background worker path.
+- It should teach boundary choice more than low-level mechanics.
+- It should stay balanced in complexity: enough output to explain the flow, but not a mini application.
+
+### Example 2: Parent Over Composite
+
+- Create a new memory-backed example:
+  [`examples/phase2-parent-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite)
+- The example should show that one higher aggregate parent lock can be the right answer even when several sub-resources are involved.
+- It should explicitly teach why composite would be overkill in this case.
+
+### Example 3: Bulk Import With Shard Ownership
+
+- Create a new Redis-backed worker example:
+  [`examples/phase2-bulk-import-shard-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker)
+- The example should show shard ownership for async bulk import or large partitioned work.
+- It should make the shard-level boundary obvious in both output and README guidance.
+
+### Example Style Requirements
+
+All three new examples should:
+
+- follow the existing example pattern of `main.go`, `main_test.go`, and local `README.md`
+- produce deterministic teaching output rather than logs that depend on timing races
+- explain one primary lesson each
+- keep tests aligned with the printed output contract
+- link cleanly from the regrouped guide
 
 ## Section 5: Best Practices
 
@@ -248,6 +338,9 @@ Then link readers to:
 - [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
 - [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
 - [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
+- [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md)
+- [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md)
+- [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md)
 
 ## Tone And Style
 
@@ -281,18 +374,29 @@ Recommended navigation model:
 
 ## Acceptance Criteria
 
-The design is satisfied when the implemented document:
+The design is satisfied when the implementation:
 
 - exists at [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md)
+- keeps the opening purpose and target-audience framing
 - contains a short purpose section that distinguishes contention, overlap, reentrancy, idempotency, and advisory presence
 - contains a quick decision guide that gives scenario-specific package direction and links to [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md) instead of duplicating it
 - contains a pattern catalog for parent, child, composite, and presence-check-only usage
+- groups the real scenarios into the required scenario families rather than leaving them as one flat list
 - contains both scenario guidance and architecture best practices
 - clearly explains Phase 2a migration impact
-- gives concrete recommendations for all nine required scenarios
+- gives concrete recommendations for all twelve required scenarios
 - gives each required scenario the full structure of problem, recommended pattern, recommended execution package, why, example key shape, best practices, common mistakes, and architecture note
 - contains a bounded best-practices section framed as review heuristics and team policy
 - contains an explicit anti-pattern section covering the required bad patterns
 - contains a compact decision matrix with scenario type, recommended lock shape, package, why, and next doc/example
-- links to the existing runtime/workers guide, definition reference, and examples
+- links to the existing runtime/workers guide, definition reference, and both the old and new examples
+- adds the three new example directories:
+  - [`examples/phase2-shared-aggregate-runtime-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker)
+  - [`examples/phase2-parent-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite)
+  - [`examples/phase2-bulk-import-shard-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker)
+- gives each new example a `main.go`, `main_test.go`, and `README.md`
+- maps the new examples to the intended backend shape:
+  - shared aggregate runtime/worker -> Redis-backed
+  - parent over composite -> memory-backed
+  - bulk import with shard ownership -> Redis-backed worker
 - avoids duplicating large sections of existing docs verbatim
