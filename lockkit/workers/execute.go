@@ -10,6 +10,7 @@ import (
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
+	"lockman/lockkit/internal/lineage"
 	"lockman/lockkit/internal/policy"
 )
 
@@ -18,6 +19,16 @@ const (
 	minTerminalTTL   = time.Minute
 	maxTerminalTTL   = 24 * time.Hour
 )
+
+type claimAcquirePlan struct {
+	resourceKey string
+	lineage     *drivers.LineageLeaseMeta
+}
+
+type renewableLease struct {
+	lease   drivers.LeaseRecord
+	lineage *drivers.LineageLeaseMeta
+}
 
 // ExecuteClaimed runs fn after successfully acquiring a single-resource worker claim.
 func (m *Manager) ExecuteClaimed(
@@ -40,10 +51,11 @@ func (m *Manager) ExecuteClaimed(
 		return err
 	}
 
-	resourceKey, err := def.KeyBuilder.Build(req.KeyInput)
+	acquirePlan, err := m.buildClaimAcquirePlan(def, req.KeyInput)
 	if err != nil {
 		return err
 	}
+	resourceKey := acquirePlan.resourceKey
 
 	if !m.tryAdmitInFlightExecution() {
 		return lockerrors.ErrWorkerShuttingDown
@@ -81,17 +93,12 @@ func (m *Manager) ExecuteClaimed(
 	acquireCtx, acquireCancel := contextWithAcquireTimeout(ctx, waitCfg)
 	defer acquireCancel()
 
-	lease, err := m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
-		DefinitionID: def.ID,
-		ResourceKeys: []string{resourceKey},
-		OwnerID:      req.Ownership.OwnerID,
-		LeaseTTL:     def.LeaseTTL,
-	})
+	lease, err := m.acquireClaimLease(acquireCtx, def, acquirePlan, req.Ownership.OwnerID)
 	if err != nil {
 		return mapAcquireError(err)
 	}
 	defer func() {
-		_ = m.driver.Release(context.Background(), lease)
+		_ = m.releaseClaimLease(context.Background(), lease)
 	}()
 
 	callbackCtx, callbackCancel := context.WithCancel(ctx)
@@ -108,8 +115,8 @@ func (m *Manager) ExecuteClaimed(
 		DefinitionID:   def.ID,
 		ResourceKey:    resourceKey,
 		Ownership:      req.Ownership,
-		LeaseTTL:       lease.LeaseTTL,
-		LeaseDeadline:  lease.ExpiresAt,
+		LeaseTTL:       lease.lease.LeaseTTL,
+		LeaseDeadline:  lease.lease.ExpiresAt,
 		IdempotencyKey: req.IdempotencyKey,
 	})
 
@@ -331,6 +338,8 @@ func contextWithAcquireTimeout(ctx context.Context, cfg waitConfig) (context.Con
 
 func mapAcquireError(err error) error {
 	switch {
+	case stdErrors.Is(err, lockerrors.ErrOverlapRejected):
+		return lockerrors.ErrOverlapRejected
 	case stdErrors.Is(err, drivers.ErrLeaseAlreadyHeld):
 		return lockerrors.ErrLockBusy
 	case stdErrors.Is(err, context.DeadlineExceeded):
@@ -338,4 +347,118 @@ func mapAcquireError(err error) error {
 	default:
 		return err
 	}
+}
+
+func (m *Manager) buildClaimAcquirePlan(def definitions.LockDefinition, input map[string]string) (claimAcquirePlan, error) {
+	definitionsByID := m.definitionsByID()
+	if !workerDefinitionUsesLineage(def, workerChildrenByParent(definitionsByID)) {
+		resourceKey, err := def.KeyBuilder.Build(input)
+		if err != nil {
+			return claimAcquirePlan{}, err
+		}
+		return claimAcquirePlan{resourceKey: resourceKey}, nil
+	}
+
+	plan, err := lineage.ResolveAcquirePlan(def, definitionsByID, input)
+	if err != nil {
+		return claimAcquirePlan{}, err
+	}
+	meta := plan.LeaseMeta()
+	return claimAcquirePlan{
+		resourceKey: plan.ResourceKey,
+		lineage:     &meta,
+	}, nil
+}
+
+func (m *Manager) acquireClaimLease(
+	ctx context.Context,
+	def definitions.LockDefinition,
+	plan claimAcquirePlan,
+	ownerID string,
+) (renewableLease, error) {
+	if plan.lineage == nil {
+		lease, err := m.driver.Acquire(ctx, drivers.AcquireRequest{
+			DefinitionID: def.ID,
+			ResourceKeys: []string{plan.resourceKey},
+			OwnerID:      ownerID,
+			LeaseTTL:     def.LeaseTTL,
+		})
+		if err != nil {
+			return renewableLease{}, err
+		}
+		return renewableLease{lease: lease}, nil
+	}
+
+	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	if !ok {
+		return renewableLease{}, lockerrors.ErrPolicyViolation
+	}
+
+	lease, err := lineageDriver.AcquireWithLineage(ctx, drivers.LineageAcquireRequest{
+		DefinitionID: def.ID,
+		ResourceKey:  plan.resourceKey,
+		OwnerID:      ownerID,
+		LeaseTTL:     def.LeaseTTL,
+		Lineage:      cloneWorkerLineageMeta(*plan.lineage),
+	})
+	if err != nil {
+		return renewableLease{}, err
+	}
+
+	meta := cloneWorkerLineageMeta(*plan.lineage)
+	return renewableLease{
+		lease:   lease,
+		lineage: &meta,
+	}, nil
+}
+
+func (m *Manager) releaseClaimLease(ctx context.Context, held renewableLease) error {
+	if held.lineage == nil {
+		return m.driver.Release(ctx, held.lease)
+	}
+
+	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
+	}
+	return lineageDriver.ReleaseWithLineage(ctx, held.lease, cloneWorkerLineageMeta(*held.lineage))
+}
+
+func (m *Manager) definitionsByID() map[string]definitions.LockDefinition {
+	snapshot, ok := m.registry.(interface {
+		Definitions() []definitions.LockDefinition
+	})
+	if !ok {
+		return nil
+	}
+
+	defs := snapshot.Definitions()
+	out := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		out[def.ID] = def
+	}
+	return out
+}
+
+func workerChildrenByParent(definitionsByID map[string]definitions.LockDefinition) map[string][]string {
+	out := make(map[string][]string, len(definitionsByID))
+	for _, def := range definitionsByID {
+		if def.ParentRef == "" {
+			continue
+		}
+		out[def.ParentRef] = append(out[def.ParentRef], def.ID)
+	}
+	return out
+}
+
+func workerDefinitionUsesLineage(def definitions.LockDefinition, children map[string][]string) bool {
+	return def.ParentRef != "" || len(children[def.ID]) > 0
+}
+
+func cloneWorkerLineageMeta(meta drivers.LineageLeaseMeta) drivers.LineageLeaseMeta {
+	out := meta
+	if len(meta.AncestorKeys) > 0 {
+		out.AncestorKeys = append([]drivers.AncestorKey(nil), meta.AncestorKeys...)
+	}
+	return out
 }

@@ -57,10 +57,10 @@ func (s *renewalSession) setFailure(err error) {
 }
 
 func (m *Manager) startLeaseRenewal(
-	lease drivers.LeaseRecord,
+	lease renewableLease,
 	onFailureCancel context.CancelFunc,
 ) *renewalSession {
-	interval := renewalInterval(lease.LeaseTTL)
+	interval := renewalInterval(lease.lease.LeaseTTL)
 	renewCtx, renewCancel := context.WithCancel(context.Background())
 	session := &renewalSession{
 		done: make(chan struct{}),
@@ -86,7 +86,7 @@ func (m *Manager) startLeaseRenewal(
 			case <-ticker.C:
 			}
 
-			updated, err := m.driver.Renew(renewCtx, current)
+			updated, err := m.renewLease(renewCtx, current)
 			if err != nil {
 				if renewCtx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 					return
@@ -102,6 +102,31 @@ func (m *Manager) startLeaseRenewal(
 	}()
 
 	return session
+}
+
+func (m *Manager) renewLease(ctx context.Context, current renewableLease) (renewableLease, error) {
+	if current.lineage == nil {
+		updated, err := m.driver.Renew(ctx, current.lease)
+		if err != nil {
+			return renewableLease{}, err
+		}
+		return renewableLease{lease: updated}, nil
+	}
+
+	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	if !ok {
+		return renewableLease{}, lockerrors.ErrPolicyViolation
+	}
+
+	updatedLease, updatedMeta, err := lineageDriver.RenewWithLineage(ctx, current.lease, cloneWorkerLineageMeta(*current.lineage))
+	if err != nil {
+		return renewableLease{}, err
+	}
+	meta := cloneWorkerLineageMeta(updatedMeta)
+	return renewableLease{
+		lease:   updatedLease,
+		lineage: &meta,
+	}, nil
 }
 
 func renewalInterval(ttl time.Duration) time.Duration {

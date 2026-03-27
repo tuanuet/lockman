@@ -151,6 +151,109 @@ func TestExecuteClaimedTreatsFailedDuplicateAsAckWithoutCallback(t *testing.T) {
 	}
 }
 
+func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
+	driver := testkit.NewMemoryDriver()
+	reg := workerRegistryWithLineageChain(t)
+	mgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	parentReq := drivers.LineageAcquireRequest{
+		DefinitionID: "OrderLock",
+		ResourceKey:  "order:123",
+		OwnerID:      "external-parent",
+		LeaseTTL:     30 * time.Second,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: "parent-lease",
+			Kind:    definitions.KindParent,
+		},
+	}
+	parentLease, err := driver.AcquireWithLineage(context.Background(), parentReq)
+	if err != nil {
+		t.Fatalf("AcquireWithLineage failed: %v", err)
+	}
+	defer func() {
+		_ = driver.ReleaseWithLineage(context.Background(), parentLease, parentReq.Lineage)
+	}()
+
+	err = mgr.ExecuteClaimed(context.Background(), childMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		t.Fatal("callback should not run")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap error, got %v", err)
+	}
+	if got := policy.OutcomeFromError(err); got != policy.OutcomeRetry {
+		t.Fatalf("expected retry outcome, got %q", got)
+	}
+}
+
+func TestExecuteClaimedRejectsParentWhenChildHeldByAnotherWorker(t *testing.T) {
+	driver := testkit.NewMemoryDriver()
+	reg := workerRegistryWithLineageChain(t)
+	childMgr := newWorkerManagerWithDriver(t, reg, driver)
+	parentMgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- childMgr.ExecuteClaimed(context.Background(), childMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err := parentMgr.ExecuteClaimed(context.Background(), parentMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		t.Fatal("parent callback should not run")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection, got %v", err)
+	}
+	if got := policy.OutcomeFromError(err); got != policy.OutcomeRetry {
+		t.Fatalf("expected retry outcome, got %q", got)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("child ExecuteClaimed returned error: %v", err)
+	}
+}
+
+func TestExecuteClaimedRenewsLineageMembershipUntilCallbackCompletes(t *testing.T) {
+	driver := testkit.NewMemoryDriver()
+	reg := registryWithShortTTLLineageChain(t, 150*time.Millisecond)
+	childMgr := newWorkerManagerWithDriver(t, reg, driver)
+	parentMgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- childMgr.ExecuteClaimed(context.Background(), childMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	time.Sleep(220 * time.Millisecond)
+	err := parentMgr.ExecuteClaimed(context.Background(), parentMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		t.Fatal("parent callback should not run while child renewals succeed")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection after renew window, got %v", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("child ExecuteClaimed returned error: %v", err)
+	}
+}
+
 func TestExecuteClaimedSameProcessReentrantRejected(t *testing.T) {
 	mgr := newWorkerManagerForTest(t)
 	req := messageClaimRequest()
@@ -368,6 +471,53 @@ func newWorkerRegistryForTest(t *testing.T, idempotencyRequired bool) *registry.
 	return reg
 }
 
+func newWorkerManagerWithDriver(t *testing.T, reg *registry.Registry, driver drivers.Driver) *Manager {
+	t.Helper()
+
+	mgr, err := NewManager(reg, driver, idempotency.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	return mgr
+}
+
+func registryWithShortTTLLineageChain(t *testing.T, ttl time.Duration) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	register := func(def definitions.LockDefinition) {
+		if err := reg.Register(def); err != nil {
+			t.Fatalf("register %s failed: %v", def.ID, err)
+		}
+	}
+
+	register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionAsync,
+		LeaseTTL:      ttl,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	})
+	register(definitions.LockDefinition{
+		ID:            "ItemLock",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionAsync,
+		LeaseTTL:      ttl,
+		ParentRef:     "OrderLock",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder: definitions.MustTemplateKeyBuilder(
+			"order:{order_id}:item:{item_id}",
+			[]string{"order_id", "item_id"},
+		),
+	})
+
+	return reg
+}
+
 func messageClaimRequest() definitions.MessageClaimRequest {
 	return definitions.MessageClaimRequest{
 		DefinitionID:   "MessageClaimLock",
@@ -381,6 +531,41 @@ func messageClaimRequest() definitions.MessageClaimRequest {
 			Attempt:       1,
 			ConsumerGroup: "payments",
 			HandlerName:   "HandlePayment",
+		},
+	}
+}
+
+func parentMessageClaimRequest() definitions.MessageClaimRequest {
+	return definitions.MessageClaimRequest{
+		DefinitionID:   "OrderLock",
+		IdempotencyKey: "order:123",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:       "worker-parent",
+			MessageID:     "123",
+			Attempt:       1,
+			ConsumerGroup: "payments",
+			HandlerName:   "HandleOrder",
+		},
+	}
+}
+
+func childMessageClaimRequest() definitions.MessageClaimRequest {
+	return definitions.MessageClaimRequest{
+		DefinitionID:   "ItemLock",
+		IdempotencyKey: "order:123:item:line-1",
+		KeyInput: map[string]string{
+			"order_id": "123",
+			"item_id":  "line-1",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:       "worker-child",
+			MessageID:     "line-1",
+			Attempt:       1,
+			ConsumerGroup: "payments",
+			HandlerName:   "HandleItem",
 		},
 	}
 }

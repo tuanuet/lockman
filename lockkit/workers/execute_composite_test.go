@@ -11,6 +11,7 @@ import (
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
+	"lockman/lockkit/internal/policy"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/testkit"
 )
@@ -87,6 +88,41 @@ func TestExecuteCompositeClaimedRejectsOverlapBeforeAcquire(t *testing.T) {
 	}
 	if attempts := driver.acquireAttempts(); attempts != 0 {
 		t.Fatalf("expected overlap rejection before acquire attempts, got %d", attempts)
+	}
+}
+
+func TestExecuteCompositeClaimedUsesLineageDriverForLineageMembers(t *testing.T) {
+	driver := testkit.NewMemoryDriver()
+	reg := workerRegistryWithCompositeLineageMembers(t)
+	holder := newWorkerManagerWithDriver(t, reg, driver)
+	compositeMgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- holder.ExecuteClaimed(context.Background(), parentMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err := compositeMgr.ExecuteCompositeClaimed(context.Background(), compositeChildMemberClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		t.Fatal("composite callback should not run while parent is held")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection, got %v", err)
+	}
+	if got := policy.OutcomeFromError(err); got != policy.OutcomeRetry {
+		t.Fatalf("expected retry outcome, got %q", got)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("holder ExecuteClaimed returned error: %v", err)
 	}
 }
 
@@ -312,6 +348,46 @@ func compositeClaimRequest() definitions.CompositeClaimRequest {
 			Attempt:       1,
 			ConsumerGroup: "payments",
 			HandlerName:   "TransferFunds",
+		},
+	}
+}
+
+func workerRegistryWithCompositeLineageMembers(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := workerRegistryWithLineageChain(t)
+	if err := reg.RegisterComposite(definitions.CompositeDefinition{
+		ID:               "ChildOnlyComposite",
+		Members:          []string{"ItemLock"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   1,
+		ExecutionKind:    definitions.ExecutionAsync,
+	}); err != nil {
+		t.Fatalf("register ChildOnlyComposite failed: %v", err)
+	}
+
+	return reg
+}
+
+func compositeChildMemberClaimRequest() definitions.CompositeClaimRequest {
+	return definitions.CompositeClaimRequest{
+		DefinitionID:   "ChildOnlyComposite",
+		IdempotencyKey: "order:123:item:line-1",
+		MemberInputs: []map[string]string{
+			{
+				"order_id": "123",
+				"item_id":  "line-1",
+			},
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:       "worker-composite",
+			MessageID:     "line-1",
+			Attempt:       1,
+			ConsumerGroup: "payments",
+			HandlerName:   "HandleCompositeItem",
 		},
 	}
 }

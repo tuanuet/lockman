@@ -7,14 +7,13 @@ import (
 	"time"
 
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/internal/policy"
 )
 
 type acquiredCompositeClaim struct {
 	member policy.MemberLeasePlan
-	lease  drivers.LeaseRecord
+	lease  renewableLease
 }
 
 // ExecuteCompositeClaimed runs fn after successfully acquiring all composite members in canonical order.
@@ -43,6 +42,7 @@ func (m *Manager) ExecuteCompositeClaimed(
 
 	memberDefs := make([]definitions.LockDefinition, len(compositeDef.Members))
 	memberKeys := make([]string, len(compositeDef.Members))
+	memberPlans := make(map[compositeClaimPlanKey][]claimAcquirePlan, len(compositeDef.Members))
 	idempotencyRequired := false
 	idempotencyLeaseTTLBasis := time.Duration(0)
 	for i, memberID := range compositeDef.Members {
@@ -57,13 +57,15 @@ func (m *Manager) ExecuteCompositeClaimed(
 			return lockerrors.ErrPolicyViolation
 		}
 
-		memberKey, memberErr := memberDef.KeyBuilder.Build(req.MemberInputs[i])
+		acquirePlan, memberErr := m.buildClaimAcquirePlan(memberDef, req.MemberInputs[i])
 		if memberErr != nil {
 			return memberErr
 		}
 
 		memberDefs[i] = memberDef
-		memberKeys[i] = memberKey
+		memberKeys[i] = acquirePlan.resourceKey
+		key := compositeClaimPlanKey{definitionID: memberDef.ID, resourceKey: acquirePlan.resourceKey}
+		memberPlans[key] = append(memberPlans[key], acquirePlan)
 		idempotencyRequired = idempotencyRequired || memberDef.IdempotencyRequired
 		if i == 0 || memberDef.LeaseTTL > idempotencyLeaseTTLBasis {
 			idempotencyLeaseTTLBasis = memberDef.LeaseTTL
@@ -143,18 +145,18 @@ func (m *Manager) ExecuteCompositeClaimed(
 	acquired := make([]acquiredCompositeClaim, 0, len(plan))
 	defer func() {
 		for i := len(acquired) - 1; i >= 0; i-- {
-			_ = m.driver.Release(context.Background(), acquired[i].lease)
+			_ = m.releaseClaimLease(context.Background(), acquired[i].lease)
 		}
 	}()
 
 	for i, member := range plan {
+		acquirePlan, ok := popCompositeClaimAcquirePlan(memberPlans, member.Definition.ID, member.ResourceKey)
+		if !ok {
+			return lockerrors.ErrPolicyViolation
+		}
+
 		acquireCtx, acquireCancel := contextWithAcquireTimeout(ctx, waitCfgs[i])
-		lease, acquireErr := m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
-			DefinitionID: member.Definition.ID,
-			ResourceKeys: []string{member.ResourceKey},
-			OwnerID:      req.Ownership.OwnerID,
-			LeaseTTL:     member.Definition.LeaseTTL,
-		})
+		lease, acquireErr := m.acquireClaimLease(acquireCtx, member.Definition, acquirePlan, req.Ownership.OwnerID)
 		acquireCancel()
 		if acquireErr != nil {
 			return mapAcquireError(acquireErr)
@@ -249,11 +251,11 @@ func buildCompositeClaimContext(
 
 	for i, member := range acquired {
 		resourceKeys[i] = member.member.ResourceKey
-		if i == 0 || member.lease.LeaseTTL < minTTL {
-			minTTL = member.lease.LeaseTTL
+		if i == 0 || member.lease.lease.LeaseTTL < minTTL {
+			minTTL = member.lease.lease.LeaseTTL
 		}
-		if i == 0 || member.lease.ExpiresAt.Before(leaseDeadline) {
-			leaseDeadline = member.lease.ExpiresAt
+		if i == 0 || member.lease.lease.ExpiresAt.Before(leaseDeadline) {
+			leaseDeadline = member.lease.lease.ExpiresAt
 		}
 	}
 
@@ -304,4 +306,28 @@ func validateCompositeClaimRequest(req definitions.CompositeClaimRequest) error 
 		return lockerrors.ErrPolicyViolation
 	}
 	return nil
+}
+
+type compositeClaimPlanKey struct {
+	definitionID string
+	resourceKey  string
+}
+
+func popCompositeClaimAcquirePlan(
+	plans map[compositeClaimPlanKey][]claimAcquirePlan,
+	definitionID string,
+	resourceKey string,
+) (claimAcquirePlan, bool) {
+	key := compositeClaimPlanKey{definitionID: definitionID, resourceKey: resourceKey}
+	queue := plans[key]
+	if len(queue) == 0 {
+		return claimAcquirePlan{}, false
+	}
+	plan := queue[0]
+	if len(queue) == 1 {
+		delete(plans, key)
+	} else {
+		plans[key] = queue[1:]
+	}
+	return plan, true
 }
