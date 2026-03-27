@@ -122,7 +122,9 @@ Presence can improve observability and user communication, but over-trusting it 
 
 Definitions that allow presence checks should still be reviewed as lock definitions first. `CheckOnlyAllowed` is a visibility choice, not a weaker form of coordination.
 
-## Real Scenarios
+## Scenario Families
+
+### Single Aggregate Ownership
 
 ### Approve One Order
 
@@ -157,6 +159,8 @@ Do not introduce child locks just because the order contains items. If approval 
 #### Architecture Note
 
 Registry review should ask whether the team is really protecting one aggregate invariant. If the answer is yes, parent lock should remain the default.
+
+### Aggregate Versus Sub-Resource Concurrency
 
 ### Update One Order Item Under Order-Level Invariants
 
@@ -193,6 +197,8 @@ Do not say “the data model has items, so we need item locks”. That is not en
 
 This scenario should trigger a higher review bar. The team is asserting a concurrency contract, not just naming a nested resource.
 
+### Multi-Resource Coordination
+
 ### Transfer Between Two Accounts
 
 #### Problem
@@ -227,6 +233,113 @@ Do not manually call acquire twice in app code and hope the call order stays con
 
 Composite definitions should represent approved business workflows. They should not become a general-purpose escape hatch for arbitrary multi-lock code.
 
+### One Higher Aggregate Parent Lock Is Enough, Composite Is Overkill
+
+#### Problem
+
+One business flow touches several sub-resources inside the same aggregate, and the team is tempted to model it as a composite only because more than one nested thing is involved.
+
+#### Recommended Pattern
+
+Use one higher aggregate parent lock.
+
+#### Recommended Execution Package
+
+Use `runtime` for the direct synchronous teaching case.
+
+#### Why This Choice
+
+Composite is overkill when one higher aggregate parent lock already captures the real invariant. Multiple sub-resources inside the same aggregate do not automatically justify multi-resource coordination.
+
+#### Example Key Shape
+
+`shipment:{shipment_id}` -> `shipment:sh-123`
+
+#### Best Practices
+
+Ask whether the real correctness rule is about the whole aggregate. If yes, prefer the higher boundary and keep the model simple.
+
+#### Common Mistakes
+
+Do not use composite as a proxy for “this request touches many fields”. That is a modeling shortcut, not a concurrency reason.
+
+#### Architecture Note
+
+Review should reject composites that exist only because a handler touches several nested parts of one aggregate whose invariant is still aggregate-wide.
+
+### Sync And Async Shared Boundaries
+
+### Shared Versus Split Sync/Async Definitions
+
+#### Problem
+
+A team wants one definition to cover both direct synchronous calls and async worker delivery, and must decide whether `ExecutionKind=both` is really appropriate.
+
+#### Recommended Pattern
+
+Use `ExecutionKind=both` only when the lock boundary, key semantics, and business meaning are truly the same in both paths. Otherwise, split definitions.
+
+#### Recommended Execution Package
+
+Use whichever package matches the call path, but only share the definition when the semantic boundary is genuinely shared.
+
+#### Why This Choice
+
+`ExecutionKind=both` can reduce duplication, but split definitions are safer when sync and async flows have different ownership, idempotency, observability, or review expectations.
+
+#### Example Key Shape
+
+Shared boundary example: `order:{order_id}` -> `order:123`
+
+#### Best Practices
+
+Ask whether the sync and async flows are protecting the same invariant or just touching the same table row. If they differ in meaning, split definitions.
+
+#### Common Mistakes
+
+Do not reuse one definition across unrelated semantics just because the key looks similar.
+
+#### Architecture Note
+
+Registry review should explicitly ask whether `ExecutionKind=both` preserves one business boundary or hides two different lifecycles behind one name. If the latter, split definitions.
+
+### Human Action And Background Worker Touch The Same Aggregate
+
+#### Problem
+
+One aggregate can be touched both by a direct human action path and by a background worker path, and the team needs one coherent boundary without collapsing unlike lifecycles into one definition by default.
+
+#### Recommended Pattern
+
+Use split sync and async definitions over the same aggregate key boundary as the default teaching case.
+
+#### Recommended Execution Package
+
+Use `runtime` for the human action path and `workers` for the background path.
+
+#### Why This Choice
+
+The key boundary can stay shared even when the execution lifecycles are different. Split definitions make that boundary explicit while letting each path keep its own policy surface. One shared `ExecutionKind=both` definition can still be acceptable, but only when both lifecycles really mean the same thing.
+
+#### Example Key Shape
+
+Sync: `order:{order_id}` -> `order:123`  
+Async: `order:{order_id}` -> `order:123`
+
+#### Best Practices
+
+Keep the key boundary identical if the protected aggregate is the same, but review the sync and async ownership models independently before deciding to share the definition itself.
+
+#### Common Mistakes
+
+Do not force one `ExecutionKind=both` definition just to reduce registry entries. Semantic clarity is worth an extra definition.
+
+#### Architecture Note
+
+This scenario is a governance decision as much as an implementation decision. The registry should optimize for boundary clarity, not for minimum definition count.
+
+### Lifecycle And Ownership Boundaries
+
 ### Inventory Reservation From A Queue Worker
 
 #### Problem
@@ -260,6 +373,42 @@ Do not treat queue retries as rare edge cases. In async systems, duplicate deliv
 #### Architecture Note
 
 Registry review should reject async definitions that clearly need duplicate-delivery protection but omit the idempotency requirement.
+
+### Producer-Consumer Handoff
+
+#### Problem
+
+A producer wants to mark work as “owned” before handing it to a consumer, and the team considers taking a lock in the producer and releasing it in the consumer.
+
+#### Recommended Pattern
+
+Reject that design and move ownership to the consumer claim path.
+
+#### Recommended Execution Package
+
+Use `workers` at the consumer boundary.
+
+#### Why This Choice
+
+Lock in producer, release in consumer is the wrong default because ownership crosses lifecycles and failure domains. Claim ownership begins in the consumer, where delivery, retry, and release decisions actually live.
+
+#### Example Key Shape
+
+`job:{job_id}` -> `job:123`
+
+#### Best Practices
+
+Let the producer emit an intent or message, then let the consumer claim and process it with its own idempotency and lease lifecycle.
+
+#### Common Mistakes
+
+Do not stretch one lease across systems just to “reserve” work early. That usually creates stale ownership and unclear recovery rules.
+
+#### Architecture Note
+
+When teams propose producer-side locking, review should ask which side truly owns retries and completion. In most async systems, that answer is the consumer.
+
+### Shard Or Partition Ownership
 
 ### Background Reconciliation Or Shard-Based Batch Job
 
@@ -296,39 +445,41 @@ Do not use per-batch locking when the real correctness rule is one worker per sh
 
 This scenario is where governance matters most. Teams should write down why shard-level or batch-level ownership is the real unit of correctness.
 
-### Producer-Consumer Handoff
+### Bulk Import With Shard Ownership
 
 #### Problem
 
-A producer wants to mark work as “owned” before handing it to a consumer, and the team considers taking a lock in the producer and releasing it in the consumer.
+An async bulk import splits work across shards or partitions and needs a default ownership boundary that is safe before the team experiments with narrower units.
 
 #### Recommended Pattern
 
-Reject that design and move ownership to the consumer claim path.
+Prefer shard-level ownership by default.
 
 #### Recommended Execution Package
 
-Use `workers` at the consumer boundary.
+Use `workers`.
 
 #### Why This Choice
 
-Lock in producer, release in consumer is the wrong default because ownership crosses lifecycles and failure domains. Claim ownership begins in the consumer, where delivery, retry, and release decisions actually live.
+Bulk import usually needs one worker to own one shard at a time so ordering, deduplication, and recovery stay understandable. Smaller batch-level ownership is reasonable only when batches are independently safe and replayable.
 
 #### Example Key Shape
 
-`job:{job_id}` -> `job:123`
+`import_shard:{shard_id}` -> `import_shard:07`
 
 #### Best Practices
 
-Let the producer emit an intent or message, then let the consumer claim and process it with its own idempotency and lease lifecycle.
+State the shard or partition invariant first, then size the lock boundary around that invariant instead of around implementation convenience.
 
 #### Common Mistakes
 
-Do not stretch one lease across systems just to “reserve” work early. That usually creates stale ownership and unclear recovery rules.
+Do not jump to smaller batch locks just because they sound more concurrent. If the real safety rule is shard ownership, keep the lock at the shard.
 
 #### Architecture Note
 
-When teams propose producer-side locking, review should ask which side truly owns retries and completion. In most async systems, that answer is the consumer.
+This is a good place for platform standards. Teams should explain why shard-level or batch-level ownership is the true recovery boundary before registry approval.
+
+### Advisory Visibility
 
 ### Admin Screen Or Operator Hint
 
@@ -364,6 +515,8 @@ Do not branch critical business logic on presence alone. That converts an observ
 
 Presence support should be deliberate. Teams should enable it where visibility helps, but review should make clear that correctness still depends on real lock acquisition.
 
+### Migration And Compatibility
+
 ### Phase 2a Migration Scenario
 
 #### Problem
@@ -398,40 +551,6 @@ Do not assume old nested behavior will keep working just because the exact resou
 #### Architecture Note
 
 Migration reviews should look for places where teams previously relied on permissive overlap and now need a clearer lock boundary or a composite workflow.
-
-### Shared Versus Split Sync/Async Definitions
-
-#### Problem
-
-A team wants one definition to cover both direct synchronous calls and async worker delivery, and must decide whether `ExecutionKind=both` is really appropriate.
-
-#### Recommended Pattern
-
-Use `ExecutionKind=both` only when the lock boundary, key semantics, and business meaning are truly the same in both paths. Otherwise, split definitions.
-
-#### Recommended Execution Package
-
-Use whichever package matches the call path, but only share the definition when the semantic boundary is genuinely shared.
-
-#### Why This Choice
-
-`ExecutionKind=both` can reduce duplication, but split definitions are safer when sync and async flows have different ownership, idempotency, observability, or review expectations.
-
-#### Example Key Shape
-
-Shared boundary example: `order:{order_id}` -> `order:123`
-
-#### Best Practices
-
-Ask whether the sync and async flows are protecting the same invariant or just touching the same table row. If they differ in meaning, split definitions.
-
-#### Common Mistakes
-
-Do not reuse one definition across unrelated semantics just because the key looks similar.
-
-#### Architecture Note
-
-Registry review should explicitly ask whether `ExecutionKind=both` preserves one business boundary or hides two different lifecycles behind one name. If the latter, split definitions.
 
 ## Best Practices
 
@@ -532,6 +651,9 @@ Do not assume `ParentRef` is metadata only. After Phase 2a, parent-child overlap
 | Admin screen or operator hint | Presence-check-only usage | none for the check itself | Visibility is useful, but it is not a correctness gate | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
 | Phase 2a migration scenario | Validated parent-child model with explicit overlap handling | same as the flow | Old permissive nesting no longer survives Phase 2a | [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md) |
 | Shared versus split sync/async definitions | `ExecutionKind=both` only when semantics are truly shared | depends on the flow | Shared keys are not enough; shared meaning is required | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
+| Human action and background worker touch the same aggregate | Split sync and async definitions over one shared aggregate key boundary | `runtime` and `workers` | Shared key boundary does not force one shared definition | `new example to be added in Task 5` |
+| One higher aggregate parent lock is enough, composite is overkill | Parent lock | `runtime` | Aggregate-wide invariant is already captured without composite | `new example to be added in Task 5` |
+| Bulk import with shard ownership | Shard-level ownership by default | `workers` | Shard ownership is the safer default recovery boundary | `new example to be added in Task 5` |
 
 ## Related Docs And Examples
 
