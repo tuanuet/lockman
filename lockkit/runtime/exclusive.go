@@ -8,6 +8,7 @@ import (
 	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
+	"lockman/lockkit/internal/lineage"
 )
 
 type guardKey struct {
@@ -27,6 +28,16 @@ type guardEntry struct {
 	state guardState
 }
 
+type runtimeAcquirePlan struct {
+	resourceKey string
+	lineage     *drivers.LineageLeaseMeta
+}
+
+type heldLease struct {
+	lease   drivers.LeaseRecord
+	lineage *drivers.LineageLeaseMeta
+}
+
 // ExecuteExclusive runs fn after successfully acquiring the requested standard lock.
 func (m *Manager) ExecuteExclusive(
 	ctx context.Context,
@@ -42,10 +53,11 @@ func (m *Manager) ExecuteExclusive(
 		return err
 	}
 
-	resourceKey, err := def.KeyBuilder.Build(req.KeyInput)
+	acquirePlan, err := m.buildAcquirePlan(def, req.KeyInput)
 	if err != nil {
 		return err
 	}
+	resourceKey := acquirePlan.resourceKey
 
 	waitConfig, err := applyRuntimeOverrides(def, req.Overrides)
 	if err != nil {
@@ -72,13 +84,13 @@ func (m *Manager) ExecuteExclusive(
 	acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfig)
 	defer cancel()
 
-	var lease drivers.LeaseRecord
+	var lease heldLease
 	var leaseAcquired bool
 	defer func() {
 		if leaseAcquired {
-			held := time.Since(lease.AcquiredAt)
+			held := time.Since(lease.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, def.ID, held)
-			if releaseErr := m.driver.Release(context.Background(), lease); releaseErr != nil {
+			if releaseErr := m.releaseLease(context.Background(), lease); releaseErr != nil {
 				if retErr == nil {
 					retErr = releaseErr
 				} else {
@@ -93,12 +105,7 @@ func (m *Manager) ExecuteExclusive(
 	}()
 
 	start := time.Now()
-	lease, err = m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
-		DefinitionID: def.ID,
-		ResourceKeys: []string{resourceKey},
-		OwnerID:      req.Ownership.OwnerID,
-		LeaseTTL:     def.LeaseTTL,
-	})
+	lease, err = m.acquireLease(acquireCtx, def, acquirePlan, req.Ownership.OwnerID)
 	waitDuration := time.Since(start)
 	m.recorder.RecordAcquire(ctx, def.ID, waitDuration, err == nil)
 
@@ -115,8 +122,8 @@ func (m *Manager) ExecuteExclusive(
 		DefinitionID:  def.ID,
 		ResourceKey:   resourceKey,
 		Ownership:     req.Ownership,
-		LeaseTTL:      lease.LeaseTTL,
-		LeaseDeadline: lease.ExpiresAt,
+		LeaseTTL:      lease.lease.LeaseTTL,
+		LeaseDeadline: lease.lease.ExpiresAt,
 	}
 
 	retErr = fn(ctx, leaseCtx)
@@ -124,6 +131,9 @@ func (m *Manager) ExecuteExclusive(
 }
 
 func recordAcquireFailure(m *Manager, ctx context.Context, definitionID string, err error) {
+	if stdErrors.Is(err, lockerrors.ErrOverlapRejected) {
+		m.recorder.RecordOverlapRejected(ctx, definitionID)
+	}
 	if stdErrors.Is(err, context.DeadlineExceeded) {
 		m.recorder.RecordTimeout(ctx, definitionID)
 	}
@@ -164,6 +174,8 @@ func applyRuntimeOverrides(def definitions.LockDefinition, overrides *definition
 
 func mapAcquireError(err error) error {
 	switch {
+	case stdErrors.Is(err, lockerrors.ErrOverlapRejected):
+		return lockerrors.ErrOverlapRejected
 	case stdErrors.Is(err, drivers.ErrLeaseAlreadyHeld):
 		return lockerrors.ErrLockBusy
 	case stdErrors.Is(err, context.DeadlineExceeded):
@@ -219,4 +231,118 @@ func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err 
 	}()
 	def = m.registry.MustGet(id)
 	return def, err
+}
+
+func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[string]string) (runtimeAcquirePlan, error) {
+	definitionsByID := m.definitionsByID()
+	if !runtimeDefinitionUsesLineage(def, childrenByParent(definitionsByID)) {
+		resourceKey, err := def.KeyBuilder.Build(input)
+		if err != nil {
+			return runtimeAcquirePlan{}, err
+		}
+		return runtimeAcquirePlan{resourceKey: resourceKey}, nil
+	}
+
+	plan, err := lineage.ResolveAcquirePlan(def, definitionsByID, input)
+	if err != nil {
+		return runtimeAcquirePlan{}, err
+	}
+	meta := plan.LeaseMeta()
+	return runtimeAcquirePlan{
+		resourceKey: plan.ResourceKey,
+		lineage:     &meta,
+	}, nil
+}
+
+func (m *Manager) acquireLease(
+	ctx context.Context,
+	def definitions.LockDefinition,
+	plan runtimeAcquirePlan,
+	ownerID string,
+) (heldLease, error) {
+	if plan.lineage == nil {
+		lease, err := m.driver.Acquire(ctx, drivers.AcquireRequest{
+			DefinitionID: def.ID,
+			ResourceKeys: []string{plan.resourceKey},
+			OwnerID:      ownerID,
+			LeaseTTL:     def.LeaseTTL,
+		})
+		if err != nil {
+			return heldLease{}, err
+		}
+		return heldLease{lease: lease}, nil
+	}
+
+	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	if !ok {
+		return heldLease{}, lockerrors.ErrPolicyViolation
+	}
+
+	lease, err := lineageDriver.AcquireWithLineage(ctx, drivers.LineageAcquireRequest{
+		DefinitionID: def.ID,
+		ResourceKey:  plan.resourceKey,
+		OwnerID:      ownerID,
+		LeaseTTL:     def.LeaseTTL,
+		Lineage:      cloneLineageMeta(*plan.lineage),
+	})
+	if err != nil {
+		return heldLease{}, err
+	}
+
+	meta := cloneLineageMeta(*plan.lineage)
+	return heldLease{
+		lease:   lease,
+		lineage: &meta,
+	}, nil
+}
+
+func (m *Manager) releaseLease(ctx context.Context, held heldLease) error {
+	if held.lineage == nil {
+		return m.driver.Release(ctx, held.lease)
+	}
+
+	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
+	}
+	return lineageDriver.ReleaseWithLineage(ctx, held.lease, cloneLineageMeta(*held.lineage))
+}
+
+func (m *Manager) definitionsByID() map[string]definitions.LockDefinition {
+	snapshot, ok := m.registry.(interface {
+		Definitions() []definitions.LockDefinition
+	})
+	if !ok {
+		return nil
+	}
+
+	defs := snapshot.Definitions()
+	out := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		out[def.ID] = def
+	}
+	return out
+}
+
+func childrenByParent(definitionsByID map[string]definitions.LockDefinition) map[string][]string {
+	out := make(map[string][]string, len(definitionsByID))
+	for _, def := range definitionsByID {
+		if def.ParentRef == "" {
+			continue
+		}
+		out[def.ParentRef] = append(out[def.ParentRef], def.ID)
+	}
+	return out
+}
+
+func runtimeDefinitionUsesLineage(def definitions.LockDefinition, children map[string][]string) bool {
+	return def.ParentRef != "" || len(children[def.ID]) > 0
+}
+
+func cloneLineageMeta(meta drivers.LineageLeaseMeta) drivers.LineageLeaseMeta {
+	out := meta
+	if len(meta.AncestorKeys) > 0 {
+		out.AncestorKeys = append([]drivers.AncestorKey(nil), meta.AncestorKeys...)
+	}
+	return out
 }

@@ -262,6 +262,84 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveRejectsParentWhenChildHeldByAnotherManager(t *testing.T) {
+	reg := registryWithLineageChain(t)
+	driver := testkit.NewMemoryDriver()
+
+	childManager, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("child manager init failed: %v", err)
+	}
+	parentManager, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("parent manager init failed: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- childManager.ExecuteExclusive(context.Background(), childSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err = parentManager.ExecuteExclusive(context.Background(), parentSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatal("parent callback should not run")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection, got %v", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("child ExecuteExclusive returned error: %v", err)
+	}
+}
+
+func TestExecuteExclusiveRejectsChildWhenParentHeldByAnotherManager(t *testing.T) {
+	reg := registryWithLineageChain(t)
+	driver := testkit.NewMemoryDriver()
+
+	parentManager, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("parent manager init failed: %v", err)
+	}
+	childManager, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("child manager init failed: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- parentManager.ExecuteExclusive(context.Background(), parentSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err = childManager.ExecuteExclusive(context.Background(), childSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatal("child callback should not run")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection, got %v", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("parent ExecuteExclusive returned error: %v", err)
+	}
+}
+
 type exactOnlyDriverStub struct {
 	inner drivers.Driver
 }
@@ -320,6 +398,31 @@ func registryWithLineageChain(t *testing.T) *registry.Registry {
 	}
 
 	return reg
+}
+
+func parentSyncRequest() definitions.SyncLockRequest {
+	return definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "svc:parent",
+		},
+	}
+}
+
+func childSyncRequest() definitions.SyncLockRequest {
+	return definitions.SyncLockRequest{
+		DefinitionID: "ItemLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+			"item_id":  "line-1",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "svc:child",
+		},
+	}
 }
 
 func TestExecuteExclusiveInvalidOverridesDoesNotPoisonGuard(t *testing.T) {
@@ -717,6 +820,8 @@ type countingRecorder struct {
 func (c *countingRecorder) RecordAcquire(context.Context, string, time.Duration, bool) {}
 
 func (c *countingRecorder) RecordContention(context.Context, string) {}
+
+func (c *countingRecorder) RecordOverlapRejected(context.Context, string) {}
 
 func (c *countingRecorder) RecordTimeout(context.Context, string) {}
 

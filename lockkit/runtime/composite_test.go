@@ -170,6 +170,70 @@ func TestExecuteCompositeExclusiveRejectsParentChildOverlap(t *testing.T) {
 	}
 }
 
+func TestExecuteCompositeExclusiveUsesLineageDriverForLineageMembers(t *testing.T) {
+	reg := registryWithCompositeLineageMembers(t)
+	driver := testkit.NewMemoryDriver()
+
+	holder, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("holder init failed: %v", err)
+	}
+	compositeMgr, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("composite manager init failed: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- holder.ExecuteExclusive(context.Background(), childSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err = compositeMgr.ExecuteCompositeExclusive(context.Background(), compositeParentMemberRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatal("composite callback should not run while child is held")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected composite overlap rejection, got %v", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("child holder returned error: %v", err)
+	}
+
+	entered = make(chan struct{})
+	release = make(chan struct{})
+	done = make(chan error, 1)
+	go func() {
+		done <- holder.ExecuteExclusive(context.Background(), parentSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	err = compositeMgr.ExecuteCompositeExclusive(context.Background(), compositeChildMemberRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		t.Fatal("composite callback should not run while parent is held")
+		return nil
+	})
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected composite overlap rejection, got %v", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("parent holder returned error: %v", err)
+	}
+}
+
 func newCompositeRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
 
@@ -427,6 +491,65 @@ func newOverlapCompositeRegistry(t *testing.T) *registry.Registry {
 	}
 
 	return reg
+}
+
+func registryWithCompositeLineageMembers(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registryWithLineageChain(t)
+	register := func(def definitions.CompositeDefinition) {
+		if err := reg.RegisterComposite(def); err != nil {
+			t.Fatalf("register %s failed: %v", def.ID, err)
+		}
+	}
+
+	register(definitions.CompositeDefinition{
+		ID:               "ParentOnlyComposite",
+		Members:          []string{"OrderLock"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   1,
+		ExecutionKind:    definitions.ExecutionSync,
+	})
+	register(definitions.CompositeDefinition{
+		ID:               "ChildOnlyComposite",
+		Members:          []string{"ItemLock"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   1,
+		ExecutionKind:    definitions.ExecutionSync,
+	})
+
+	return reg
+}
+
+func compositeParentMemberRequest() definitions.CompositeLockRequest {
+	return definitions.CompositeLockRequest{
+		DefinitionID: "ParentOnlyComposite",
+		MemberInputs: []map[string]string{
+			{
+				"order_id": "123",
+			},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:composite-parent"},
+	}
+}
+
+func compositeChildMemberRequest() definitions.CompositeLockRequest {
+	return definitions.CompositeLockRequest{
+		DefinitionID: "ChildOnlyComposite",
+		MemberInputs: []map[string]string{
+			{
+				"order_id": "123",
+				"item_id":  "line-1",
+			},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:composite-child"},
+	}
 }
 
 type failingCompositeDriver struct {

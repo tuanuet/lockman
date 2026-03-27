@@ -327,6 +327,8 @@ func (p *presenceMetricRecorder) RecordAcquire(context.Context, string, time.Dur
 
 func (p *presenceMetricRecorder) RecordContention(context.Context, string) {}
 
+func (p *presenceMetricRecorder) RecordOverlapRejected(context.Context, string) {}
+
 func (p *presenceMetricRecorder) RecordTimeout(context.Context, string) {}
 
 func (p *presenceMetricRecorder) RecordActiveLocks(context.Context, string, int) {}

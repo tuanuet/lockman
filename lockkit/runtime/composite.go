@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/internal/policy"
 )
 
 type acquiredCompositeLease struct {
 	member policy.MemberLeasePlan
-	lease  drivers.LeaseRecord
+	held   heldLease
 }
 
 // ExecuteCompositeExclusive runs fn after acquiring all composite members in canonical order.
@@ -36,19 +35,22 @@ func (m *Manager) ExecuteCompositeExclusive(
 
 	memberDefs := make([]definitions.LockDefinition, len(compositeDef.Members))
 	memberKeys := make([]string, len(compositeDef.Members))
+	memberPlans := make(map[compositePlanKey][]runtimeAcquirePlan, len(compositeDef.Members))
 	for i, memberID := range compositeDef.Members {
 		memberDef, memberErr := m.getDefinition(memberID)
 		if memberErr != nil {
 			return memberErr
 		}
 
-		memberKey, memberErr := memberDef.KeyBuilder.Build(req.MemberInputs[i])
+		acquirePlan, memberErr := m.buildAcquirePlan(memberDef, req.MemberInputs[i])
 		if memberErr != nil {
 			return memberErr
 		}
 
 		memberDefs[i] = memberDef
-		memberKeys[i] = memberKey
+		memberKeys[i] = acquirePlan.resourceKey
+		key := compositePlanKey{definitionID: memberDef.ID, resourceKey: acquirePlan.resourceKey}
+		memberPlans[key] = append(memberPlans[key], acquirePlan)
 	}
 
 	plan, err := policy.CanonicalizeMembers(memberDefs, memberKeys)
@@ -105,9 +107,9 @@ func (m *Manager) ExecuteCompositeExclusive(
 	defer func() {
 		for i := len(acquired) - 1; i >= 0; i-- {
 			member := acquired[i]
-			held := time.Since(member.lease.AcquiredAt)
+			held := time.Since(member.held.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, member.member.Definition.ID, held)
-			if releaseErr := m.driver.Release(context.Background(), member.lease); releaseErr != nil {
+			if releaseErr := m.releaseLease(context.Background(), member.held); releaseErr != nil {
 				if retErr == nil {
 					retErr = releaseErr
 				} else {
@@ -118,14 +120,14 @@ func (m *Manager) ExecuteCompositeExclusive(
 	}()
 
 	for i, member := range plan {
+		acquirePlan, ok := popCompositeAcquirePlan(memberPlans, member.Definition.ID, member.ResourceKey)
+		if !ok {
+			return lockerrors.ErrPolicyViolation
+		}
+
 		acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfigs[i])
 		start := time.Now()
-		lease, acquireErr := m.driver.Acquire(acquireCtx, drivers.AcquireRequest{
-			DefinitionID: member.Definition.ID,
-			ResourceKeys: []string{member.ResourceKey},
-			OwnerID:      req.Ownership.OwnerID,
-			LeaseTTL:     member.Definition.LeaseTTL,
-		})
+		lease, acquireErr := m.acquireLease(acquireCtx, member.Definition, acquirePlan, req.Ownership.OwnerID)
 		waitDuration := time.Since(start)
 		cancel()
 
@@ -137,7 +139,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 
 		acquired = append(acquired, acquiredCompositeLease{
 			member: member,
-			lease:  lease,
+			held:   lease,
 		})
 		m.active.Store(guardKeys[i], guardEntry{state: guardHeld})
 		m.recordActiveLocks(ctx, member.Definition.ID)
@@ -171,11 +173,11 @@ func buildCompositeLeaseContext(req definitions.CompositeLockRequest, acquired [
 
 	for i, member := range acquired {
 		resourceKeys[i] = member.member.ResourceKey
-		if i == 0 || member.lease.LeaseTTL < minTTL {
-			minTTL = member.lease.LeaseTTL
+		if i == 0 || member.held.lease.LeaseTTL < minTTL {
+			minTTL = member.held.lease.LeaseTTL
 		}
-		if i == 0 || member.lease.ExpiresAt.Before(leaseDeadline) {
-			leaseDeadline = member.lease.ExpiresAt
+		if i == 0 || member.held.lease.ExpiresAt.Before(leaseDeadline) {
+			leaseDeadline = member.held.lease.ExpiresAt
 		}
 	}
 
@@ -186,4 +188,28 @@ func buildCompositeLeaseContext(req definitions.CompositeLockRequest, acquired [
 		LeaseTTL:      minTTL,
 		LeaseDeadline: leaseDeadline,
 	}
+}
+
+type compositePlanKey struct {
+	definitionID string
+	resourceKey  string
+}
+
+func popCompositeAcquirePlan(
+	plans map[compositePlanKey][]runtimeAcquirePlan,
+	definitionID string,
+	resourceKey string,
+) (runtimeAcquirePlan, bool) {
+	key := compositePlanKey{definitionID: definitionID, resourceKey: resourceKey}
+	queue := plans[key]
+	if len(queue) == 0 {
+		return runtimeAcquirePlan{}, false
+	}
+	plan := queue[0]
+	if len(queue) == 1 {
+		delete(plans, key)
+	} else {
+		plans[key] = queue[1:]
+	}
+	return plan, true
 }
