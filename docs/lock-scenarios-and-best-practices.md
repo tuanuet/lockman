@@ -253,7 +253,8 @@ Composite is overkill when one higher aggregate parent lock already captures the
 
 #### Example Key Shape
 
-`shipment:{shipment_id}` -> `shipment:sh-123`
+`shipment:{shipment_id}` -> `shipment:sh-123`  
+Example: [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md)
 
 #### Best Practices
 
@@ -266,6 +267,7 @@ Do not use composite as a proxy for “this request touches many fields”. That
 #### Architecture Note
 
 Review should reject composites that exist only because a handler touches several nested parts of one aggregate whose invariant is still aggregate-wide.
+See [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md) for the teaching example.
 
 ### Sync And Async Shared Boundaries
 
@@ -324,7 +326,8 @@ The key boundary can stay shared even when the execution lifecycles are differen
 #### Example Key Shape
 
 Sync: `order:{order_id}` -> `order:123`  
-Async: `order:{order_id}` -> `order:123`
+Async: `order:{order_id}` -> `order:123`  
+Example: [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md)
 
 #### Best Practices
 
@@ -337,6 +340,7 @@ Do not force one `ExecutionKind=both` definition just to reduce registry entries
 #### Architecture Note
 
 This scenario is a governance decision as much as an implementation decision. The registry should optimize for boundary clarity, not for minimum definition count.
+See [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md) for the split-definition teaching case.
 
 ### Lifecycle And Ownership Boundaries
 
@@ -465,7 +469,8 @@ Bulk import usually needs one worker to own one shard at a time so ordering, ded
 
 #### Example Key Shape
 
-`import_shard:{shard_id}` -> `import_shard:07`
+`import-shard:{shard_id}` -> `import-shard:07`  
+Example: [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md)
 
 #### Best Practices
 
@@ -478,6 +483,7 @@ Do not jump to smaller batch locks just because they sound more concurrent. If t
 #### Architecture Note
 
 This is a good place for platform standards. Teams should explain why shard-level or batch-level ownership is the true recovery boundary before registry approval.
+See [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md) for the default shard-ownership teaching flow.
 
 ### Advisory Visibility
 
@@ -651,9 +657,9 @@ Do not assume `ParentRef` is metadata only. After Phase 2a, parent-child overlap
 | Admin screen or operator hint | Presence-check-only usage | none for the check itself | Visibility is useful, but it is not a correctness gate | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
 | Phase 2a migration scenario | Validated parent-child model with explicit overlap handling | same as the flow | Old permissive nesting no longer survives Phase 2a | [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md) |
 | Shared versus split sync/async definitions | `ExecutionKind=both` only when semantics are truly shared | depends on the flow | Shared keys are not enough; shared meaning is required | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
-| Human action and background worker touch the same aggregate | Split sync and async definitions over one shared aggregate key boundary | `runtime` and `workers` | Shared key boundary does not force one shared definition | `new example to be added in Task 5` |
-| One higher aggregate parent lock is enough, composite is overkill | Parent lock | `runtime` | Aggregate-wide invariant is already captured without composite | `new example to be added in Task 5` |
-| Bulk import with shard ownership | Shard-level ownership by default | `workers` | Shard ownership is the safer default recovery boundary | `new example to be added in Task 5` |
+| Human action and background worker touch the same aggregate | Split sync and async definitions over one shared aggregate key boundary | `runtime` and `workers` | Shared key boundary does not force one shared definition | [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md) |
+| One higher aggregate parent lock is enough, composite is overkill | Parent lock | `runtime` | Aggregate-wide invariant is already captured without composite | [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md) |
+| Bulk import with shard ownership | Shard-level ownership by default | `workers` | Shard ownership is the safer default recovery boundary | [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md) |
 
 ## Related Docs And Examples
 
@@ -664,3 +670,6 @@ Do not assume `ParentRef` is metadata only. After Phase 2a, parent-child overlap
 - Async composite example: [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
 - Reject-first overlap example: [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
 - Phase 2a parent-child runtime example: [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
+- Shared aggregate runtime/worker example: [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md)
+- Parent over composite example: [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md)
+- Bulk import shard worker example: [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md)
