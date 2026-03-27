@@ -60,7 +60,7 @@ Memory-backed:
 
 - `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
 - `go run ./examples/phase2-parent-child-runtime` shows current Phase 2a runtime behavior: parent-child overlap is rejected across managers.
-- `go run ./examples/no-dependency-awareness` is retained as a historical Phase 1 example, not the current Phase 2a behavior.
+- `go run ./examples/phase1-parent-child-metadata-only` is retained as a historical Phase 1 example, not the current Phase 2a behavior.
 
 ## Commands
 
@@ -73,6 +73,6 @@ Memory-backed:
 - `go run ./examples/phase2-overlap-reject`
 - `go run ./examples/phase2-parent-child-runtime`
 - `go run ./examples/contention`
-- `go run ./examples/no-dependency-awareness`
+- `go run ./examples/phase1-parent-child-metadata-only`
 - `go run ./examples/reentrant`
 - `go run ./examples/ttl`
