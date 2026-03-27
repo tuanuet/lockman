@@ -31,6 +31,8 @@ Teams still need help answering questions like:
 
 This guide fills that gap.
 
+It should stay scenario-driven and governance-driven. When it needs to mention package choice or field semantics, it should summarize briefly and link out rather than re-teaching the full reference material.
+
 ## Goals
 
 - Provide practical lock-pattern guidance for real business scenarios.
@@ -104,6 +106,8 @@ This should answer:
 
 This section should be short and skimmable.
 
+It should not become a second version of [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md). It should give scenario-specific direction in one or two lines, then link readers to that guide for the full package-choice discussion.
+
 ## Section 3: Pattern Catalog
 
 Describe the core patterns in a pattern-first structure.
@@ -113,8 +117,6 @@ Required patterns:
 - parent lock
 - child lock
 - composite lock
-- runtime execution
-- worker execution
 - presence-check-only usage
 
 Each pattern should use the same subsection layout:
@@ -126,6 +128,8 @@ Each pattern should use the same subsection layout:
 - architecture and registry notes
 
 The goal is consistency, so readers can compare patterns quickly.
+
+`runtime` and `workers` should not appear here as standalone catalog entries. They should be referenced inside scenario recommendations and in the quick decision guide with links to the dedicated execution-package document.
 
 ## Section 4: Real Scenarios
 
@@ -163,8 +167,10 @@ Required scenarios:
    - explain why async delivery semantics matter as much as locking
 
 5. **Background reconciliation or shard-based batch job**
-   - parent-like shard lock or per-batch lock
-   - explain lock granularity trade-offs
+   - prefer shard lock when the invariant is "only one worker may process this shard at a time"
+   - prefer per-batch lock only when individual batches are independently safe and replayable
+   - default recommendation should be `workers` for queue-triggered batch execution
+   - explain the invariant that separates shard-level from batch-level locking
 
 6. **Producer-consumer handoff**
    - explicitly explain why "lock in producer, release in consumer" is usually the wrong design
@@ -178,9 +184,16 @@ Required scenarios:
    - parent-held child request and child-held parent request
    - explain what previously permissive flows are now rejected
 
+9. **Shared versus split sync/async definitions**
+   - explain when `ExecutionKind=both` is acceptable
+   - explain when separate sync and async definitions are safer
+   - include governance guidance for registry review
+
 ## Section 5: Best Practices
 
 This section should generalize rules that appear across multiple scenarios.
+
+It should be explicitly bounded as team heuristics and review policy, not a second field-by-field reference. When it mentions IDs, key builders, TTLs, or execution kind, it should focus on review guidance and link to [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) for the underlying field semantics.
 
 Required topics:
 
@@ -195,6 +208,7 @@ Required topics:
 - treat `CheckPresence` as advisory only
 - keep async idempotency aligned with message ownership
 - distinguish overlap rejection from lock busy in app logic
+- when `ExecutionKind=both` is appropriate versus when sync and async definitions should be split
 
 This section should read like recommendations teams can copy into internal standards.
 
@@ -266,8 +280,15 @@ Recommended navigation model:
 The design is satisfied when the implemented document:
 
 - exists at [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md)
+- contains a short purpose section that distinguishes contention, overlap, reentrancy, idempotency, and advisory presence
+- contains a quick decision guide that gives scenario-specific package direction and links to [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md) instead of duplicating it
+- contains a pattern catalog for parent, child, composite, and presence-check-only usage
 - contains both scenario guidance and architecture best practices
 - clearly explains Phase 2a migration impact
-- gives concrete recommendations for at least the eight required scenarios
+- gives concrete recommendations for all nine required scenarios
+- gives each required scenario the full structure of problem, recommended pattern, recommended execution package, why, example key shape, best practices, common mistakes, and architecture note
+- contains a bounded best-practices section framed as review heuristics and team policy
+- contains an explicit anti-pattern section covering the required bad patterns
+- contains a compact decision matrix with scenario type, recommended lock shape, package, why, and next doc/example
 - links to the existing runtime/workers guide, definition reference, and examples
 - avoids duplicating large sections of existing docs verbatim
