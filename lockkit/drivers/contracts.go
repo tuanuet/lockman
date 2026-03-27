@@ -41,6 +41,12 @@ func (l LeaseRecord) IsExpired(now time.Time) bool {
 	return now.After(l.ExpiresAt)
 }
 
+// FencedLeaseRecord wraps a lease record with the fencing token issued by strict drivers.
+type FencedLeaseRecord struct {
+	Lease        LeaseRecord
+	FencingToken uint64
+}
+
 // PresenceRequest encapsulates the inputs required to inspect a resource's current state.
 type PresenceRequest struct {
 	DefinitionID string
@@ -62,6 +68,26 @@ type Driver interface {
 	Release(ctx context.Context, lease LeaseRecord) error
 	CheckPresence(ctx context.Context, req PresenceRequest) (PresenceRecord, error)
 	Ping(ctx context.Context) error
+}
+
+// StrictAcquireRequest describes the inputs required to obtain a strict-mode lease
+// for a single resource key with a fencing token.
+type StrictAcquireRequest struct {
+	DefinitionID string
+	ResourceKey  string
+	OwnerID      string
+	LeaseTTL     time.Duration
+}
+
+// StrictDriver is an optional capability for backends that can issue fencing tokens
+// for strict-mode acquire/renew/release operations.
+//
+// Drivers must also implement Driver; callers can feature-detect this interface via
+// a type assertion.
+type StrictDriver interface {
+	AcquireStrict(ctx context.Context, req StrictAcquireRequest) (FencedLeaseRecord, error)
+	RenewStrict(ctx context.Context, lease LeaseRecord, fencingToken uint64) (FencedLeaseRecord, error)
+	ReleaseStrict(ctx context.Context, lease LeaseRecord, fencingToken uint64) error
 }
 
 // AncestorKey describes an ancestor lock resource key for lineage-aware operations.

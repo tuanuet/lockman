@@ -70,6 +70,48 @@ func (d *Driver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drive
 	}, nil
 }
 
+func (d *Driver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+	if err := d.validateClient(); err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+	if err := validateStrictAcquireRequest(req); err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+
+	now := d.now()
+	keys := []string{
+		d.buildLeaseKey(req.DefinitionID, req.ResourceKey),
+		d.buildStrictFenceCounterKey(req.DefinitionID, req.ResourceKey),
+		d.buildStrictTokenKey(req.DefinitionID, req.ResourceKey),
+	}
+	raw, err := strictAcquireScript.Run(ctx, d.client, keys, req.OwnerID, req.LeaseTTL.Milliseconds()).Result()
+	if err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+
+	status, ttlMillis, token, err := parseStrictStatusResult(raw)
+	if err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+	switch status {
+	case 1:
+		if token <= 0 {
+			return drivers.FencedLeaseRecord{}, errInvalidScriptResponse
+		}
+		ttl := time.Duration(ttlMillis) * time.Millisecond
+		return drivers.FencedLeaseRecord{
+			Lease:        buildLeaseRecord(req.DefinitionID, req.ResourceKey, req.OwnerID, ttl, now),
+			FencingToken: uint64(token),
+		}, nil
+	case -1:
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseAlreadyHeld
+	case -3:
+		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+	default:
+		return drivers.FencedLeaseRecord{}, errInvalidScriptResponse
+	}
+}
+
 func (d *Driver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
 	if err := d.validateClient(); err != nil {
 		return drivers.LeaseRecord{}, err
@@ -113,6 +155,62 @@ func (d *Driver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.
 	}, nil
 }
 
+func (d *Driver) RenewStrict(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	fencingToken uint64,
+) (drivers.FencedLeaseRecord, error) {
+	if err := d.validateClient(); err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+	if err := validateStrictRenewRequest(lease, fencingToken); err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+
+	now := d.now()
+	keys := []string{
+		d.buildLeaseKey(lease.DefinitionID, lease.ResourceKeys[0]),
+		d.buildStrictTokenKey(lease.DefinitionID, lease.ResourceKeys[0]),
+	}
+	raw, err := strictRenewScript.Run(
+		ctx,
+		d.client,
+		keys,
+		lease.OwnerID,
+		fencingToken,
+		lease.LeaseTTL.Milliseconds(),
+	).Result()
+	if err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+
+	status, ttlMillis, token, err := parseStrictStatusResult(raw)
+	if err != nil {
+		return drivers.FencedLeaseRecord{}, err
+	}
+	switch status {
+	case 1:
+		if token <= 0 {
+			return drivers.FencedLeaseRecord{}, errInvalidScriptResponse
+		}
+		ttl := time.Duration(ttlMillis) * time.Millisecond
+		return drivers.FencedLeaseRecord{
+			Lease:        buildLeaseRecord(lease.DefinitionID, lease.ResourceKeys[0], lease.OwnerID, ttl, now),
+			FencingToken: uint64(token),
+		}, nil
+	case 0:
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseNotFound
+	case -1:
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+	case -2:
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseExpired
+	case -3:
+		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+	default:
+		return drivers.FencedLeaseRecord{}, errInvalidScriptResponse
+	}
+}
+
 func (d *Driver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
 	if err := d.validateClient(); err != nil {
 		return err
@@ -138,6 +236,37 @@ func (d *Driver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
 		return drivers.ErrLeaseOwnerMismatch
 	default:
 		return drivers.ErrLeaseNotFound
+	}
+}
+
+func (d *Driver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+	if err := d.validateClient(); err != nil {
+		return err
+	}
+	if err := validateStrictReleaseRequest(lease, fencingToken); err != nil {
+		return err
+	}
+
+	keys := []string{
+		d.buildLeaseKey(lease.DefinitionID, lease.ResourceKeys[0]),
+		d.buildStrictTokenKey(lease.DefinitionID, lease.ResourceKeys[0]),
+	}
+	result, err := strictReleaseScript.Run(ctx, d.client, keys, lease.OwnerID, fencingToken).Int64()
+	if err != nil {
+		return err
+	}
+
+	switch result {
+	case 1:
+		return nil
+	case 0:
+		return drivers.ErrLeaseNotFound
+	case -1:
+		return drivers.ErrLeaseOwnerMismatch
+	case -2:
+		return drivers.ErrInvalidRequest
+	default:
+		return errInvalidScriptResponse
 	}
 }
 
@@ -294,6 +423,14 @@ func (d *Driver) Ping(ctx context.Context) error {
 
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
 	return fmt.Sprintf("%s:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+}
+
+func (d *Driver) buildStrictFenceCounterKey(definitionID, resourceKey string) string {
+	return fmt.Sprintf("%s:fence:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+}
+
+func (d *Driver) buildStrictTokenKey(definitionID, resourceKey string) string {
+	return fmt.Sprintf("%s:strict-token:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
 }
 
 func (d *Driver) buildLineageKey(definitionID, resourceKey string) string {
@@ -458,6 +595,28 @@ func parseLineageStatusResult(raw interface{}) (int64, int64, error) {
 	return status, ttlMillis, nil
 }
 
+func parseStrictStatusResult(raw interface{}) (int64, int64, int64, error) {
+	values, ok := raw.([]interface{})
+	if !ok || len(values) != 3 {
+		return 0, 0, 0, errInvalidScriptResponse
+	}
+
+	status, err := toInt64(values[0])
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	ttlMillis, err := toInt64(values[1])
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	token, err := toInt64(values[2])
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	return status, ttlMillis, token, nil
+}
+
 func cloneLineageLeaseMeta(meta drivers.LineageLeaseMeta) drivers.LineageLeaseMeta {
 	out := meta
 	if len(meta.AncestorKeys) > 0 {
@@ -528,6 +687,39 @@ func validateLineageAcquireRequest(req drivers.LineageAcquireRequest) error {
 		return drivers.ErrInvalidRequest
 	}
 	return validateLineageLeaseMeta(req.Lineage)
+}
+
+func validateStrictAcquireRequest(req drivers.StrictAcquireRequest) error {
+	if strings.TrimSpace(req.DefinitionID) == "" || strings.TrimSpace(req.OwnerID) == "" || strings.TrimSpace(req.ResourceKey) == "" {
+		return drivers.ErrInvalidRequest
+	}
+	if req.LeaseTTL <= 0 {
+		return drivers.ErrInvalidRequest
+	}
+
+	return nil
+}
+
+func validateStrictRenewRequest(lease drivers.LeaseRecord, fencingToken uint64) error {
+	if err := validateRenewLeaseRecord(lease); err != nil {
+		return err
+	}
+	if fencingToken == 0 {
+		return drivers.ErrInvalidRequest
+	}
+
+	return nil
+}
+
+func validateStrictReleaseRequest(lease drivers.LeaseRecord, fencingToken uint64) error {
+	if err := validateLeaseRecord(lease); err != nil {
+		return err
+	}
+	if fencingToken == 0 {
+		return drivers.ErrInvalidRequest
+	}
+
+	return nil
 }
 
 func validateLineageRenewRequest(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) error {

@@ -64,6 +64,11 @@ func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.St
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}
+	if registry.RequiresStrictWorkerDriver(reg) {
+		if _, ok := driver.(drivers.StrictDriver); !ok {
+			return nil, lockerrors.ErrPolicyViolation
+		}
+	}
 	if store == nil && registryRequiresIdempotencyStore(reg) {
 		return nil, lockerrors.ErrPolicyViolation
 	}

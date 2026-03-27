@@ -25,6 +25,16 @@ Distributed lock platform SDK prototype for Go.
 - Composite runtime and worker paths route lineage members through the same backend lineage contract, so composite execution no longer bypasses overlap rules
 - `CheckPresence` remains exact-key only; descendant membership markers are internal coordination state, not user-visible lock presence
 
+## Phase 3a Status
+
+- Preview-quality strict single-resource execution for runtime and workers
+- Fencing tokens are exposed to strict callbacks (`LeaseContext` and `ClaimContext`)
+- Runtime strict execution remains a single critical-section TTL window in Phase 3a
+- Worker strict execution includes idempotency terminal-state persistence
+- Guarded-write persistence safety is not part of Phase 3a and remains Phase 3b scope
+- Strict runtime example: [`examples/phase3a-strict-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-runtime/README.md)
+- Strict worker example: [`examples/phase3a-strict-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-worker/README.md)
+
 ## Migration Note
 
 Applications that previously nested parent and child acquires across goroutines, workers, or processes may now receive `ErrOverlapRejected`.
@@ -96,6 +106,8 @@ Use the examples below as the primary adoption path for Phase 2 and Phase 2a beh
 - `go run ./examples/phase2-composite-worker`
 - `go run ./examples/phase2-overlap-reject`
 - `go run ./examples/phase2-parent-child-runtime`
+- `go run ./examples/phase3a-strict-runtime`
+- `go run ./examples/phase3a-strict-worker`
 - `go run ./examples/contention`
 - `go run ./examples/phase1-parent-child-metadata-only`
 - `go run ./examples/reentrant`

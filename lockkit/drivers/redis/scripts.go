@@ -2,6 +2,88 @@ package redis
 
 import goredis "github.com/redis/go-redis/v9"
 
+var strictAcquireScript = goredis.NewScript(`
+local ttl = tonumber(ARGV[2])
+
+if ARGV[1] == "" or not ttl or ttl <= 0 then
+	return {-3, 0, 0}
+end
+
+if redis.call("EXISTS", KEYS[1]) == 1 then
+	return {-1, 0, 0}
+end
+
+local token = redis.call("INCR", KEYS[2])
+local acquired = redis.call("SET", KEYS[1], ARGV[1], "PX", ttl, "NX")
+if not acquired then
+	return {-1, 0, 0}
+end
+
+redis.call("SET", KEYS[3], token, "PX", ttl)
+return {1, ttl, token}
+`)
+
+var strictRenewScript = goredis.NewScript(`
+local token = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+
+if ARGV[1] == "" or not token or token <= 0 or not ttl or ttl <= 0 then
+	return {-3, 0, 0}
+end
+
+local currentOwner = redis.call("GET", KEYS[1])
+if not currentOwner then
+	return {0, 0, 0}
+end
+if currentOwner ~= ARGV[1] then
+	return {-1, 0, 0}
+end
+
+local currentToken = redis.call("GET", KEYS[2])
+if not currentToken then
+	return {-2, 0, 0}
+end
+if tonumber(currentToken) ~= token then
+	return {-1, 0, 0}
+end
+
+if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
+	return {-2, 0, 0}
+end
+if redis.call("PEXPIRE", KEYS[2], ttl) == 0 then
+	return {-2, 0, 0}
+end
+
+return {1, ttl, token}
+`)
+
+var strictReleaseScript = goredis.NewScript(`
+local token = tonumber(ARGV[2])
+
+if ARGV[1] == "" or not token or token <= 0 then
+	return -2
+end
+
+local currentOwner = redis.call("GET", KEYS[1])
+if not currentOwner then
+	return 0
+end
+if currentOwner ~= ARGV[1] then
+	return -1
+end
+
+local currentToken = redis.call("GET", KEYS[2])
+if not currentToken then
+	return 0
+end
+if tonumber(currentToken) ~= token then
+	return -1
+end
+
+redis.call("DEL", KEYS[1], KEYS[2])
+return 1
+`)
+
 var lineageAcquireScript = goredis.NewScript(`
 local ttl = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])

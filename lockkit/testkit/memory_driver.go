@@ -15,6 +15,11 @@ type MemoryDriver struct {
 	mu     sync.Mutex
 	leases map[string]drivers.LeaseRecord
 
+	// strictCounters tracks fencing tokens by strict boundary (definition + resource key).
+	strictCounters map[string]uint64
+	// strictLeases tracks active strict lease metadata by strict boundary.
+	strictLeases map[string]strictLeaseState
+
 	// lineageLeases stores lineage metadata by lease id so descendant membership can be pruned reliably.
 	lineageLeases map[string]lineageLeaseState
 
@@ -28,10 +33,17 @@ type lineageLeaseState struct {
 	expireAt time.Time
 }
 
+type strictLeaseState struct {
+	lease        drivers.LeaseRecord
+	fencingToken uint64
+}
+
 // NewMemoryDriver returns a ready-to-use in-memory driver.
 func NewMemoryDriver() *MemoryDriver {
 	return &MemoryDriver{
 		leases:                make(map[string]drivers.LeaseRecord),
+		strictCounters:        make(map[string]uint64),
+		strictLeases:          make(map[string]strictLeaseState),
 		lineageLeases:         make(map[string]lineageLeaseState),
 		descendantsByAncestor: make(map[string]map[string]time.Time),
 	}
@@ -132,6 +144,151 @@ func (m *MemoryDriver) Release(ctx context.Context, lease drivers.LeaseRecord) e
 	}
 
 	delete(m.leases, key)
+	return nil
+}
+
+// AcquireStrict attempts to claim a single resource and returns a fencing token.
+func (m *MemoryDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+	if req.ResourceKey == "" {
+		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+	}
+	if req.LeaseTTL <= 0 {
+		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+	}
+
+	key := req.ResourceKey
+	now := time.Now()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.pruneExpired(now)
+
+	if existing, ok := m.leases[key]; ok {
+		if !existing.IsExpired(now) {
+			return drivers.FencedLeaseRecord{}, drivers.ErrLeaseAlreadyHeld
+		}
+		delete(m.leases, key)
+		delete(m.strictLeases, strictBoundaryKey(existing.DefinitionID, key))
+	}
+
+	lease := drivers.LeaseRecord{
+		DefinitionID: req.DefinitionID,
+		ResourceKeys: []string{req.ResourceKey},
+		OwnerID:      req.OwnerID,
+		LeaseTTL:     req.LeaseTTL,
+		AcquiredAt:   now,
+		ExpiresAt:    now.Add(req.LeaseTTL),
+	}
+
+	boundary := strictBoundaryKey(req.DefinitionID, req.ResourceKey)
+	nextToken := m.strictCounters[boundary] + 1
+	m.strictCounters[boundary] = nextToken
+
+	m.leases[key] = lease
+	m.strictLeases[boundary] = strictLeaseState{
+		lease:        lease,
+		fencingToken: nextToken,
+	}
+
+	return drivers.FencedLeaseRecord{
+		Lease:        lease,
+		FencingToken: nextToken,
+	}, nil
+}
+
+// RenewStrict refreshes an existing strict lease while preserving its fencing token.
+func (m *MemoryDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+	if len(lease.ResourceKeys) != 1 {
+		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+	}
+
+	key := lease.ResourceKeys[0]
+	boundary := strictBoundaryKey(lease.DefinitionID, key)
+	now := time.Now()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.pruneExpired(now)
+
+	existing, ok := m.leases[key]
+	if !ok {
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseNotFound
+	}
+	if existing.OwnerID != lease.OwnerID {
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+	}
+	if existing.IsExpired(now) {
+		delete(m.leases, key)
+		delete(m.strictLeases, boundary)
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseExpired
+	}
+	if existing.DefinitionID != lease.DefinitionID {
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+	}
+
+	strictState, ok := m.strictLeases[boundary]
+	if !ok {
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseNotFound
+	}
+	if strictState.lease.OwnerID != lease.OwnerID || strictState.fencingToken != fencingToken {
+		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+	}
+
+	ttl := lease.LeaseTTL
+	if ttl <= 0 {
+		ttl = existing.LeaseTTL
+	}
+	existing.LeaseTTL = ttl
+	existing.AcquiredAt = now
+	existing.ExpiresAt = now.Add(ttl)
+	m.leases[key] = existing
+
+	strictState.lease = existing
+	m.strictLeases[boundary] = strictState
+
+	return drivers.FencedLeaseRecord{
+		Lease:        existing,
+		FencingToken: strictState.fencingToken,
+	}, nil
+}
+
+// ReleaseStrict removes a strict lease after owner and fencing token validation.
+func (m *MemoryDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+	if len(lease.ResourceKeys) != 1 {
+		return drivers.ErrInvalidRequest
+	}
+
+	key := lease.ResourceKeys[0]
+	boundary := strictBoundaryKey(lease.DefinitionID, key)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.pruneExpired(time.Now())
+
+	existing, ok := m.leases[key]
+	if !ok {
+		return drivers.ErrLeaseNotFound
+	}
+	if existing.OwnerID != lease.OwnerID {
+		return drivers.ErrLeaseOwnerMismatch
+	}
+	if existing.DefinitionID != lease.DefinitionID {
+		return drivers.ErrLeaseOwnerMismatch
+	}
+
+	strictState, ok := m.strictLeases[boundary]
+	if !ok {
+		return drivers.ErrLeaseNotFound
+	}
+	if strictState.lease.OwnerID != lease.OwnerID || strictState.fencingToken != fencingToken {
+		return drivers.ErrLeaseOwnerMismatch
+	}
+
+	delete(m.leases, key)
+	delete(m.strictLeases, boundary)
 	return nil
 }
 
@@ -385,6 +542,7 @@ func (m *MemoryDriver) pruneExpired(now time.Time) {
 	for key, lease := range m.leases {
 		if lease.IsExpired(now) {
 			delete(m.leases, key)
+			delete(m.strictLeases, strictBoundaryKey(lease.DefinitionID, key))
 		}
 	}
 
@@ -404,6 +562,10 @@ func (m *MemoryDriver) pruneExpired(now time.Time) {
 			}
 		}
 	}
+}
+
+func strictBoundaryKey(definitionID, resourceKey string) string {
+	return definitionID + "\x00" + resourceKey
 }
 
 func formatAncestorKey(key drivers.AncestorKey) string {
