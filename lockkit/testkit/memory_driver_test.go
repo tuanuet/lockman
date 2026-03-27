@@ -11,6 +11,205 @@ import (
 	lockerrors "lockman/lockkit/errors"
 )
 
+func requireStrictDriver(t *testing.T, driver *MemoryDriver) drivers.StrictDriver {
+	t.Helper()
+
+	strict, ok := any(driver).(drivers.StrictDriver)
+	if !ok {
+		t.Fatal("memory driver must implement drivers.StrictDriver")
+	}
+	return strict
+}
+
+func TestMemoryDriverAcquireStrictIssuesIncreasingTokens(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	first, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict first returned error: %v", err)
+	}
+	if err := strict.ReleaseStrict(ctx, first.Lease, first.FencingToken); err != nil {
+		t.Fatalf("ReleaseStrict first returned error: %v", err)
+	}
+
+	second, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-b",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict second returned error: %v", err)
+	}
+	if second.FencingToken <= first.FencingToken {
+		t.Fatalf("expected monotonic fencing tokens, first=%d second=%d", first.FencingToken, second.FencingToken)
+	}
+}
+
+func TestMemoryDriverRenewStrictPreservesToken(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	acquired.Lease.LeaseTTL = 40 * time.Millisecond
+	renewed, err := strict.RenewStrict(ctx, acquired.Lease, acquired.FencingToken)
+	if err != nil {
+		t.Fatalf("RenewStrict returned error: %v", err)
+	}
+	if renewed.FencingToken != acquired.FencingToken {
+		t.Fatalf("expected RenewStrict to preserve token %d, got %d", acquired.FencingToken, renewed.FencingToken)
+	}
+	if !renewed.Lease.ExpiresAt.After(acquired.Lease.ExpiresAt) {
+		t.Fatalf("expected renewed expiry after %v, got %v", acquired.Lease.ExpiresAt, renewed.Lease.ExpiresAt)
+	}
+}
+
+func TestMemoryDriverRenewStrictRejectsWrongToken(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	_, err = strict.RenewStrict(ctx, acquired.Lease, acquired.FencingToken+1)
+	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+		t.Fatalf("expected ErrLeaseOwnerMismatch for wrong renew token, got %v", err)
+	}
+}
+
+func TestMemoryDriverReleaseStrictRejectsWrongToken(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict returned error: %v", err)
+	}
+
+	err = strict.ReleaseStrict(ctx, acquired.Lease, acquired.FencingToken+1)
+	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+		t.Fatalf("expected ErrLeaseOwnerMismatch for wrong token, got %v", err)
+	}
+}
+
+func TestMemoryDriverAcquireStrictCounterIsScopedByDefinitionAndResource(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	defA1, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict.a",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict defA returned error: %v", err)
+	}
+	if err := strict.ReleaseStrict(ctx, defA1.Lease, defA1.FencingToken); err != nil {
+		t.Fatalf("ReleaseStrict defA returned error: %v", err)
+	}
+
+	defB1, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict.b",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-b",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict defB returned error: %v", err)
+	}
+	if defB1.FencingToken != 1 {
+		t.Fatalf("expected independent counter for definition/resource boundary, got %d", defB1.FencingToken)
+	}
+}
+
+func TestMemoryDriverReleaseStrictRejectsStaleLeaseFromDifferentDefinitionBoundary(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+	ctx := context.Background()
+
+	first, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict.a",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict first returned error: %v", err)
+	}
+	if err := strict.ReleaseStrict(ctx, first.Lease, first.FencingToken); err != nil {
+		t.Fatalf("ReleaseStrict first returned error: %v", err)
+	}
+
+	second, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict.b",
+		ResourceKey:  "order:123",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("AcquireStrict second returned error: %v", err)
+	}
+
+	err = strict.ReleaseStrict(ctx, first.Lease, first.FencingToken)
+	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+		t.Fatalf("expected stale cross-definition release to fail, got %v", err)
+	}
+
+	if err := strict.ReleaseStrict(ctx, second.Lease, second.FencingToken); err != nil {
+		t.Fatalf("ReleaseStrict second returned error: %v", err)
+	}
+}
+
+func TestMemoryDriverAcquireStrictRejectsEmptyResourceKey(t *testing.T) {
+	driver := NewMemoryDriver()
+	strict := requireStrictDriver(t, driver)
+
+	_, err := strict.AcquireStrict(context.Background(), drivers.StrictAcquireRequest{
+		DefinitionID: "order.strict",
+		ResourceKey:  "",
+		OwnerID:      "worker-a",
+		LeaseTTL:     time.Second,
+	})
+	if !errors.Is(err, drivers.ErrInvalidRequest) {
+		t.Fatalf("expected ErrInvalidRequest for empty resource key, got %v", err)
+	}
+}
+
 func TestMemoryDriverAcquireAndRelease(t *testing.T) {
 	driver := NewMemoryDriver()
 
