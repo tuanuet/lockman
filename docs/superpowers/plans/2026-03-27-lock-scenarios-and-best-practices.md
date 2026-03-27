@@ -199,18 +199,18 @@ Use these exact per-scenario subheadings:
 Additional scenario-specific requirements:
 
 - `Approve One Order`: use one parent lock and `runtime`
-- `Update One Order Item Under Order-Level Invariants`: explain child-with-lineage versus simpler parent-only design, and mention Phase 2a overlap behavior
-- `Transfer Between Two Accounts`: explain why composite is better than manual nested acquires
-- `Inventory Reservation From A Queue Worker`: emphasize idempotency plus `workers`
+- `Update One Order Item Under Order-Level Invariants`: explain `child with lineage` versus `parent-only is simpler`, and mention Phase 2a overlap behavior
+- `Transfer Between Two Accounts`: explicitly state that `two manual acquires are inferior`
+- `Inventory Reservation From A Queue Worker`: explicitly state that `async delivery semantics matter as much as locking`
 - `Background Reconciliation Or Shard-Based Batch Job`: state the default example is queue-triggered, prefer shard lock when the invariant is one worker per shard, prefer per-batch lock only when batches are independently safe and replayable
-- `Producer-Consumer Handoff`: explicitly reject “lock in producer, release in consumer” and recommend starting claim ownership in the consumer
-- `Admin Screen Or Operator Hint`: explain that `CheckPresence` is advisory only
-- `Phase 2a Migration Scenario`: explain both parent-held-child and child-held-parent rejection after Phase 2a
-- `Shared Versus Split Sync/Async Definitions`: define when `ExecutionKind=both` is acceptable and when separate definitions are safer
+- `Producer-Consumer Handoff`: explicitly reject `lock in producer, release in consumer` and state that `claim ownership begins in the consumer`
+- `Admin Screen Or Operator Hint`: explain that `CheckPresence` is advisory only and `must not gate correctness-critical writes`
+- `Phase 2a Migration Scenario`: explain both parent-held-child and child-held-parent rejection after Phase 2a, and explicitly say `previously permissive flows are now rejected`
+- `Shared Versus Split Sync/Async Definitions`: define when `ExecutionKind=both` is acceptable, when separate definitions are safer, and include `registry review` guidance
 
 - [ ] **Step 4: Verify the scenario section is structurally complete**
 
-Run: `test "$(rg -c "^### " docs/lock-scenarios-and-best-practices.md)" -ge 13 && test "$(rg -c "^#### Problem$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Pattern$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Execution Package$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Why This Choice$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Example Key Shape$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Best Practices$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Common Mistakes$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Architecture Note$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && rg -n "one parent lock|runtime|CheckPresence|advisory only|parent-held child|child-held parent|one worker may process this shard at a time|independently safe and replayable|lock in producer, release in consumer|ExecutionKind=both|split definitions" docs/lock-scenarios-and-best-practices.md && echo ok`
+Run: `test "$(rg -c "^### " docs/lock-scenarios-and-best-practices.md)" -ge 13 && test "$(rg -c "^#### Problem$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Pattern$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Recommended Execution Package$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Why This Choice$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Example Key Shape$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Best Practices$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Common Mistakes$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && test "$(rg -c "^#### Architecture Note$" docs/lock-scenarios-and-best-practices.md)" -eq 9 && rg -n "one parent lock|child with lineage|parent-only is simpler|two manual acquires are inferior|async delivery semantics matter as much as locking|one worker may process this shard at a time|independently safe and replayable|lock in producer, release in consumer|claim ownership begins in the consumer|CheckPresence|must not gate correctness-critical writes|parent-held child|child-held parent|previously permissive flows are now rejected|ExecutionKind=both|split definitions|registry review" docs/lock-scenarios-and-best-practices.md && echo ok`
 Expected: `ok`
 
 - [ ] **Step 5: Commit the scenario section**
