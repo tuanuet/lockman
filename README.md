@@ -44,17 +44,40 @@ LOCKMAN_REDIS_PORT=6380 docker compose up -d redis
 LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
 ```
 
-## Phase 2 Examples
+## Phase 2a Example Guide
 
-Redis-backed:
+Use the examples below as the primary adoption path for Phase 2 and Phase 2a behavior.
 
-- `go run ./examples/phase2-basic`
-- `go run ./examples/phase2-composite-worker`
+### Start Here
 
-Memory-backed:
+- Single async worker lock with Redis lease plus idempotency:
+  [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md)
+- Sync composite lock with canonical ordering on the memory driver:
+  [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md)
+- Async composite worker claim with Redis:
+  [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
+- Composite overlap rejection before callback execution:
+  [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
+- Distributed parent-child rejection across managers and goroutines:
+  [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
 
-- `go run ./examples/phase2-composite-sync`
-- `go run ./examples/phase2-overlap-reject`
+### Which Example To Run
+
+- Learn worker `ExecuteClaimed` with a single resource:
+  `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-basic`
+  Focus on `presence while held: held`, `idempotency after ack: completed`, and `duplicate outcome: ignored`.
+- Learn sync composite execution:
+  `go run ./examples/phase2-composite-sync`
+  Focus on `composite acquired: account:acct-123,ledger:ledger-456` and `canonical order: ok`.
+- Learn async composite worker execution:
+  `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-composite-worker`
+  Focus on `composite callback: ...` and `composite idempotency after ack: completed`.
+- Learn reject-first overlap inside one composite request:
+  `go run ./examples/phase2-overlap-reject`
+  Focus on `overlap outcome: rejected`.
+- Learn what Phase 2a added on top of Phase 2:
+  `go run ./examples/phase2-parent-child-runtime`
+  Focus on the two `overlap rejected` scenarios and the final Phase 2a note.
 
 ## Dependency Boundaries
 
