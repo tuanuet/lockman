@@ -169,7 +169,7 @@ Required scenarios:
 5. **Background reconciliation or shard-based batch job**
    - prefer shard lock when the invariant is "only one worker may process this shard at a time"
    - prefer per-batch lock only when individual batches are independently safe and replayable
-   - default recommendation should be `workers` for queue-triggered batch execution
+   - assume the default example is queue-triggered batch execution, so the default recommendation should be `workers`
    - explain the invariant that separates shard-level from batch-level locking
 
 6. **Producer-consumer handoff**
@@ -243,7 +243,11 @@ Then link readers to:
 
 - [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
 - [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
-- the Phase 2a example guides under [`examples/`](/Users/mrt/workspaces/boilerplate/lockman/examples)
+- [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md)
+- [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md)
+- [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
+- [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
+- [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
 
 ## Tone And Style
 
