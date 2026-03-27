@@ -26,8 +26,9 @@ type claimAcquirePlan struct {
 }
 
 type renewableLease struct {
-	lease   drivers.LeaseRecord
-	lineage *drivers.LineageLeaseMeta
+	lease        drivers.LeaseRecord
+	lineage      *drivers.LineageLeaseMeta
+	fencingToken uint64
 }
 
 // ExecuteClaimed runs fn after successfully acquiring a single-resource worker claim.
@@ -117,6 +118,7 @@ func (m *Manager) ExecuteClaimed(
 		Ownership:      req.Ownership,
 		LeaseTTL:       lease.lease.LeaseTTL,
 		LeaseDeadline:  lease.lease.ExpiresAt,
+		FencingToken:   lease.fencingToken,
 		IdempotencyKey: req.IdempotencyKey,
 	})
 
@@ -376,6 +378,30 @@ func (m *Manager) acquireClaimLease(
 	plan claimAcquirePlan,
 	ownerID string,
 ) (renewableLease, error) {
+	if def.Mode == definitions.ModeStrict {
+		if plan.lineage != nil {
+			return renewableLease{}, lockerrors.ErrPolicyViolation
+		}
+		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		if !ok {
+			return renewableLease{}, lockerrors.ErrPolicyViolation
+		}
+
+		fenced, err := strictDriver.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+			DefinitionID: def.ID,
+			ResourceKey:  plan.resourceKey,
+			OwnerID:      ownerID,
+			LeaseTTL:     def.LeaseTTL,
+		})
+		if err != nil {
+			return renewableLease{}, err
+		}
+		return renewableLease{
+			lease:        fenced.Lease,
+			fencingToken: fenced.FencingToken,
+		}, nil
+	}
+
 	if plan.lineage == nil {
 		lease, err := m.driver.Acquire(ctx, drivers.AcquireRequest{
 			DefinitionID: def.ID,
@@ -413,6 +439,17 @@ func (m *Manager) acquireClaimLease(
 }
 
 func (m *Manager) releaseClaimLease(ctx context.Context, held renewableLease) error {
+	if held.fencingToken > 0 {
+		if held.lineage != nil {
+			return lockerrors.ErrPolicyViolation
+		}
+		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		if !ok {
+			return lockerrors.ErrPolicyViolation
+		}
+		return strictDriver.ReleaseStrict(ctx, held.lease, held.fencingToken)
+	}
+
 	if held.lineage == nil {
 		return m.driver.Release(ctx, held.lease)
 	}

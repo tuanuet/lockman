@@ -397,6 +397,81 @@ func TestExecuteClaimedDetectsRenewalFailureAfterCallbackReturns(t *testing.T) {
 	}
 }
 
+func TestExecuteClaimedStrictPopulatesFencingToken(t *testing.T) {
+	reg := strictExecuteWorkerRegistryForTest(t)
+	mgr := newWorkerManagerWithDriver(t, reg, testkit.NewMemoryDriver())
+
+	err := mgr.ExecuteClaimed(context.Background(), strictMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		if claim.FencingToken == 0 {
+			t.Fatal("expected non-zero fencing token for strict worker execution")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+}
+
+func TestExecuteClaimedStrictSuiteKeepsStandardFencingTokenZero(t *testing.T) {
+	mgr := newWorkerManagerForTest(t)
+
+	err := mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		if claim.FencingToken != 0 {
+			t.Fatalf("expected zero fencing token for standard worker execution, got %d", claim.FencingToken)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+}
+
+func TestExecuteClaimedStrictRenewalPreservesFencingToken(t *testing.T) {
+	reg := strictExecuteWorkerRegistryForTest(t)
+	driver := newStrictRenewProbeDriver()
+	mgr := newWorkerManagerWithDriver(t, reg, driver)
+
+	var callbackToken uint64
+	err := mgr.ExecuteClaimed(context.Background(), strictMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		callbackToken = claim.FencingToken
+		time.Sleep(220 * time.Millisecond)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+	if callbackToken == 0 {
+		t.Fatal("expected strict callback fencing token to be non-zero")
+	}
+	if got := driver.renewCalls.Load(); got == 0 {
+		t.Fatal("expected strict renew path to be used at least once")
+	}
+	if got := driver.lastRenewToken.Load(); got != callbackToken {
+		t.Fatalf("expected renew token %d, got %d", callbackToken, got)
+	}
+}
+
+func TestExecuteClaimedStrictAcquireErrorReturnsDirectly(t *testing.T) {
+	reg := strictExecuteWorkerRegistryForTest(t)
+	sentinel := errors.New("strict acquire failed")
+	mgr := newWorkerManagerWithDriver(t, reg, strictAcquireFailDriver{
+		base: testkit.NewMemoryDriver(),
+		err:  sentinel,
+	})
+
+	called := false
+	err := mgr.ExecuteClaimed(context.Background(), strictMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected strict acquire error passthrough, got %v", err)
+	}
+	if called {
+		t.Fatal("callback should not execute when strict acquire fails")
+	}
+}
+
 func TestOutcomeFromErrorMapsWorkerErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -570,6 +645,44 @@ func childMessageClaimRequest() definitions.MessageClaimRequest {
 	}
 }
 
+func strictMessageClaimRequest() definitions.MessageClaimRequest {
+	return definitions.MessageClaimRequest{
+		DefinitionID:   "StrictMessageClaimLock",
+		IdempotencyKey: "strict-msg:123",
+		KeyInput: map[string]string{
+			"message_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:       "worker-strict",
+			MessageID:     "123",
+			Attempt:       1,
+			ConsumerGroup: "payments",
+			HandlerName:   "HandleStrictPayment",
+		},
+	}
+}
+
+func strictExecuteWorkerRegistryForTest(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:                   "StrictMessageClaimLock",
+		Kind:                 definitions.KindParent,
+		Resource:             "message",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionAsync,
+		LeaseTTL:             90 * time.Millisecond,
+		IdempotencyRequired:  true,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("message:{message_id}", []string{"message_id"}),
+	}); err != nil {
+		t.Fatalf("register strict definition failed: %v", err)
+	}
+	return reg
+}
+
 type postCallbackRenewFailDriver struct {
 	base             *testkit.MemoryDriver
 	renewStartedCh   chan struct{}
@@ -645,4 +758,85 @@ func (d *renewFailDriver) CheckPresence(ctx context.Context, req drivers.Presenc
 
 func (d *renewFailDriver) Ping(ctx context.Context) error {
 	return d.base.Ping(ctx)
+}
+
+type strictRenewProbeDriver struct {
+	base           *testkit.MemoryDriver
+	renewCalls     atomic.Uint64
+	lastRenewToken atomic.Uint64
+}
+
+func newStrictRenewProbeDriver() *strictRenewProbeDriver {
+	return &strictRenewProbeDriver{base: testkit.NewMemoryDriver()}
+}
+
+func (d *strictRenewProbeDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d *strictRenewProbeDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	return d.base.Renew(ctx, lease)
+}
+
+func (d *strictRenewProbeDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *strictRenewProbeDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *strictRenewProbeDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
+}
+
+func (d *strictRenewProbeDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+	return d.base.AcquireStrict(ctx, req)
+}
+
+func (d *strictRenewProbeDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+	d.renewCalls.Add(1)
+	d.lastRenewToken.Store(fencingToken)
+	return d.base.RenewStrict(ctx, lease, fencingToken)
+}
+
+func (d *strictRenewProbeDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+	return d.base.ReleaseStrict(ctx, lease, fencingToken)
+}
+
+type strictAcquireFailDriver struct {
+	base *testkit.MemoryDriver
+	err  error
+}
+
+func (d strictAcquireFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+	return d.base.Acquire(ctx, req)
+}
+
+func (d strictAcquireFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+	return d.base.Renew(ctx, lease)
+}
+
+func (d strictAcquireFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d strictAcquireFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d strictAcquireFailDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
+}
+
+func (d strictAcquireFailDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+	return drivers.FencedLeaseRecord{}, d.err
+}
+
+func (d strictAcquireFailDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+	return d.base.RenewStrict(ctx, lease, fencingToken)
+}
+
+func (d strictAcquireFailDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+	return d.base.ReleaseStrict(ctx, lease, fencingToken)
 }

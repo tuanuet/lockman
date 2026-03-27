@@ -105,6 +105,28 @@ func (m *Manager) startLeaseRenewal(
 }
 
 func (m *Manager) renewLease(ctx context.Context, current renewableLease) (renewableLease, error) {
+	if current.fencingToken > 0 {
+		if current.lineage != nil {
+			return renewableLease{}, lockerrors.ErrPolicyViolation
+		}
+		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		if !ok {
+			return renewableLease{}, lockerrors.ErrPolicyViolation
+		}
+
+		updated, err := strictDriver.RenewStrict(ctx, current.lease, current.fencingToken)
+		if err != nil {
+			return renewableLease{}, err
+		}
+		if updated.FencingToken != current.fencingToken {
+			return renewableLease{}, drivers.ErrLeaseNotFound
+		}
+		return renewableLease{
+			lease:        updated.Lease,
+			fencingToken: current.fencingToken,
+		}, nil
+	}
+
 	if current.lineage == nil {
 		updated, err := m.driver.Renew(ctx, current.lease)
 		if err != nil {
