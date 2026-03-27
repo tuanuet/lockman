@@ -13,7 +13,9 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
+	lockerrors "lockman/lockkit/errors"
 )
 
 func TestDriverReleaseRejectsWrongOwner(t *testing.T) {
@@ -196,6 +198,120 @@ func TestDriverPingIsConnectivityOnlyAndScriptsStillWork(t *testing.T) {
 	}
 }
 
+func TestDriverAcquireWithLineageRejectsChildWhileParentHeldAcrossClients(t *testing.T) {
+	clientA := newRedisClientForTest(t)
+	clientB := newRedisClientForTest(t)
+	prefix := newRedisTestPrefix(t)
+	driverA := NewDriver(clientA, prefix)
+	driverB := NewDriver(clientB, prefix)
+
+	parentReq := newParentAcquireRequest("parent-lease")
+	parentLease, err := driverA.AcquireWithLineage(context.Background(), parentReq)
+	if err != nil {
+		t.Fatalf("parent acquire failed: %v", err)
+	}
+	defer func() {
+		_ = driverA.ReleaseWithLineage(context.Background(), parentLease, parentReq.Lineage)
+	}()
+
+	_, err = driverB.AcquireWithLineage(context.Background(), newChildAcquireRequest("child-lease", "line-1", 2*time.Second))
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection, got %v", err)
+	}
+}
+
+func TestDriverRenewWithLineageExtendsDescendantMembershipTTL(t *testing.T) {
+	clientA := newRedisClientForTest(t)
+	clientB := newRedisClientForTest(t)
+	prefix := newRedisTestPrefix(t)
+	driverA := NewDriver(clientA, prefix)
+	driverB := NewDriver(clientB, prefix)
+
+	childReq := newChildAcquireRequest("child-lease", "line-1", 200*time.Millisecond)
+	childLease, err := driverA.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+	childMeta := childReq.Lineage
+	defer func() {
+		_ = driverA.ReleaseWithLineage(context.Background(), childLease, childMeta)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	childLease.LeaseTTL = 200 * time.Millisecond
+	childLease, childMeta, err = driverA.RenewWithLineage(context.Background(), childLease, childMeta)
+	if err != nil {
+		t.Fatalf("child renew failed: %v", err)
+	}
+
+	time.Sleep(130 * time.Millisecond)
+
+	_, err = driverB.AcquireWithLineage(context.Background(), newParentAcquireRequest("parent-lease"))
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected overlap rejection after renew, got %v", err)
+	}
+}
+
+func TestDriverReleaseWithLineageRemovesOnlyReleasedMembership(t *testing.T) {
+	clientA := newRedisClientForTest(t)
+	clientB := newRedisClientForTest(t)
+	prefix := newRedisTestPrefix(t)
+	driverA := NewDriver(clientA, prefix)
+	driverB := NewDriver(clientB, prefix)
+
+	childOneReq := newChildAcquireRequest("child-one", "line-1", 2*time.Second)
+	childOne, err := driverA.AcquireWithLineage(context.Background(), childOneReq)
+	if err != nil {
+		t.Fatalf("child one acquire failed: %v", err)
+	}
+	childTwoReq := newChildAcquireRequest("child-two", "line-2", 2*time.Second)
+	childTwo, err := driverA.AcquireWithLineage(context.Background(), childTwoReq)
+	if err != nil {
+		t.Fatalf("child two acquire failed: %v", err)
+	}
+
+	if err := driverA.ReleaseWithLineage(context.Background(), childOne, childOneReq.Lineage); err != nil {
+		t.Fatalf("release child one failed: %v", err)
+	}
+
+	_, err = driverB.AcquireWithLineage(context.Background(), newParentAcquireRequest("parent-after-first-release"))
+	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+		t.Fatalf("expected parent to stay blocked by child two, got %v", err)
+	}
+
+	if err := driverA.ReleaseWithLineage(context.Background(), childTwo, childTwoReq.Lineage); err != nil {
+		t.Fatalf("release child two failed: %v", err)
+	}
+
+	parentReq := newParentAcquireRequest("parent-after-second-release")
+	parentLease, err := driverB.AcquireWithLineage(context.Background(), parentReq)
+	if err != nil {
+		t.Fatalf("expected parent acquire to succeed after both children release, got %v", err)
+	}
+	_ = driverB.ReleaseWithLineage(context.Background(), parentLease, parentReq.Lineage)
+}
+
+func TestDriverExpiredChildNoLongerBlocksParentAcquire(t *testing.T) {
+	driver := newRedisDriverForTest(t)
+
+	childReq := newChildAcquireRequest("expiring-child", "line-1", 120*time.Millisecond)
+	childLease, err := driver.AcquireWithLineage(context.Background(), childReq)
+	if err != nil {
+		t.Fatalf("child acquire failed: %v", err)
+	}
+
+	time.Sleep(180 * time.Millisecond)
+
+	parentReq := newParentAcquireRequest("parent-after-expiry")
+	parentLease, err := driver.AcquireWithLineage(context.Background(), parentReq)
+	if err != nil {
+		t.Fatalf("expected parent acquire after expiry, got %v", err)
+	}
+	_ = driver.ReleaseWithLineage(context.Background(), parentLease, parentReq.Lineage)
+	_ = driver.ReleaseWithLineage(context.Background(), childLease, childReq.Lineage)
+}
+
 func newRedisDriverForTest(t *testing.T) *Driver {
 	t.Helper()
 	return newRedisTestEnv(t).driver
@@ -207,6 +323,17 @@ type redisTestEnv struct {
 }
 
 func newRedisTestEnv(t *testing.T) redisTestEnv {
+	t.Helper()
+
+	client := newRedisClientForTest(t)
+	prefix := newRedisTestPrefix(t)
+	return redisTestEnv{
+		driver: NewDriver(client, prefix),
+		client: client,
+	}
+}
+
+func newRedisClientForTest(t *testing.T) *goredis.Client {
 	t.Helper()
 
 	redisURL := strings.TrimSpace(os.Getenv("LOCKMAN_REDIS_URL"))
@@ -226,10 +353,40 @@ func newRedisTestEnv(t *testing.T) redisTestEnv {
 		}
 	})
 
-	prefix := fmt.Sprintf("lockman:test:%s:%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", ":")), time.Now().UnixNano())
-	return redisTestEnv{
-		driver: NewDriver(client, prefix),
-		client: client,
+	return client
+}
+
+func newRedisTestPrefix(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("lockman:test:%s:%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", ":")), time.Now().UnixNano())
+}
+
+func newParentAcquireRequest(leaseID string) drivers.LineageAcquireRequest {
+	return drivers.LineageAcquireRequest{
+		DefinitionID: "order",
+		ResourceKey:  "order:123",
+		OwnerID:      "runtime-parent",
+		LeaseTTL:     2 * time.Second,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: leaseID,
+			Kind:    definitions.KindParent,
+		},
+	}
+}
+
+func newChildAcquireRequest(leaseID, itemID string, ttl time.Duration) drivers.LineageAcquireRequest {
+	return drivers.LineageAcquireRequest{
+		DefinitionID: "item",
+		ResourceKey:  "order:123:item:" + itemID,
+		OwnerID:      "runtime-child",
+		LeaseTTL:     ttl,
+		Lineage: drivers.LineageLeaseMeta{
+			LeaseID: leaseID,
+			Kind:    definitions.KindChild,
+			AncestorKeys: []drivers.AncestorKey{
+				{DefinitionID: "order", ResourceKey: "order:123"},
+			},
+		},
 	}
 }
 

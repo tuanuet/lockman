@@ -11,7 +11,9 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
+	lockerrors "lockman/lockkit/errors"
 )
 
 const defaultKeyPrefix = "lockman:lease"
@@ -180,6 +182,106 @@ func (d *Driver) CheckPresence(ctx context.Context, req drivers.PresenceRequest)
 	return record, nil
 }
 
+func (d *Driver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
+	if err := d.validateClient(); err != nil {
+		return drivers.LeaseRecord{}, err
+	}
+	if err := validateLineageAcquireRequest(req); err != nil {
+		return drivers.LeaseRecord{}, err
+	}
+
+	now := d.now()
+	keys := d.lineageAcquireKeys(req)
+	raw, err := lineageAcquireScript.Run(ctx, d.client, keys, d.lineageAcquireArgs(req, now)...).Result()
+	if err != nil {
+		return drivers.LeaseRecord{}, err
+	}
+
+	status, ttlMillis, err := parseLineageStatusResult(raw)
+	if err != nil {
+		return drivers.LeaseRecord{}, err
+	}
+	switch status {
+	case 1:
+		return buildLeaseRecord(req.DefinitionID, req.ResourceKey, req.OwnerID, time.Duration(ttlMillis)*time.Millisecond, now), nil
+	case -1:
+		return drivers.LeaseRecord{}, drivers.ErrLeaseAlreadyHeld
+	case -2:
+		return drivers.LeaseRecord{}, lockerrors.ErrOverlapRejected
+	case -3:
+		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+	default:
+		return drivers.LeaseRecord{}, errInvalidScriptResponse
+	}
+}
+
+func (d *Driver) RenewWithLineage(
+	ctx context.Context,
+	lease drivers.LeaseRecord,
+	lineage drivers.LineageLeaseMeta,
+) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+	if err := d.validateClient(); err != nil {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+	}
+	if err := validateLineageRenewRequest(lease, lineage); err != nil {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+	}
+
+	now := d.now()
+	keys := d.lineageRenewKeys(lease, lineage)
+	raw, err := lineageRenewScript.Run(ctx, d.client, keys, d.lineageRenewArgs(lease, lineage, now)...).Result()
+	if err != nil {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+	}
+
+	status, ttlMillis, err := parseLineageStatusResult(raw)
+	if err != nil {
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+	}
+	switch status {
+	case 1:
+		ttl := time.Duration(ttlMillis) * time.Millisecond
+		return buildLeaseRecord(lease.DefinitionID, lease.ResourceKeys[0], lease.OwnerID, ttl, now), cloneLineageLeaseMeta(lineage), nil
+	case 0:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseNotFound
+	case -1:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseOwnerMismatch
+	case -2:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+	case -3:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrInvalidRequest
+	default:
+		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, errInvalidScriptResponse
+	}
+}
+
+func (d *Driver) ReleaseWithLineage(ctx context.Context, lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) error {
+	if err := d.validateClient(); err != nil {
+		return err
+	}
+	if err := validateLineageReleaseRequest(lease, lineage); err != nil {
+		return err
+	}
+
+	result, err := lineageReleaseScript.Run(ctx, d.client, d.lineageReleaseKeys(lease, lineage), d.lineageReleaseArgs(lease, lineage, d.now())...).Int64()
+	if err != nil {
+		return err
+	}
+
+	switch result {
+	case 1:
+		return nil
+	case 0:
+		return drivers.ErrLeaseNotFound
+	case -1:
+		return drivers.ErrLeaseOwnerMismatch
+	case -2:
+		return drivers.ErrInvalidRequest
+	default:
+		return errInvalidScriptResponse
+	}
+}
+
 func (d *Driver) Ping(ctx context.Context) error {
 	if err := d.validateClient(); err != nil {
 		return err
@@ -190,6 +292,88 @@ func (d *Driver) Ping(ctx context.Context) error {
 
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
 	return fmt.Sprintf("%s:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+}
+
+func (d *Driver) buildLineageKey(definitionID, resourceKey string) string {
+	return fmt.Sprintf("%s:lineage:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+}
+
+func (d *Driver) lineageAcquireKeys(req drivers.LineageAcquireRequest) []string {
+	keys := make([]string, 0, 2+(len(req.Lineage.AncestorKeys)*2))
+	keys = append(keys,
+		d.buildLeaseKey(req.DefinitionID, req.ResourceKey),
+		d.buildLineageKey(req.DefinitionID, req.ResourceKey),
+	)
+	for _, ancestor := range req.Lineage.AncestorKeys {
+		keys = append(keys, d.buildLeaseKey(ancestor.DefinitionID, ancestor.ResourceKey))
+	}
+	for _, ancestor := range req.Lineage.AncestorKeys {
+		keys = append(keys, d.buildLineageKey(ancestor.DefinitionID, ancestor.ResourceKey))
+	}
+	return keys
+}
+
+func (d *Driver) lineageAcquireArgs(req drivers.LineageAcquireRequest, now time.Time) []interface{} {
+	return []interface{}{
+		req.OwnerID,
+		req.LeaseTTL.Milliseconds(),
+		now.UnixMilli(),
+		string(req.Lineage.Kind),
+		lineageMember(req.Lineage.LeaseID, req.DefinitionID, req.ResourceKey),
+		len(req.Lineage.AncestorKeys),
+	}
+}
+
+func (d *Driver) lineageRenewKeys(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) []string {
+	keys := make([]string, 0, 1+len(lineage.AncestorKeys))
+	keys = append(keys, d.buildLeaseKey(lease.DefinitionID, lease.ResourceKeys[0]))
+	for _, ancestor := range lineage.AncestorKeys {
+		keys = append(keys, d.buildLineageKey(ancestor.DefinitionID, ancestor.ResourceKey))
+	}
+	return keys
+}
+
+func (d *Driver) lineageRenewArgs(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta, now time.Time) []interface{} {
+	return []interface{}{
+		lease.OwnerID,
+		lease.LeaseTTL.Milliseconds(),
+		now.UnixMilli(),
+		lineageMember(lineage.LeaseID, lease.DefinitionID, lease.ResourceKeys[0]),
+		len(lineage.AncestorKeys),
+	}
+}
+
+func (d *Driver) lineageReleaseKeys(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) []string {
+	keys := make([]string, 0, 1+len(lineage.AncestorKeys))
+	keys = append(keys, d.buildLeaseKey(lease.DefinitionID, lease.ResourceKeys[0]))
+	for _, ancestor := range lineage.AncestorKeys {
+		keys = append(keys, d.buildLineageKey(ancestor.DefinitionID, ancestor.ResourceKey))
+	}
+	return keys
+}
+
+func (d *Driver) lineageReleaseArgs(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta, now time.Time) []interface{} {
+	return []interface{}{
+		lease.OwnerID,
+		now.UnixMilli(),
+		lineageMember(lineage.LeaseID, lease.DefinitionID, lease.ResourceKeys[0]),
+		len(lineage.AncestorKeys),
+	}
+}
+
+func buildLeaseRecord(definitionID, resourceKey, ownerID string, ttl time.Duration, now time.Time) drivers.LeaseRecord {
+	return drivers.LeaseRecord{
+		DefinitionID: definitionID,
+		ResourceKeys: []string{resourceKey},
+		OwnerID:      ownerID,
+		LeaseTTL:     ttl,
+		AcquiredAt:   now,
+		ExpiresAt:    now.Add(ttl),
+	}
+}
+
+func lineageMember(leaseID, definitionID, resourceKey string) string {
+	return fmt.Sprintf("%s|%s|%s", leaseID, encodeSegment(definitionID), encodeSegment(resourceKey))
 }
 
 func encodeSegment(v string) string {
@@ -255,6 +439,31 @@ func toString(v interface{}) (string, error) {
 	}
 }
 
+func parseLineageStatusResult(raw interface{}) (int64, int64, error) {
+	values, ok := raw.([]interface{})
+	if !ok || len(values) != 2 {
+		return 0, 0, errInvalidScriptResponse
+	}
+
+	status, err := toInt64(values[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	ttlMillis, err := toInt64(values[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return status, ttlMillis, nil
+}
+
+func cloneLineageLeaseMeta(meta drivers.LineageLeaseMeta) drivers.LineageLeaseMeta {
+	out := meta
+	if len(meta.AncestorKeys) > 0 {
+		out.AncestorKeys = append([]drivers.AncestorKey(nil), meta.AncestorKeys...)
+	}
+	return out
+}
+
 func (d *Driver) validateClient() error {
 	if d == nil || d.client == nil {
 		return drivers.ErrInvalidRequest
@@ -306,5 +515,44 @@ func validatePresenceRequest(req drivers.PresenceRequest) error {
 		return drivers.ErrInvalidRequest
 	}
 
+	return nil
+}
+
+func validateLineageAcquireRequest(req drivers.LineageAcquireRequest) error {
+	if strings.TrimSpace(req.DefinitionID) == "" || strings.TrimSpace(req.OwnerID) == "" || strings.TrimSpace(req.ResourceKey) == "" {
+		return drivers.ErrInvalidRequest
+	}
+	if req.LeaseTTL <= 0 {
+		return drivers.ErrInvalidRequest
+	}
+	return validateLineageLeaseMeta(req.Lineage)
+}
+
+func validateLineageRenewRequest(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) error {
+	if err := validateRenewLeaseRecord(lease); err != nil {
+		return err
+	}
+	return validateLineageLeaseMeta(lineage)
+}
+
+func validateLineageReleaseRequest(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) error {
+	if err := validateLeaseRecord(lease); err != nil {
+		return err
+	}
+	return validateLineageLeaseMeta(lineage)
+}
+
+func validateLineageLeaseMeta(meta drivers.LineageLeaseMeta) error {
+	if strings.TrimSpace(meta.LeaseID) == "" {
+		return drivers.ErrInvalidRequest
+	}
+	if meta.Kind != definitions.KindParent && meta.Kind != definitions.KindChild {
+		return drivers.ErrInvalidRequest
+	}
+	for _, ancestor := range meta.AncestorKeys {
+		if strings.TrimSpace(ancestor.DefinitionID) == "" || strings.TrimSpace(ancestor.ResourceKey) == "" {
+			return drivers.ErrInvalidRequest
+		}
+	}
 	return nil
 }
