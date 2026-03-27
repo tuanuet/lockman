@@ -17,6 +17,7 @@ Distributed lock platform SDK prototype for Go.
 - Child overlap rejection and standard-mode-only composite execution (Phase 2 reject-first overlap policy)
 - Lock definition field reference: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
 - Runtime vs workers guide: [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
+- Lock scenarios and best practices guide: [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md)
 
 ## Phase 2a Status
 
