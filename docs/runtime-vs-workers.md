@@ -13,6 +13,8 @@ If your code is running inside a direct request or command and the caller is wai
 
 If your code is running because a queue delivery arrived and you must decide whether to ack, retry, drop, or dead-letter the message, use `workers`.
 
+Strict mode in Phase 3a does not change this package-selection rule: choose by lifecycle (`runtime` for synchronous call paths, `workers` for async delivery paths). For strict examples, see `examples/phase3a-strict-runtime` and `examples/phase3a-strict-worker`.
+
 ## Why `runtime` Exists
 
 `runtime` exists to protect a synchronous critical section.
