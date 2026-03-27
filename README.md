@@ -18,6 +18,16 @@ Distributed lock platform SDK prototype for Go.
 - Lock definition field reference: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
 - Runtime vs workers guide: [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
 
+## Phase 2a Status
+
+- `ExecuteExclusive` and `ExecuteClaimed` now enforce parent-child overlap across goroutines, workers, and processes when the driver supports lineage
+- Composite runtime and worker paths route lineage members through the same backend lineage contract, so composite execution no longer bypasses overlap rules
+- `CheckPresence` remains exact-key only; descendant membership markers are internal coordination state, not user-visible lock presence
+
+## Migration Note
+
+Applications that previously nested parent and child acquires across goroutines, workers, or processes may now receive `ErrOverlapRejected`.
+
 ## Redis Verification
 
 Redis integration tests read `LOCKMAN_REDIS_URL` and skip when unset.
@@ -49,7 +59,8 @@ Memory-backed:
 ## Dependency Boundaries
 
 - `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
-- `go run ./examples/no-dependency-awareness` shows a child-like lock with `ParentRef` can still nest under a parent lock because Phase 1 does not enforce parent-child dependency semantics.
+- `go run ./examples/phase2-parent-child-runtime` shows current Phase 2a runtime behavior: parent-child overlap is rejected across managers.
+- `go run ./examples/no-dependency-awareness` is retained as a historical Phase 1 example, not the current Phase 2a behavior.
 
 ## Commands
 

@@ -16,8 +16,8 @@ func TestRunPrintsDependencyBoundary(t *testing.T) {
 	output := out.String()
 	expected := []string{
 		"parent: acquired order:123",
-		"child-like nested acquire: acquired order:123:item:1",
-		"note: nested child acquire succeeded because phase1 does not enforce parent-child dependency",
+		"child-like nested acquire: overlap rejected",
+		"note: phase 2a now enforces parent-child dependency lineage during runtime execution",
 		"shutdown: ok",
 	}
 
@@ -25,5 +25,8 @@ func TestRunPrintsDependencyBoundary(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected output to contain %q, got %q", want, output)
 		}
+	}
+	if strings.Contains(output, "phase1 does not enforce parent-child dependency") {
+		t.Fatalf("example still describes stale pre-phase-2a semantics: %q", output)
 	}
 }

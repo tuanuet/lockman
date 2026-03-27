@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"lockman/lockkit/definitions"
+	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/observe"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/runtime"
@@ -82,13 +84,22 @@ func run(out io.Writer) error {
 			Ownership: parentReq.Ownership,
 		}
 
-		return mgr.ExecuteExclusive(ctx, childReq, func(ctx context.Context, nested definitions.LeaseContext) error {
+		err := mgr.ExecuteExclusive(ctx, childReq, func(ctx context.Context, nested definitions.LeaseContext) error {
 			if _, err := fmt.Fprintf(out, "child-like nested acquire: acquired %s\n", nested.ResourceKey); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintln(out, "note: nested child acquire succeeded because phase1 does not enforce parent-child dependency")
+			_, err := fmt.Fprintln(out, "note: pre-phase-2a nested child acquire succeeded because dependency lineage was not enforced")
 			return err
 		})
+		if errors.Is(err, lockerrors.ErrOverlapRejected) {
+			_, err := fmt.Fprintln(out, "child-like nested acquire: overlap rejected")
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(out, "note: phase 2a now enforces parent-child dependency lineage during runtime execution")
+			return err
+		}
+		return err
 	})
 	if err != nil {
 		return err

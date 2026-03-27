@@ -52,85 +52,130 @@ func run(out io.Writer) error {
 		return err
 	}
 
-	registerComposite := func(id string, members []string) error {
-		return reg.RegisterComposite(definitions.CompositeDefinition{
-			ID:               id,
-			Members:          members,
-			OrderingPolicy:   definitions.OrderingCanonical,
-			AcquirePolicy:    definitions.AcquireAllOrNothing,
-			EscalationPolicy: definitions.EscalationReject,
-			ModeResolution:   definitions.ModeResolutionHomogeneous,
-			MaxMemberCount:   2,
-			ExecutionKind:    definitions.ExecutionSync,
-		})
-	}
-	if err := registerComposite("OrderParentThenChild", []string{"OrderParentLock", "OrderItemLock"}); err != nil {
-		return err
-	}
-	if err := registerComposite("OrderChildThenParent", []string{"OrderItemLock", "OrderParentLock"}); err != nil {
-		return err
-	}
-
-	mgr, err := runtime.NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	driver := testkit.NewMemoryDriver()
+	parentMgr, err := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
 	if err != nil {
 		return err
 	}
-
-	scenarios := []struct {
-		label        string
-		definitionID string
-		memberInputs []map[string]string
-	}{
-		{
-			label:        "scenario parent-then-child",
-			definitionID: "OrderParentThenChild",
-			memberInputs: []map[string]string{
-				{"order_id": "123"},
-				{"order_id": "123", "item_id": "line-1"},
-			},
-		},
-		{
-			label:        "scenario child-then-parent",
-			definitionID: "OrderChildThenParent",
-			memberInputs: []map[string]string{
-				{"order_id": "123", "item_id": "line-1"},
-				{"order_id": "123"},
-			},
-		},
+	childMgr, err := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
+	if err != nil {
+		return err
 	}
+	defer func() {
+		_ = childMgr.Shutdown(context.Background())
+		_ = parentMgr.Shutdown(context.Background())
+	}()
 
-	for _, scenario := range scenarios {
-		err := mgr.ExecuteCompositeExclusive(context.Background(), definitions.CompositeLockRequest{
-			DefinitionID: scenario.definitionID,
-			MemberInputs: scenario.memberInputs,
-			Ownership: definitions.OwnershipMeta{
-				OwnerID:     "example:parent-child-runtime",
-				ServiceName: "example",
-				HandlerName: scenario.label,
-			},
-		}, func(ctx context.Context, lease definitions.LeaseContext) error {
-			return errors.New("callback should not run")
-		})
-		switch {
-		case errors.Is(err, lockerrors.ErrPolicyViolation):
-			if _, err := fmt.Fprintf(out, "%s: rejected\n", scenario.label); err != nil {
-				return err
-			}
-		case err != nil:
-			return err
-		default:
-			return fmt.Errorf("expected overlap rejection for %s", scenario.label)
-		}
-	}
-
-	if _, err := fmt.Fprintln(out, "note: runtime overlap rejection is demonstrated through declared composite plans"); err != nil {
+	if err := runScenario(
+		out,
+		"scenario child-held-parent-rejected",
+		func(entered chan<- struct{}, release <-chan struct{}) error {
+			return childMgr.ExecuteExclusive(context.Background(), childRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+				close(entered)
+				<-release
+				return nil
+			})
+		},
+		func() error {
+			return parentMgr.ExecuteExclusive(context.Background(), parentRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+				return errors.New("parent callback should not run")
+			})
+		},
+	); err != nil {
 		return err
 	}
 
-	if err := mgr.Shutdown(context.Background()); err != nil {
+	if err := runScenario(
+		out,
+		"scenario parent-held-child-rejected",
+		func(entered chan<- struct{}, release <-chan struct{}) error {
+			return parentMgr.ExecuteExclusive(context.Background(), parentRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+				close(entered)
+				<-release
+				return nil
+			})
+		},
+		func() error {
+			return childMgr.ExecuteExclusive(context.Background(), childRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+				return errors.New("child callback should not run")
+			})
+		},
+	); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintln(out, "note: phase 2a runtime now enforces parent-child overlap across managers and goroutines"); err != nil {
 		return err
 	}
 
 	_, err = fmt.Fprintln(out, "shutdown: ok")
 	return err
+}
+
+func runScenario(
+	out io.Writer,
+	label string,
+	holder func(chan<- struct{}, <-chan struct{}) error,
+	contender func() error,
+) error {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- holder(entered, release)
+	}()
+	<-entered
+
+	err := contender()
+	switch {
+	case errors.Is(err, lockerrors.ErrOverlapRejected):
+		if _, writeErr := fmt.Fprintf(out, "%s: overlap rejected\n", label); writeErr != nil {
+			close(release)
+			<-done
+			return writeErr
+		}
+	case err != nil:
+		close(release)
+		<-done
+		return err
+	default:
+		close(release)
+		<-done
+		return fmt.Errorf("expected overlap rejection for %s", label)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		return err
+	}
+	return nil
+}
+
+func parentRequest() definitions.SyncLockRequest {
+	return definitions.SyncLockRequest{
+		DefinitionID: "OrderParentLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:     "example:parent",
+			ServiceName: "example",
+			HandlerName: "parent",
+		},
+	}
+}
+
+func childRequest() definitions.SyncLockRequest {
+	return definitions.SyncLockRequest{
+		DefinitionID: "OrderItemLock",
+		KeyInput: map[string]string{
+			"order_id": "123",
+			"item_id":  "line-1",
+		},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID:     "example:child",
+			ServiceName: "example",
+			HandlerName: "child",
+		},
+	}
 }
