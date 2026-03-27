@@ -196,6 +196,36 @@ func TestRuntimeManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) 
 	}
 }
 
+func TestRuntimeManagerRejectsStrictSyncRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
+
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, observe.NewNoopRecorder())
+	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
+	}
+}
+
+func TestRuntimeManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionBoth)
+
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, observe.NewNoopRecorder())
+	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
+	}
+}
+
+func TestRuntimeManagerAllowsStrictAsyncOnlyRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionAsync)
+
+	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("expected runtime manager to allow async-only strict definitions, got %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+}
+
 func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
@@ -362,6 +392,28 @@ func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req drivers.Pres
 
 func (d exactOnlyDriverStub) Ping(ctx context.Context) error {
 	return d.inner.Ping(ctx)
+}
+
+func strictRuntimeRegistryForTest(t *testing.T, kind definitions.ExecutionKind) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	def := definitions.LockDefinition{
+		ID:                   "StrictOrderLock",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        kind,
+		LeaseTTL:             30 * time.Second,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  kind == definitions.ExecutionAsync || kind == definitions.ExecutionBoth,
+	}
+	if err := reg.Register(def); err != nil {
+		t.Fatalf("register strict definition failed: %v", err)
+	}
+	return reg
 }
 
 func registryWithLineageChain(t *testing.T) *registry.Registry {

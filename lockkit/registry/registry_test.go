@@ -770,6 +770,130 @@ func TestRegistryValidateRejectsLineageWithNonStandardMode(t *testing.T) {
 	}
 }
 
+func TestRegistryValidateRejectsStrictChildWithParentRefRegression(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "order",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "item",
+		Kind:                 definitions.KindChild,
+		Resource:             "item",
+		Mode:                 definitions.ModeStrict,
+		LeaseTTL:             30 * time.Second,
+		ParentRef:            "order",
+		OverlapPolicy:        definitions.OverlapReject,
+		ExecutionKind:        definitions.ExecutionSync,
+		FencingRequired:      true,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only support standard mode") {
+		t.Fatalf("expected strict child+parent regression rejection, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsStandardChildWithStrictParentRegression(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "order",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		LeaseTTL:             30 * time.Second,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind:        definitions.ExecutionSync,
+		FencingRequired:      true,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only support standard mode") {
+		t.Fatalf("expected standard child+strict parent regression rejection, got %v", err)
+	}
+}
+
+func TestRequiresStrictRuntimeDriverIgnoresAsyncOnlyStrictDefinitions(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "StrictAsyncOnly",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionAsync,
+		LeaseTTL:             time.Second,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  true,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	})
+
+	if registry.RequiresStrictRuntimeDriver(reg) {
+		t.Fatal("runtime strict gate should ignore async-only strict definitions")
+	}
+	if !registry.RequiresStrictWorkerDriver(reg) {
+		t.Fatal("worker strict gate should include async-only strict definitions")
+	}
+}
+
+func TestRequiresStrictRuntimeDriverIncludesSyncAndBothStrictDefinitions(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "StrictBoth",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionBoth,
+		LeaseTTL:             time.Second,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  true,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	})
+
+	if !registry.RequiresStrictRuntimeDriver(reg) {
+		t.Fatal("runtime strict gate should include strict both definitions")
+	}
+}
+
+func TestRequiresStrictWorkerDriverIgnoresSyncOnlyStrictDefinitions(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "StrictSyncOnly",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionSync,
+		LeaseTTL:             time.Second,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	})
+
+	if registry.RequiresStrictWorkerDriver(reg) {
+		t.Fatal("worker strict gate should ignore sync-only strict definitions")
+	}
+}
+
 func TestRegistryValidateRejectsLineageWithNonStandardParentMode(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{

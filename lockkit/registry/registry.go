@@ -116,6 +116,34 @@ func RequiresLineageDriver(reg Reader) bool {
 	return false
 }
 
+// RequiresStrictRuntimeDriver returns true when the registry contains strict
+// definitions that are executable via runtime sync flows.
+func RequiresStrictRuntimeDriver(reg Reader) bool {
+	for _, def := range reg.Definitions() {
+		if def.Mode != definitions.ModeStrict {
+			continue
+		}
+		if def.ExecutionKind == definitions.ExecutionSync || def.ExecutionKind == definitions.ExecutionBoth {
+			return true
+		}
+	}
+	return false
+}
+
+// RequiresStrictWorkerDriver returns true when the registry contains strict
+// definitions that are executable via worker async flows.
+func RequiresStrictWorkerDriver(reg Reader) bool {
+	for _, def := range reg.Definitions() {
+		if def.Mode != definitions.ModeStrict {
+			continue
+		}
+		if def.ExecutionKind == definitions.ExecutionAsync || def.ExecutionKind == definitions.ExecutionBoth {
+			return true
+		}
+	}
+	return false
+}
+
 func indexChildrenByParent(defs []definitions.LockDefinition) map[string][]string {
 	out := make(map[string][]string, len(defs))
 	for _, def := range defs {

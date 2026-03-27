@@ -42,6 +42,36 @@ func TestNewManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 	}
 }
 
+func TestNewManagerRejectsStrictAsyncRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictWorkerRegistryForTest(t, definitions.ExecutionAsync)
+
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
+	}
+}
+
+func TestNewManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictWorkerRegistryForTest(t, definitions.ExecutionBoth)
+
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
+		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
+	}
+}
+
+func TestNewManagerAllowsStrictSyncOnlyRegistryWithoutStrictDriver(t *testing.T) {
+	reg := strictWorkerRegistryForTest(t, definitions.ExecutionSync)
+
+	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, nil)
+	if err != nil {
+		t.Fatalf("expected worker manager to allow sync-only strict definitions, got %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+}
+
 func TestNewManagerRequiresIdempotencyStoreWhenAsyncDefinitionNeedsIt(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
 
@@ -312,5 +342,27 @@ func workerRegistryWithLineageChain(t *testing.T) *registry.Registry {
 		t.Fatalf("register child failed: %v", err)
 	}
 
+	return reg
+}
+
+func strictWorkerRegistryForTest(t *testing.T, kind definitions.ExecutionKind) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	def := definitions.LockDefinition{
+		ID:                   "StrictMessageLock",
+		Kind:                 definitions.KindParent,
+		Resource:             "message",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        kind,
+		LeaseTTL:             30 * time.Second,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("message:{message_id}", []string{"message_id"}),
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  kind == definitions.ExecutionAsync || kind == definitions.ExecutionBoth,
+	}
+	if err := reg.Register(def); err != nil {
+		t.Fatalf("register strict definition failed: %v", err)
+	}
 	return reg
 }

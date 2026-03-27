@@ -43,6 +43,11 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}
+	if registry.RequiresStrictRuntimeDriver(reg) {
+		if _, ok := driver.(drivers.StrictDriver); !ok {
+			return nil, lockerrors.ErrPolicyViolation
+		}
+	}
 	if recorder == nil {
 		recorder = observe.NewNoopRecorder()
 	}
