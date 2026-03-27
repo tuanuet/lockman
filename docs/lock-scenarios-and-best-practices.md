@@ -435,8 +435,110 @@ Registry review should explicitly ask whether `ExecutionKind=both` preserves one
 
 ## Best Practices
 
+Treat the sections below as review heuristics and team policy, not as a replacement for the field semantics in [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md).
+
+### Central Registry Ownership And Review
+
+Keep one central registry as the source of truth for lock definitions. New definitions should be reviewed by people who understand both the business invariant and the platform rules.
+
+### Stable, Business-Readable Definition IDs
+
+Use names that describe the business boundary, not the implementation detail. `OrderApprovalLock` or `TransferComposite` is easier to govern than vague IDs tied to storage layout.
+
+### Template Key Builders And Explicit Fields
+
+Prefer template key builders so required fields are obvious in review. If a key shape is hard to explain in one sentence, the lock boundary may already be too muddy.
+
+### TTL Sizing Guidance
+
+Set TTLs long enough for the real unit of work plus jitter and shutdown delay, but short enough that stale ownership does not linger forever after crashes. Review should ask what failure window the team is accepting.
+
+### Keep Composite Size Small
+
+Composites should remain small and operation-specific. Large composites often mean the business operation is under-modeled or the team is compensating for unclear boundaries with “lock more things”.
+
+### Avoid Nested Manual Lock Orchestration
+
+If one flow needs several resources, prefer composite execution over hand-written acquire chains. Nested manual orchestration leaks ordering, rollback, and review complexity into application code.
+
+### Prefer Parent Locks When Aggregate Invariants Dominate
+
+Start from the aggregate boundary. Move to child locks only when the team can clearly explain the concurrency benefit and why aggregate-wide serialization is not the right answer.
+
+### Use Child Locks Only For Intentional Sub-Resource Concurrency
+
+Child definitions should exist because independent sub-resource concurrency is a real product requirement, not because the domain happens to have nested IDs.
+
+### Treat CheckPresence As Advisory Only
+
+`CheckPresence` is useful for visibility and operator experience, but it must never become the correctness boundary for writes or async claims.
+
+### Keep Async Idempotency Aligned With Message Ownership
+
+When a queue consumer owns retries and completion, the idempotency key and lease lifecycle should begin and end in that consumer path. Do not split those concerns across producer and consumer.
+
+### Distinguish Overlap Rejection From Lock Busy
+
+Exact-key contention and parent-child overlap are different failures. Application code and operational runbooks should not collapse them into one generic “lock busy” bucket.
+
+### Choose ExecutionKind=both Only When The Boundary Is Truly Shared
+
+`ExecutionKind=both` is appropriate only when sync and async flows are protecting the same business boundary. If they differ in lifecycle or meaning, split definitions and make the review explicit.
+
 ## Anti-Patterns
+
+### Too Many Children Where One Parent Is Simpler
+
+This adds lineage complexity without buying safe parallelism. Prefer one parent lock when the invariant is still aggregate-wide.
+
+### One Coarse Parent Where Sub-Resource Concurrency Is Required
+
+This turns a valid concurrency opportunity into needless serialization. Prefer child locks only when the sub-resource operations are truly independent.
+
+### Composite Where One Parent Lock Is Enough
+
+If one parent definition already captures the real invariant, a composite is just a more complicated spelling of the same boundary.
+
+### Manual Multi-Lock Orchestration In Application Code
+
+Application code should not reinvent ordering, rollback, and partial-failure handling. Use composite definitions instead.
+
+### Producer Acquire And Consumer Release
+
+This spreads one ownership lifecycle across two systems. Let the consumer claim and release work inside its own retry and idempotency model.
+
+### Presence As A Correctness Signal
+
+Do not branch correctness-critical writes on presence checks. Acquire the lock or claim the work for real.
+
+### One Definition Reused Across Unrelated Semantics
+
+Shared keys do not automatically mean shared business meaning. If two flows have different lifecycles or governance rules, they should not hide behind one definition.
+
+### Pre-Phase-2a Assumptions About ParentRef
+
+Do not assume `ParentRef` is metadata only. After Phase 2a, parent-child overlap rules are enforced and old permissive nesting may fail.
 
 ## Decision Matrix
 
+| Scenario Type | Recommended Lock Shape | Package | Why | Next Doc/Example |
+|---|---|---|---|---|
+| Approve one order | Parent lock | `runtime` | One aggregate transition, one caller waiting now | [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md) |
+| Update one order item under order-level invariants | Child lock with lineage, or parent if aggregate-wide | `runtime` or `workers` | Choose child only when independent item concurrency is intentional | [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md) |
+| Transfer between two accounts | Composite lock | `runtime` or `workers` | Multi-resource coordination should stay inside the SDK | [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md) |
+| Inventory reservation from a queue worker | Parent lock plus idempotency | `workers` | Async delivery semantics matter as much as locking | [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md) |
+| Background reconciliation or shard-based batch job | Shard lock by default, batch lock only if independently safe and replayable | `workers` | The invariant decides whether shard or batch owns correctness | [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md) |
+| Producer-consumer handoff | Consumer-side claim ownership | `workers` | Ownership should begin where retry and completion are actually decided | [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md) |
+| Admin screen or operator hint | Presence-check-only usage | none for the check itself | Visibility is useful, but it is not a correctness gate | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
+| Phase 2a migration scenario | Validated parent-child model with explicit overlap handling | same as the flow | Old permissive nesting no longer survives Phase 2a | [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md) |
+| Shared versus split sync/async definitions | `ExecutionKind=both` only when semantics are truly shared | depends on the flow | Shared keys are not enough; shared meaning is required | [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md) |
+
 ## Related Docs And Examples
+
+- Execution package choice: [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
+- Definition field semantics: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
+- Single-resource worker example: [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md)
+- Sync composite example: [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md)
+- Async composite example: [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
+- Reject-first overlap example: [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
+- Phase 2a parent-child runtime example: [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
