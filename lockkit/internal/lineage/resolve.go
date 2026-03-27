@@ -3,10 +3,16 @@ package lineage
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
+)
+
+var (
+	errLeaseIDGenerationFailed = errors.New("lineage: lease id generation failed")
+	leaseIDReader              = rand.Read
 )
 
 type AcquirePlan struct {
@@ -39,6 +45,10 @@ func ResolveAcquirePlan(
 	if err != nil {
 		return AcquirePlan{}, err
 	}
+	leaseID, err := newLeaseID()
+	if err != nil {
+		return AcquirePlan{}, err
+	}
 
 	return AcquirePlan{
 		DefinitionID: def.ID,
@@ -46,7 +56,7 @@ func ResolveAcquirePlan(
 		Kind:         def.Kind,
 		// Ancestors are ordered root-first so script key assembly, renew, and release stay stable.
 		AncestorKeys: ancestors,
-		LeaseID:      newLeaseID(),
+		LeaseID:      leaseID,
 	}, nil
 }
 
@@ -55,6 +65,9 @@ func resolveAncestors(
 	definitionsByID map[string]definitions.LockDefinition,
 	input map[string]string,
 ) ([]drivers.AncestorKey, error) {
+	if def.ParentRef != "" && def.Kind != definitions.KindChild {
+		return nil, fmt.Errorf("lineage: non-child definition %q must not set parent ref", def.ID)
+	}
 	if def.ParentRef == "" {
 		if def.Kind == definitions.KindChild {
 			return nil, fmt.Errorf("lineage: child definition %q missing parent ref", def.ID)
@@ -108,12 +121,10 @@ func cloneAncestorKeys(input []drivers.AncestorKey) []drivers.AncestorKey {
 	return out
 }
 
-func newLeaseID() string {
+func newLeaseID() (string, error) {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand should never fail in normal environments; if it does, returning a
-		// deterministic fallback is worse than surfacing the failure as a panic.
-		panic(err)
+	if _, err := leaseIDReader(b[:]); err != nil {
+		return "", fmt.Errorf("%w: %v", errLeaseIDGenerationFailed, err)
 	}
-	return hex.EncodeToString(b[:])
+	return hex.EncodeToString(b[:]), nil
 }
