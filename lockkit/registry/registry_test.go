@@ -678,11 +678,11 @@ func TestRegistryValidateRejectsNonTemplateChildLineageBuilder(t *testing.T) {
 func TestRegistryValidateRejectsNonTemplateParentLineageBuilder(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
-		ID:            "order",
-		Kind:          definitions.KindParent,
-		Resource:      "order",
-		Mode:          definitions.ModeStandard,
-		LeaseTTL:      30 * time.Second,
+		ID:       "order",
+		Kind:     definitions.KindParent,
+		Resource: "order",
+		Mode:     definitions.ModeStandard,
+		LeaseTTL: 30 * time.Second,
 		KeyBuilder: stubKeyBuilder{
 			fields: []string{"order_id"},
 		},
@@ -762,6 +762,37 @@ func TestRegistryValidateRejectsLineageWithNonStandardMode(t *testing.T) {
 		FencingRequired:      true,
 		BackendFailurePolicy: definitions.BackendFailClosed,
 		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+	})
+
+	err := reg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "only support standard mode") {
+		t.Fatalf("expected lineage mode validation error, got %v", err)
+	}
+}
+
+func TestRegistryValidateRejectsLineageWithNonStandardParentMode(t *testing.T) {
+	reg := registry.New()
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:                   "order",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		LeaseTTL:             30 * time.Second,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		ExecutionKind:        definitions.ExecutionSync,
+		FencingRequired:      true,
+		BackendFailurePolicy: definitions.BackendFailClosed,
+	})
+	mustRegister(t, reg, definitions.LockDefinition{
+		ID:            "item",
+		Kind:          definitions.KindChild,
+		Resource:      "item",
+		Mode:          definitions.ModeStandard,
+		LeaseTTL:      30 * time.Second,
+		ParentRef:     "order",
+		OverlapPolicy: definitions.OverlapReject,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"}),
+		ExecutionKind: definitions.ExecutionSync,
 	})
 
 	err := reg.Validate()
