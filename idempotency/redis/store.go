@@ -8,6 +8,7 @@ import (
 )
 
 // New creates a Redis idempotency store compatible with lockman.WithIdempotency(...).
+// Passing an empty keyPrefix uses lockman's default Redis idempotency namespace.
 func New(client goredis.UniversalClient, keyPrefix string) idempotency.Store {
 	return redisstore.NewStore(client, keyPrefix)
 }
