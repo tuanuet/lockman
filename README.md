@@ -1,141 +1,106 @@
 # lockman
 
-Distributed lock platform SDK prototype for Go.
+`lockman` is a Go SDK for registry-backed distributed locking with one default user path:
 
-## Phase 1 Status
+1. define a use case
+2. register it centrally
+3. create a client
+4. call `Run` or `Claim`
 
-- Standard-mode exclusive execution via `ExecuteExclusive`
-- Advisory presence checks via `CheckPresence`
-- Lifecycle shutdown via `Shutdown(ctx)`
-- Central registry validation plus the in-memory `testkit` driver
-- Parent-lock focused scope with baseline runtime metrics
+## Install
 
-## Phase 2 Status
-
-- Worker claim execution via `ExecuteClaimed` and `ExecuteCompositeClaimed`
-- Redis production driver and Redis-backed idempotency store
-- Child overlap rejection and standard-mode-only composite execution (Phase 2 reject-first overlap policy)
-- Lock definition field reference: [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
-- Runtime vs workers guide: [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
-- Lock scenarios and best practices guide: [`docs/lock-scenarios-and-best-practices.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-scenarios-and-best-practices.md)
-
-## Phase 2a Status
-
-- `ExecuteExclusive` and `ExecuteClaimed` now enforce parent-child overlap across goroutines, workers, and processes when the driver supports lineage
-- Composite runtime and worker paths route lineage members through the same backend lineage contract, so composite execution no longer bypasses overlap rules
-- `CheckPresence` remains exact-key only; descendant membership markers are internal coordination state, not user-visible lock presence
-
-## Phase 3a Status
-
-- Preview-quality strict single-resource execution for runtime and workers
-- Fencing tokens are exposed to strict callbacks (`LeaseContext` and `ClaimContext`)
-- Runtime strict execution remains a single critical-section TTL window in Phase 3a
-- Worker strict execution includes idempotency terminal-state persistence
-- Guarded-write persistence safety is not part of Phase 3a and remains Phase 3b scope
-- Strict runtime example: [`examples/phase3a-strict-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-runtime/README.md)
-- Strict worker example: [`examples/phase3a-strict-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-worker/README.md)
-
-## Phase 3b Status
-
-- `lockkit/guard` adds shared guarded-write context and outcome contracts for strict persistence boundaries
-- `lockkit/guard/postgres` adds the first concrete guarded single-row `UPDATE` classifier for Postgres
-- Strict worker fencing tokens can now be carried into guarded Postgres writes and reject stale writers at the storage boundary
-- Missing-row and boundary-mismatch cases remain invariant errors rather than being collapsed into stale-token handling
-- Guarded worker example: [`examples/phase3b-guarded-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3b-guarded-worker/README.md)
-
-## Migration Note
-
-Applications that previously nested parent and child acquires across goroutines, workers, or processes may now receive `ErrOverlapRejected`.
-
-## Redis Verification
-
-Redis integration tests read `LOCKMAN_REDIS_URL` and skip when unset.
+This repository is still pre-release. The in-repo module path is currently:
 
 ```bash
-docker compose up -d redis
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./lockkit/idempotency/redis -v
+go get lockman
 ```
 
-If `6379` is already in use:
+## Start Here
+
+- Sync quickstart: [`docs/quickstart-sync.md`](docs/quickstart-sync.md)
+- Async quickstart: [`docs/quickstart-async.md`](docs/quickstart-async.md)
+- Registry and use cases: [`docs/registry-and-usecases.md`](docs/registry-and-usecases.md)
+- `Run` vs `Claim`: [`docs/runtime-vs-workers.md`](docs/runtime-vs-workers.md)
+- Error guide: [`docs/errors.md`](docs/errors.md)
+- Definition reference: [`docs/lock-definition-reference.md`](docs/lock-definition-reference.md)
+- Best practices: [`docs/lock-scenarios-and-best-practices.md`](docs/lock-scenarios-and-best-practices.md)
+
+## Public Packages
+
+- `lockman`: default client, registry, use cases, `Run`, and `Claim`
+- `lockman/redis`: Redis backend constructor for `lockman.WithBackend(...)`
+- `lockman/idempotency/redis`: Redis idempotency store for `lockman.WithIdempotency(...)`
+- `lockman/advanced/composite`: advanced composite run authoring
+- `lockman/advanced/strict`: advanced strict fenced run authoring
+- `lockman/advanced/lineage`: reserved advanced namespace for lineage-oriented flows
+- `lockman/advanced/guard`: reserved advanced namespace for guarded-write integrations
+
+## Quick Example
+
+```go
+package orderlocks
+
+import "lockman"
+
+type ApproveInput struct {
+	OrderID string
+}
+
+var Approve = lockman.DefineRun[ApproveInput](
+	"order.approve",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+)
+```
+
+```go
+reg := lockman.NewRegistry()
+if err := reg.Register(orderlocks.Approve); err != nil {
+	return err
+}
+
+client, err := lockman.New(
+	lockman.WithRegistry(reg),
+	lockman.WithIdentity(lockman.Identity{OwnerID: "orders-api"}),
+	lockman.WithBackend(redis.New(redisClient, "")),
+)
+if err != nil {
+	return err
+}
+defer client.Shutdown(ctx)
+
+req, err := orderlocks.Approve.With(orderlocks.ApproveInput{OrderID: "123"})
+if err != nil {
+	return err
+}
+
+return client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error {
+	return approveOrder(ctx, "123")
+})
+```
+
+## Examples
+
+- Sync approval: [`examples/sync-order-approval`](examples/sync-order-approval)
+- Async processor: [`examples/async-order-processor`](examples/async-order-processor)
+- Composite transfer: [`examples/composite-transfer`](examples/composite-transfer)
+- Strict fenced write: [`examples/strict-fenced-write`](examples/strict-fenced-write)
+
+All new examples read `LOCKMAN_REDIS_URL` and default to `redis://127.0.0.1:6379/0`.
+
+Historical engine-first and phase-oriented examples still exist in `examples/`, but they are not the default SDK onboarding path.
+
+## Advanced Cases
+
+Stay on the root `lockman` path unless you need something explicitly advanced:
+
+- composite locking: [`docs/advanced/composite.md`](docs/advanced/composite.md)
+- strict fenced execution: [`docs/advanced/strict.md`](docs/advanced/strict.md)
+- lineage notes: [`docs/advanced/lineage.md`](docs/advanced/lineage.md)
+- guard notes: [`docs/advanced/guard.md`](docs/advanced/guard.md)
+
+## Verification
 
 ```bash
-LOCKMAN_REDIS_PORT=6380 docker compose up -d redis
-LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
+go test ./...
+go test ./... -cover
 ```
-
-## Postgres Verification
-
-Postgres guarded-write tests read `LOCKMAN_POSTGRES_DSN` and skip when unset. The example command below assumes a local Postgres instance unless you override `LOCKMAN_POSTGRES_DSN`.
-
-```bash
-docker compose up -d postgres
-LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./lockkit/guard/postgres -run 'Integration' -v
-```
-
-Phase 3b worker proof with both Redis and Postgres:
-
-```bash
-docker compose up -d redis postgres
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
-LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
-go run ./examples/phase3b-guarded-worker
-```
-
-## Phase 2a Example Guide
-
-Use the examples below as the primary adoption path for Phase 2 and Phase 2a behavior.
-
-### Start Here
-
-- Single async worker lock with Redis lease plus idempotency:
-  [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md)
-- Sync composite lock with canonical ordering on the memory driver:
-  [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md)
-- Async composite worker claim with Redis:
-  [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
-- Composite overlap rejection before callback execution:
-  [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
-- Distributed parent-child rejection across managers and goroutines:
-  [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
-
-### Which Example To Run
-
-- Learn worker `ExecuteClaimed` with a single resource:
-  `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-basic`
-  Focus on `presence while held: held`, `idempotency after ack: completed`, and `duplicate outcome: ignored`.
-- Learn sync composite execution:
-  `go run ./examples/phase2-composite-sync`
-  Focus on `composite acquired: account:acct-123,ledger:ledger-456` and `canonical order: ok`.
-- Learn async composite worker execution:
-  `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-composite-worker`
-  Focus on `composite callback: ...` and `composite idempotency after ack: completed`.
-- Learn reject-first overlap inside one composite request:
-  `go run ./examples/phase2-overlap-reject`
-  Focus on `overlap outcome: rejected`.
-- Learn what Phase 2a added on top of Phase 2:
-  `go run ./examples/phase2-parent-child-runtime`
-  Focus on the two `overlap rejected` scenarios and the final Phase 2a note.
-
-## Dependency Boundaries
-
-- `go run ./examples/reentrant` shows nested acquire rejection is a reentrant guard, not dependency analysis.
-- `go run ./examples/phase2-parent-child-runtime` shows current Phase 2a runtime behavior: parent-child overlap is rejected across managers.
-- `go run ./examples/phase1-parent-child-metadata-only` is retained as a historical Phase 1 example, not the current Phase 2a behavior.
-
-## Commands
-
-- `go test ./...`
-- `go test ./... -cover`
-- `go run ./examples/basic`
-- `go run ./examples/phase2-basic`
-- `go run ./examples/phase2-composite-sync`
-- `go run ./examples/phase2-composite-worker`
-- `go run ./examples/phase2-overlap-reject`
-- `go run ./examples/phase2-parent-child-runtime`
-- `go run ./examples/phase3a-strict-runtime`
-- `go run ./examples/phase3a-strict-worker`
-- `go run ./examples/phase3b-guarded-worker`
-- `go run ./examples/contention`
-- `go run ./examples/phase1-parent-child-metadata-only`
-- `go run ./examples/reentrant`
-- `go run ./examples/ttl`

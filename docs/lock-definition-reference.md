@@ -1,155 +1,65 @@
-# Lock Definition Reference
+# Use Case Definition Reference
 
-This document explains the public definition shapes in `lockkit/definitions`.
+The public SDK starts from use cases, not raw lock definitions.
 
-It is a usage reference for application teams registering locks in the central registry. Phase-specific design rationale still lives in the spec documents under `docs/superpowers/specs/`.
+## Sync Use Cases
 
-For guidance on choosing execution packages, see [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md).
-
-## `LockDefinition`
-
-`LockDefinition` describes one logical lock that can later be used by `runtime`, `workers`, or both.
+Use `lockman.DefineRun[T](...)` for synchronous critical sections:
 
 ```go
-type LockDefinition struct {
-    ID                   string
-    Kind                 LockKind
-    Resource             string
-    Mode                 LockMode
-    ExecutionKind        ExecutionKind
-    LeaseTTL             time.Duration
-    WaitTimeout          time.Duration
-    RetryPolicy          RetryPolicy
-    BackendFailurePolicy BackendFailurePolicy
-    FencingRequired      bool
-    IdempotencyRequired  bool
-    CheckOnlyAllowed     bool
-    Rank                 int
-    ParentRef            string
-    OverlapPolicy        OverlapPolicy
-    KeyBuilder           KeyBuilder
-    Tags                 map[string]string
+type ApproveInput struct {
+	OrderID string
+}
+
+var Approve = lockman.DefineRun[ApproveInput](
+	"order.approve",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+	lockman.TTL(30*time.Second),
+)
+```
+
+## Async Use Cases
+
+Use `lockman.DefineClaim[T](...)` when the flow starts from message delivery:
+
+```go
+type ProcessInput struct {
+	OrderID string
+}
+
+var Process = lockman.DefineClaim[ProcessInput](
+	"order.process",
+	lockman.BindResourceID("order", func(in ProcessInput) string { return in.OrderID }),
+	lockman.TTL(30*time.Second),
+	lockman.Idempotent(),
+)
+```
+
+Register both sync and async use cases centrally before creating the client:
+
+```go
+reg := lockman.NewRegistry()
+if err := reg.Register(Approve, Process); err != nil {
+	return err
 }
 ```
 
-### Field reference
+## Binding Helpers
 
-| Field | Type | Meaning | Typical guidance |
-|---|---|---|---|
-| `ID` | `string` | Stable registry identifier for the definition. Application code refers to this ID, not raw lock keys. | Keep it globally unique and business-readable, for example `OrderLock` or `InventoryReservation`. |
-| `Kind` | `LockKind` | Whether this is a `parent` or `child` lock. | Use `parent` for aggregate-level invariants. Use `child` only for sub-resources that can be coordinated independently. |
-| `Resource` | `string` | Logical resource family protected by the lock. | Keep this stable and coarse, for example `order`, `account`, `inventory_item`. |
-| `Mode` | `LockMode` | Coordination strictness. | Phase 3b adds guarded-write contracts plus a first Postgres-backed persistence proof for single-resource strict runtime/worker flows. |
-| `ExecutionKind` | `ExecutionKind` | Which execution path can use the definition: `sync`, `async`, or `both`. | Use `sync` for `runtime`, `async` for `workers`, `both` only when one definition is intentionally shared. |
-| `LeaseTTL` | `time.Duration` | Target lease duration for one acquire. Renewal loops use this as the renewal basis. | Set long enough to cover expected handler time plus jitter, but not so long that stale ownership lingers after crashes. |
-| `WaitTimeout` | `time.Duration` | Maximum time an acquire attempt waits before timing out. | Use `0` for immediate behavior. Use a short bounded duration when contention is acceptable. |
-| `RetryPolicy` | `RetryPolicy` | Registry-level retry hint for acquire behavior. | Present in the public shape for future policy evolution. Current Phase 2 execution paths do not implement internal retry loops from this field. |
-| `BackendFailurePolicy` | `BackendFailurePolicy` | How callers should treat backend-side failures. | In practice, `fail_closed` is the safe default. Strict definitions must validate as fail-closed. |
-| `FencingRequired` | `bool` | Whether persistence-side fencing is required. | Only meaningful for strict-mode designs. Registry validation requires it for strict definitions. |
-| `IdempotencyRequired` | `bool` | Whether async execution requires an idempotency store and idempotency key. | Set this for queue/message flows where duplicate delivery must be absorbed safely. |
-| `CheckOnlyAllowed` | `bool` | Whether advisory presence checks are allowed for this definition. | Enable only when you intentionally support `CheckPresence` as an operational/UI hint. |
-| `Rank` | `int` | Ordering rank used by policy and composite canonicalization. | Lower rank acquires earlier. Keep rank stable so ordering remains deterministic. |
-| `ParentRef` | `string` | Parent definition ID for child locks. | Required for `KindChild`; empty for parent locks. |
-| `OverlapPolicy` | `OverlapPolicy` | Parent/child overlap behavior. | In Phase 2, child overlap is reject-first. Validation only accepts `reject`. |
-| `KeyBuilder` | `KeyBuilder` | Deterministic builder from structured input to concrete lock key. | Always required. Prefer template builders so required fields stay explicit. |
-| `Tags` | `map[string]string` | Immutable metadata attached to the definition. | Use for governance, reporting, and grouping such as domain, owner team, or criticality. |
+- `lockman.BindResourceID("resource", fn)`: preferred happy path for single-resource use cases
+- `lockman.BindKey(fn)`: use only when the resource key shape is genuinely custom
 
-### Field interactions
+## Core Options
 
-- `KindChild` implies `ParentRef` must point to a registered parent definition.
-- `ModeStrict` implies stricter validation, including `FencingRequired`.
-- `ExecutionKind=async` or `both` should be paired with `IdempotencyRequired` when duplicate delivery is unsafe.
-- `OverlapPolicy` matters only for child definitions.
-- `LeaseTTL` drives both lease renewal cadence and worker idempotency TTL derivation.
-- `KeyBuilder` is part of correctness, not convenience. If key construction is unstable, the definition is unsafe.
+- `lockman.TTL(...)`: lease TTL hint
+- `lockman.WaitTimeout(...)`: acquire wait budget
+- `lockman.Idempotent()`: required for claim use cases that must deduplicate deliveries
 
-### Current Phase 3 constraints
+## Advanced Definition Surfaces
 
-- Child overlap is reject-first; escalation is not implemented as runtime behavior.
-- Standard composite execution is supported; strict composite execution is out of scope.
-- Worker execution expects the definition to be `async` or `both`.
-- Runtime sync execution expects the definition to be `sync` or `both`.
-- Strict execution is currently limited to single-resource flows. Phase 3b adds guarded-write contracts and a first Postgres-backed persistence proof, but strict composite and strict lineage guarded-write behavior remain out of scope.
+The default path is still root `lockman`, but some advanced cases live in explicit packages:
 
-## `CompositeDefinition`
+- strict fenced runs: [`docs/advanced/strict.md`](advanced/strict.md)
+- composite sync runs: [`docs/advanced/composite.md`](advanced/composite.md)
 
-`CompositeDefinition` declares one approved multi-resource acquire plan.
-
-```go
-type CompositeDefinition struct {
-    ID               string
-    Members          []string
-    OrderingPolicy   OrderingPolicy
-    AcquirePolicy    AcquirePolicy
-    EscalationPolicy EscalationPolicy
-    ModeResolution   ModeResolution
-    MaxMemberCount   int
-    ExecutionKind    ExecutionKind
-}
-```
-
-### Field reference
-
-| Field | Type | Meaning | Typical guidance |
-|---|---|---|---|
-| `ID` | `string` | Stable registry identifier for the composite plan. | Name the business operation, for example `TransferComposite`. |
-| `Members` | `[]string` | Ordered list of member `LockDefinition` IDs. | This is the declared membership list, not the final acquire order. |
-| `OrderingPolicy` | `OrderingPolicy` | How runtime derives canonical acquire order. | Phase 2 supports only `canonical`. |
-| `AcquirePolicy` | `AcquirePolicy` | Whether partial success is allowed. | Phase 2 supports only `all_or_nothing`. |
-| `EscalationPolicy` | `EscalationPolicy` | How overlap/escalation should behave. | Phase 2 supports only reject semantics. |
-| `ModeResolution` | `ModeResolution` | How member modes are reconciled. | Phase 2 supports only `homogeneous`. Members must resolve cleanly together. |
-| `MaxMemberCount` | `int` | Upper bound for member count. | Keep this small. Large composites are usually a design smell. |
-| `ExecutionKind` | `ExecutionKind` | Whether the composite is used in sync, async, or both paths. | Match it to the intended caller path just like `LockDefinition`. |
-
-### Composite behavior notes
-
-- Member resource keys come from the member definitions' `KeyBuilder`s.
-- Runtime canonicalizes acquire order; callers should not try to nest lock calls manually.
-- Composite worker execution derives idempotency retention conservatively from the longest member lease basis.
-- Composite lease context reports all resource keys, while lease TTL visibility is bounded by the shortest currently held member lease.
-
-## Supporting enums
-
-### `LockKind`
-
-- `parent`: aggregate/root lock
-- `child`: sub-resource lock linked to `ParentRef`
-
-### `LockMode`
-
-- `standard`: pragmatic coordination
-- `strict`: Phase 3 strict execution for single-resource runtime/worker flows with fencing tokens and Phase 3b guarded-write contracts
-
-### `ExecutionKind`
-
-- `sync`: runtime-only
-- `async`: worker-only
-- `both`: shared between runtime and workers
-
-### `OverlapPolicy`
-
-- `reject`: reject parent/child overlap
-- `escalate`: reserved for future evolution; not supported as Phase 2 behavior
-
-## Example
-
-```go
-definitions.LockDefinition{
-    ID:                  "OrderClaim",
-    Kind:                definitions.KindParent,
-    Resource:            "order",
-    Mode:                definitions.ModeStandard,
-    ExecutionKind:       definitions.ExecutionAsync,
-    LeaseTTL:            30 * time.Second,
-    WaitTimeout:         0,
-    BackendFailurePolicy: definitions.BackendFailClosed,
-    IdempotencyRequired: true,
-    CheckOnlyAllowed:    true,
-    Rank:                10,
-    KeyBuilder:          definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
-    Tags: map[string]string{
-        "domain": "orders",
-        "owner":  "payments-platform",
-    },
-}
-```
+If you need lower-level authoring primitives than typed use cases and bindings, you are outside the default SDK layer.
