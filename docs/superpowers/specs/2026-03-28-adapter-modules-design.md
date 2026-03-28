@@ -8,7 +8,7 @@ The intended end state is:
 
 - core contracts live in stable top-level packages
 - `lockkit` becomes an internal engine area rather than a place where users import concrete adapters
-- Redis and Postgres adapters can evolve and version independently as adapter modules
+- Redis and Postgres adapters can evolve behind independent module boundaries now, with independent external versioning later
 
 ## Scope
 
@@ -46,7 +46,9 @@ First, `lockkit` is supposed to become internal engine territory, but it still c
 - `lockkit/idempotency/redis`
 - `lockkit/guard/postgres`
 
-Second, the root module currently carries third-party dependencies that belong to adapters rather than to the SDK core:
+Second, historical and engine-level examples still import those low-level adapter packages directly, which keeps the internal engine boundary blurry even though the new first-contact SDK path already prefers `lockman/redis` and `lockman/idempotency/redis`.
+
+Third, the root module currently carries third-party dependencies that belong to adapters rather than to the SDK core:
 
 - `go-redis`
 - `pgx`
@@ -95,6 +97,10 @@ It creates a clean separation:
 - `lockkit` reserved for engine implementation
 - concrete adapters isolated into separate modules
 
+This option requires one extra rule to be explicit:
+
+- any shared type that adapter modules need must either be promoted out of `lockkit` or explicitly whitelisted as an allowed engine dependency
+
 ### Option C: Split Adapters Into Separate Repositories Immediately
 
 This is the cleanest release boundary, but it adds unnecessary operational cost right now:
@@ -135,8 +141,26 @@ These packages become the supported contract layer for:
 
 - `lockman.WithBackend(...)`
 - `lockman.WithIdempotency(...)`
-- guarded-write integrations
+- guarded-write integrations that are intentionally outside the engine
 - adapter modules
+
+### Shared Boundary Rule
+
+Adapter modules must not depend on arbitrary `lockkit/...` packages.
+
+The refactor should follow this rule:
+
+- if a type is part of the supported adapter authoring surface, promote it to a top-level contract package
+- if a type is only meaningful inside the engine, keep it in `lockkit`
+- if promotion is not worth the churn for this phase, the spec must explicitly whitelist that dependency rather than leaving it implicit
+
+The target is to avoid accidental adapter dependencies on:
+
+- `lockkit/definitions`
+- `lockkit/errors`
+- engine-only runtime or worker internals
+
+This means the migration must evaluate shared seams intentionally instead of moving adapter files first and discovering hidden `lockkit` dependencies later.
 
 ### `lockkit` Responsibilities After Refactor
 
@@ -147,6 +171,7 @@ These packages become the supported contract layer for:
 - registry internals
 - engine translation and policy
 - definitions and testkit
+- internal memory-only helpers used for tests or engine-local execution
 
 Any contracts still needed by the engine should be imported from the new top-level contract packages where appropriate.
 
@@ -159,7 +184,7 @@ The monorepo should introduce separate `go.mod` files for the concrete adapters.
 Recommended path:
 
 - `redis/go.mod`
-- module path remains unresolved until canonical publishing is decided
+- module path remains unresolved until canonical publishing is decided, but the module boundary should be real now
 
 This module owns:
 
@@ -208,9 +233,16 @@ Create a top-level `backend` package that contains the current driver contracts 
 
 `lockman.WithBackend(...)` should accept `backend.Driver`.
 
+If any current backend contract types still depend on `lockkit/definitions`, they must either:
+
+- be rewritten to use promoted top-level shared types, or
+- be simplified so adapter modules do not need those engine definition types directly
+
+The preferred outcome is that adapter modules do not need `lockkit/definitions` at all.
+
 ### Idempotency Contract
 
-Keep the current root-level `idempotency` package as the stable contract layer.
+Create a new top-level `idempotency` contract package as the stable store contract layer.
 
 The current `lockkit/idempotency` contracts should migrate into that package or be replaced by it so the root SDK no longer depends on `lockkit/idempotency` as the public contract source.
 
@@ -227,11 +259,19 @@ The new Postgres adapter module should import this package.
 
 The existing `advanced/guard` namespace remains documentation-only for now and should not collide semantically with the new `guard` contract package.
 
+This contract layer needs one extra clarification:
+
+- `guard` is primarily a contract for adapter authors and lower-level integrations, not part of the default `Run(...)` or `Claim(...)` happy path
+
+If the new top-level `guard` package is expected to work from public callback values alone, then the public `lockman.Lease` and `lockman.Claim` types must expand to expose the required fields.
+
+If the team does not want to expand those public callback structs in this phase, then `guard.ContextFromLease(...)` and `guard.ContextFromClaim(...)` should remain engine-facing helpers built from internal execution contexts rather than from the current public SDK structs.
+
 ## SDK Surface Impact
 
 ### Happy Path
 
-The user-first path should stay nearly the same:
+The user-first path should stay nearly the same. This refactor is mainly internal-boundary cleanup plus supported adapter module extraction, not a repair of the current first-contact SDK path.
 
 ```go
 client, err := lockman.New(
@@ -258,7 +298,8 @@ The callsite should not learn about `lockkit` to use supported adapters.
 
 Examples and docs that currently import `lockkit/drivers/redis`, `lockkit/idempotency/redis`, or `lockkit/guard/postgres` should be handled intentionally:
 
-- migrate supported adapter examples to the new module paths
+- keep supported first-contact examples on the top-level adapter paths
+- migrate supported adapter examples to the new module paths where needed
 - either migrate or explicitly archive engine-level historical examples
 - stop teaching direct imports from `lockkit` for supported adapter usage
 
@@ -271,6 +312,8 @@ Target outcome:
 - root module should not need `go-redis` for core SDK compilation
 - root module should not need `pgx` for core SDK compilation
 - adapter modules own their infrastructure dependencies
+
+This does not require external versioning to be solved yet. The immediate goal is real module boundaries inside the monorepo.
 
 ## Testing Strategy
 
@@ -299,10 +342,11 @@ This means the plan should add explicit multi-module verification commands.
 The migration should happen in this order:
 
 1. introduce stable top-level contracts
-2. repoint root SDK internals to those contracts
-3. move concrete adapter implementations into nested modules
-4. migrate supported examples and docs
-5. clean up remaining `lockkit` adapter imports
+2. decide which shared types must be promoted and which engine-only helpers stay internal
+3. repoint root SDK internals to those contracts
+4. move concrete adapter implementations into nested modules
+5. migrate supported examples and docs
+6. clean up remaining `lockkit` adapter imports
 
 This order keeps the refactor understandable and avoids mixing contract redesign with concrete adapter moves in one unreadable step.
 
@@ -336,6 +380,27 @@ Mitigation:
 - classify them as either supported examples to migrate or archived historical examples
 - do not leave them half-migrated
 
+### Incomplete Contract Extraction Risk
+
+Some current adapter seams depend on `lockkit/definitions`, `lockkit/errors`, and internal execution contexts.
+
+Mitigation:
+
+- identify those seams explicitly before moving files
+- promote only the shared types that adapter modules actually need
+- document any temporary whitelist rather than allowing accidental `lockkit` bleed-through
+
+### Memory Adapter Ambiguity
+
+The in-memory idempotency store currently lives under `lockkit/idempotency`.
+
+Mitigation:
+
+- classify it explicitly as internal/test support and leave it in `lockkit`, or
+- move it to the new top-level `idempotency` contract area if it is meant to be a supported adapter
+
+Do not leave its status implicit.
+
 ## Success Criteria
 
 This refactor is successful when:
@@ -345,3 +410,4 @@ This refactor is successful when:
 - root SDK depends on stable top-level contracts rather than adapter internals
 - first-contact docs and supported examples no longer teach `lockkit` adapter imports
 - `lockkit` reads as engine implementation rather than as the home of supported concrete adapters
+- the spec explicitly accounts for any remaining concrete in-memory helper kept under `lockkit`
