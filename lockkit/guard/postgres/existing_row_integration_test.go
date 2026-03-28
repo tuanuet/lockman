@@ -118,8 +118,8 @@ func TestIntegrationExistingRowUpdateRejectsBoundaryMismatchAsInvariant(t *testi
 	insertOrderRow(t, db, tableName, "order-1", "order:123", "pending", 5, "worker-a")
 
 	g := guard.Context{
-		LockID:       "StrictOrderClaim",
-		ResourceKey:  "order:456",
+		LockID:       "OtherStrictOrderClaim",
+		ResourceKey:  "order:123",
 		FencingToken: 6,
 		OwnerID:      "worker-b",
 	}
@@ -159,6 +159,7 @@ func createOrdersTableForTest(t *testing.T, db *sql.DB) string {
 	createStmt := fmt.Sprintf(`
 CREATE TABLE %s (
   id TEXT PRIMARY KEY,
+  strict_lock_id TEXT NOT NULL,
   resource_key TEXT NOT NULL,
   status TEXT NOT NULL,
   last_fencing_token BIGINT NOT NULL,
@@ -181,13 +182,14 @@ func insertOrderRow(t *testing.T, db *sql.DB, tableName, orderID, resourceKey, s
 	t.Helper()
 
 	insertStmt := fmt.Sprintf(`
-INSERT INTO %s (id, resource_key, status, last_fencing_token, updated_by_owner)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO %s (id, strict_lock_id, resource_key, status, last_fencing_token, updated_by_owner)
+VALUES ($1, $2, $3, $4, $5, $6)
 `, tableName)
 	if _, err := db.ExecContext(
 		testContext(t),
 		insertStmt,
 		orderID,
+		"StrictOrderClaim",
 		resourceKey,
 		status,
 		int64(token),
@@ -202,7 +204,7 @@ func runGuardedExistingRowUpdate(t *testing.T, ctx context.Context, db *sql.DB, 
 
 	query := fmt.Sprintf(`
 WITH target AS (
-  SELECT id, resource_key, last_fencing_token
+  SELECT id, strict_lock_id, resource_key, last_fencing_token
   FROM %s
   WHERE id = $4
 ),
@@ -215,6 +217,7 @@ updated AS (
     updated_by_owner = $3
   WHERE id = $4
     AND resource_key = $5
+    AND strict_lock_id = $6
     AND last_fencing_token < $2
   RETURNING id
 )
@@ -222,7 +225,8 @@ SELECT
   EXISTS(SELECT 1 FROM target) AS found,
   EXISTS(SELECT 1 FROM updated) AS applied,
   COALESCE((SELECT last_fencing_token FROM target), 0) AS current_token,
-  COALESCE((SELECT resource_key FROM target), '') AS current_resource_key
+  COALESCE((SELECT resource_key FROM target), '') AS current_resource_key,
+  COALESCE((SELECT strict_lock_id FROM target), '') AS current_lock_id
 `, tableName, tableName)
 
 	row := db.QueryRowContext(
@@ -233,6 +237,7 @@ SELECT
 		g.OwnerID,
 		orderID,
 		g.ResourceKey,
+		g.LockID,
 	)
 	got, err := postgres.ScanExistingRowStatus(row)
 	if err != nil {

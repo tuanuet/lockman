@@ -13,7 +13,13 @@ import (
 func TestClassifyExistingRowUpdateReturnsApplied(t *testing.T) {
 	outcome, err := postgres.ClassifyExistingRowUpdate(
 		guard.Context{LockID: "StrictOrderClaim", ResourceKey: "order:123", FencingToken: 5},
-		postgres.ExistingRowStatus{Found: true, Applied: true, CurrentToken: 5, CurrentResourceKey: "order:123"},
+		postgres.ExistingRowStatus{
+			Found:              true,
+			Applied:            true,
+			CurrentToken:       5,
+			CurrentResourceKey: "order:123",
+			CurrentLockID:      "StrictOrderClaim",
+		},
 	)
 	if err != nil {
 		t.Fatalf("ClassifyExistingRowUpdate returned error: %v", err)
@@ -26,7 +32,13 @@ func TestClassifyExistingRowUpdateReturnsApplied(t *testing.T) {
 func TestClassifyExistingRowUpdateTreatsEqualTokenAsStale(t *testing.T) {
 	outcome, err := postgres.ClassifyExistingRowUpdate(
 		guard.Context{LockID: "StrictOrderClaim", ResourceKey: "order:123", FencingToken: 5},
-		postgres.ExistingRowStatus{Found: true, Applied: false, CurrentToken: 5, CurrentResourceKey: "order:123"},
+		postgres.ExistingRowStatus{
+			Found:              true,
+			Applied:            false,
+			CurrentToken:       5,
+			CurrentResourceKey: "order:123",
+			CurrentLockID:      "StrictOrderClaim",
+		},
 	)
 	if err != nil {
 		t.Fatalf("ClassifyExistingRowUpdate returned error: %v", err)
@@ -49,7 +61,29 @@ func TestClassifyExistingRowUpdateRejectsMissingRowAsInvariant(t *testing.T) {
 func TestClassifyExistingRowUpdateRejectsBoundaryMismatchAsInvariant(t *testing.T) {
 	_, err := postgres.ClassifyExistingRowUpdate(
 		guard.Context{LockID: "StrictOrderClaim", ResourceKey: "order:123", FencingToken: 5},
-		postgres.ExistingRowStatus{Found: true, Applied: false, CurrentToken: 1, CurrentResourceKey: "order:456"},
+		postgres.ExistingRowStatus{
+			Found:              true,
+			Applied:            false,
+			CurrentToken:       1,
+			CurrentResourceKey: "order:456",
+			CurrentLockID:      "StrictOrderClaim",
+		},
+	)
+	if !errors.Is(err, lockerrors.ErrInvariantRejected) {
+		t.Fatalf("expected invariant rejection, got %v", err)
+	}
+}
+
+func TestClassifyExistingRowUpdateRejectsLockIDMismatchAsInvariant(t *testing.T) {
+	_, err := postgres.ClassifyExistingRowUpdate(
+		guard.Context{LockID: "StrictOrderClaim", ResourceKey: "order:123", FencingToken: 5},
+		postgres.ExistingRowStatus{
+			Found:              true,
+			Applied:            false,
+			CurrentToken:       1,
+			CurrentResourceKey: "order:123",
+			CurrentLockID:      "OtherStrictOrderClaim",
+		},
 	)
 	if !errors.Is(err, lockerrors.ErrInvariantRejected) {
 		t.Fatalf("expected invariant rejection, got %v", err)
@@ -59,7 +93,13 @@ func TestClassifyExistingRowUpdateRejectsBoundaryMismatchAsInvariant(t *testing.
 func TestClassifyExistingRowUpdateRejectsInconsistentStateAsInvariant(t *testing.T) {
 	_, err := postgres.ClassifyExistingRowUpdate(
 		guard.Context{LockID: "StrictOrderClaim", ResourceKey: "order:123", FencingToken: 5},
-		postgres.ExistingRowStatus{Found: true, Applied: false, CurrentToken: 1, CurrentResourceKey: "order:123"},
+		postgres.ExistingRowStatus{
+			Found:              true,
+			Applied:            false,
+			CurrentToken:       1,
+			CurrentResourceKey: "order:123",
+			CurrentLockID:      "StrictOrderClaim",
+		},
 	)
 	if !errors.Is(err, lockerrors.ErrInvariantRejected) {
 		t.Fatalf("expected invariant rejection, got %v", err)
@@ -75,8 +115,8 @@ func (s stubScanner) Scan(dest ...any) error {
 	if s.err != nil {
 		return s.err
 	}
-	if len(dest) != 4 {
-		return fmt.Errorf("expected 4 scan destinations, got %d", len(dest))
+	if len(dest) != 5 {
+		return fmt.Errorf("expected 5 scan destinations, got %d", len(dest))
 	}
 
 	found, ok := dest[0].(*bool)
@@ -95,18 +135,23 @@ func (s stubScanner) Scan(dest ...any) error {
 	if !ok {
 		return fmt.Errorf("dest[3] must be *string")
 	}
+	currentLockID, ok := dest[4].(*string)
+	if !ok {
+		return fmt.Errorf("dest[4] must be *string")
+	}
 
 	*found = s.values[0].(bool)
 	*applied = s.values[1].(bool)
 	*currentToken = s.values[2].(uint64)
 	*currentResourceKey = s.values[3].(string)
+	*currentLockID = s.values[4].(string)
 
 	return nil
 }
 
 func TestScanExistingRowStatusDecodesExpectedColumnsInOrder(t *testing.T) {
 	status, err := postgres.ScanExistingRowStatus(stubScanner{
-		values: []any{true, false, uint64(42), "order:123"},
+		values: []any{true, false, uint64(42), "order:123", "StrictOrderClaim"},
 	})
 	if err != nil {
 		t.Fatalf("ScanExistingRowStatus returned error: %v", err)
@@ -117,6 +162,7 @@ func TestScanExistingRowStatusDecodesExpectedColumnsInOrder(t *testing.T) {
 		Applied:            false,
 		CurrentToken:       42,
 		CurrentResourceKey: "order:123",
+		CurrentLockID:      "StrictOrderClaim",
 	}
 	if status != want {
 		t.Fatalf("unexpected status: %#v", status)

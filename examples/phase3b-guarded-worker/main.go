@@ -37,6 +37,7 @@ type orderState struct {
 	Status       string
 	FencingToken uint64
 	OwnerID      string
+	LockID       string
 }
 
 type exampleOrderRepo struct {
@@ -194,12 +195,16 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 	if err != nil {
 		return err
 	}
-	if state.Status != "completed" || state.FencingToken != 2 || state.OwnerID != secondReq.Ownership.OwnerID {
+	if state.Status != "completed" ||
+		state.FencingToken != 2 ||
+		state.OwnerID != secondReq.Ownership.OwnerID ||
+		state.LockID != exampleDefinitionID {
 		return fmt.Errorf(
-			"unexpected final order state: status=%s token=%d owner=%s",
+			"unexpected final order state: status=%s token=%d owner=%s lock=%s",
 			state.Status,
 			state.FencingToken,
 			state.OwnerID,
+			state.LockID,
 		)
 	}
 
@@ -225,7 +230,7 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 func (r exampleOrderRepo) applyOrderStatus(ctx context.Context, db *sql.DB, g guard.Context, orderID, status string) (guard.Outcome, error) {
 	query := fmt.Sprintf(`
 WITH target AS (
-  SELECT id, resource_key, last_fencing_token
+  SELECT id, strict_lock_id, resource_key, last_fencing_token
   FROM %s
   WHERE id = $4
 ),
@@ -238,6 +243,7 @@ updated AS (
     updated_by_owner = $3
   WHERE id = $4
     AND resource_key = $5
+    AND strict_lock_id = $6
     AND last_fencing_token < $2
   RETURNING id
 )
@@ -245,7 +251,8 @@ SELECT
   EXISTS(SELECT 1 FROM target) AS found,
   EXISTS(SELECT 1 FROM updated) AS applied,
   COALESCE((SELECT last_fencing_token FROM target), 0) AS current_token,
-  COALESCE((SELECT resource_key FROM target), '') AS current_resource_key
+  COALESCE((SELECT resource_key FROM target), '') AS current_resource_key,
+  COALESCE((SELECT strict_lock_id FROM target), '') AS current_lock_id
 `, r.tableName, r.tableName)
 
 	row := db.QueryRowContext(
@@ -256,6 +263,7 @@ SELECT
 		g.OwnerID,
 		orderID,
 		g.ResourceKey,
+		g.LockID,
 	)
 
 	updateStatus, err := guardpostgres.ScanExistingRowStatus(row)
@@ -312,6 +320,7 @@ func (r exampleOrderRepo) setupExampleOrder(ctx context.Context, db *sql.DB) err
 	createStmt := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
   id TEXT PRIMARY KEY,
+  strict_lock_id TEXT NOT NULL,
   resource_key TEXT NOT NULL,
   status TEXT NOT NULL,
   last_fencing_token BIGINT NOT NULL,
@@ -323,13 +332,14 @@ CREATE TABLE IF NOT EXISTS %s (
 	}
 
 	insertStmt := fmt.Sprintf(`
-INSERT INTO %s (id, resource_key, status, last_fencing_token, updated_by_owner)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO %s (id, strict_lock_id, resource_key, status, last_fencing_token, updated_by_owner)
+VALUES ($1, $2, $3, $4, $5, $6)
 `, r.tableName)
 	_, err := db.ExecContext(
 		ctx,
 		insertStmt,
 		exampleOrderID,
+		exampleDefinitionID,
 		exampleResourceKey,
 		"pending",
 		int64(0),
@@ -341,13 +351,14 @@ VALUES ($1, $2, $3, $4, $5)
 func (r exampleOrderRepo) loadOrderState(ctx context.Context, db *sql.DB, orderID string) (orderState, error) {
 	query := fmt.Sprintf(`
 SELECT status, last_fencing_token, updated_by_owner
+  , strict_lock_id
 FROM %s
 WHERE id = $1
 `, r.tableName)
 
 	var state orderState
 	var token int64
-	if err := db.QueryRowContext(ctx, query, orderID).Scan(&state.Status, &token, &state.OwnerID); err != nil {
+	if err := db.QueryRowContext(ctx, query, orderID).Scan(&state.Status, &token, &state.OwnerID, &state.LockID); err != nil {
 		return orderState{}, err
 	}
 	state.FencingToken = uint64(token)
