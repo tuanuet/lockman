@@ -1,4 +1,5 @@
 .worktrees/
+.understand-anything/
 .DS_Store
 coverage.out
 *.test
