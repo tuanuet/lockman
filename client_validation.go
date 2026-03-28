@@ -322,7 +322,7 @@ func mapEngineError(err error, shuttingDown bool) error {
 	case errors.Is(err, lockerrors.ErrDuplicateIgnored):
 		return ErrDuplicate
 	case errors.Is(err, lockerrors.ErrOverlapRejected):
-		return ErrBusy
+		return ErrOverlapRejected
 	case errors.Is(err, lockerrors.ErrLockAcquireTimeout):
 		return ErrTimeout
 	case errors.Is(err, lockerrors.ErrLockBusy), errors.Is(err, lockerrors.ErrReentrantAcquire):

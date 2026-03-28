@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"lockman/lockkit/drivers"
+	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/testkit"
 )
@@ -166,6 +167,13 @@ func TestShutdownMarksClientUnavailable(t *testing.T) {
 	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
 	if !errors.Is(err, ErrShuttingDown) {
 		t.Fatalf("expected ErrShuttingDown after shutdown, got %v", err)
+	}
+}
+
+func TestMapEngineErrorPreservesOverlapRejected(t *testing.T) {
+	err := mapEngineError(lockerrors.ErrOverlapRejected, false)
+	if !errors.Is(err, ErrOverlapRejected) {
+		t.Fatalf("expected ErrOverlapRejected, got %v", err)
 	}
 }
 
