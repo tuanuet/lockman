@@ -39,7 +39,7 @@ type LockDefinition struct {
 | `ID` | `string` | Stable registry identifier for the definition. Application code refers to this ID, not raw lock keys. | Keep it globally unique and business-readable, for example `OrderLock` or `InventoryReservation`. |
 | `Kind` | `LockKind` | Whether this is a `parent` or `child` lock. | Use `parent` for aggregate-level invariants. Use `child` only for sub-resources that can be coordinated independently. |
 | `Resource` | `string` | Logical resource family protected by the lock. | Keep this stable and coarse, for example `order`, `account`, `inventory_item`. |
-| `Mode` | `LockMode` | Coordination strictness. | Phase 3a supports preview-quality strict execution for single-resource runtime/worker flows with fencing-token visibility. Persistence guarded writes remain out of scope until Phase 3b. |
+| `Mode` | `LockMode` | Coordination strictness. | Phase 3b adds guarded-write contracts plus a first Postgres-backed persistence proof for single-resource strict runtime/worker flows. |
 | `ExecutionKind` | `ExecutionKind` | Which execution path can use the definition: `sync`, `async`, or `both`. | Use `sync` for `runtime`, `async` for `workers`, `both` only when one definition is intentionally shared. |
 | `LeaseTTL` | `time.Duration` | Target lease duration for one acquire. Renewal loops use this as the renewal basis. | Set long enough to cover expected handler time plus jitter, but not so long that stale ownership lingers after crashes. |
 | `WaitTimeout` | `time.Duration` | Maximum time an acquire attempt waits before timing out. | Use `0` for immediate behavior. Use a short bounded duration when contention is acceptable. |
@@ -63,13 +63,13 @@ type LockDefinition struct {
 - `LeaseTTL` drives both lease renewal cadence and worker idempotency TTL derivation.
 - `KeyBuilder` is part of correctness, not convenience. If key construction is unstable, the definition is unsafe.
 
-### Current Phase 3a constraints
+### Current Phase 3 constraints
 
 - Child overlap is reject-first; escalation is not implemented as runtime behavior.
 - Standard composite execution is supported; strict composite execution is out of scope.
 - Worker execution expects the definition to be `async` or `both`.
 - Runtime sync execution expects the definition to be `sync` or `both`.
-- Strict execution is currently limited to single-resource flows. Strict callbacks receive fencing tokens, but guarded-write integration is not included in Phase 3a.
+- Strict execution is currently limited to single-resource flows. Phase 3b adds guarded-write contracts and a first Postgres-backed persistence proof, but strict composite and strict lineage guarded-write behavior remain out of scope.
 
 ## `CompositeDefinition`
 
@@ -118,7 +118,7 @@ type CompositeDefinition struct {
 ### `LockMode`
 
 - `standard`: pragmatic coordination
-- `strict`: Phase 3a preview strict execution with fencing tokens for single-resource runtime/worker flows
+- `strict`: Phase 3 strict execution for single-resource runtime/worker flows with fencing tokens and Phase 3b guarded-write contracts
 
 ### `ExecutionKind`
 
