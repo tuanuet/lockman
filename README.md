@@ -35,6 +35,14 @@ Distributed lock platform SDK prototype for Go.
 - Strict runtime example: [`examples/phase3a-strict-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-runtime/README.md)
 - Strict worker example: [`examples/phase3a-strict-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3a-strict-worker/README.md)
 
+## Phase 3b Status
+
+- `lockkit/guard` adds shared guarded-write context and outcome contracts for strict persistence boundaries
+- `lockkit/guard/postgres` adds the first concrete guarded single-row `UPDATE` classifier for Postgres
+- Strict worker fencing tokens can now be carried into guarded Postgres writes and reject stale writers at the storage boundary
+- Missing-row and boundary-mismatch cases remain invariant errors rather than being collapsed into stale-token handling
+- Guarded worker example: [`examples/phase3b-guarded-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase3b-guarded-worker/README.md)
+
 ## Migration Note
 
 Applications that previously nested parent and child acquires across goroutines, workers, or processes may now receive `ErrOverlapRejected`.
@@ -53,6 +61,24 @@ If `6379` is already in use:
 ```bash
 LOCKMAN_REDIS_PORT=6380 docker compose up -d redis
 LOCKMAN_REDIS_URL=redis://localhost:6380/0 go run ./examples/phase2-basic
+```
+
+## Postgres Verification
+
+Postgres guarded-write tests read `LOCKMAN_POSTGRES_DSN` and skip when unset. The example command below assumes a local Postgres instance unless you override `LOCKMAN_POSTGRES_DSN`.
+
+```bash
+docker compose up -d postgres
+LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./lockkit/guard/postgres -run 'Integration' -v
+```
+
+Phase 3b worker proof with both Redis and Postgres:
+
+```bash
+docker compose up -d redis postgres
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
+LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
+go run ./examples/phase3b-guarded-worker
 ```
 
 ## Phase 2a Example Guide
@@ -108,6 +134,7 @@ Use the examples below as the primary adoption path for Phase 2 and Phase 2a beh
 - `go run ./examples/phase2-parent-child-runtime`
 - `go run ./examples/phase3a-strict-runtime`
 - `go run ./examples/phase3a-strict-worker`
+- `go run ./examples/phase3b-guarded-worker`
 - `go run ./examples/contention`
 - `go run ./examples/phase1-parent-child-metadata-only`
 - `go run ./examples/reentrant`
