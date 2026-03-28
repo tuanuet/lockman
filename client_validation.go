@@ -46,6 +46,9 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 
 	childCounts := make(map[string]int, len(useCases))
 	for _, useCase := range useCases {
+		if len(useCase.config.composite) > 0 && useCase.config.strict {
+			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
+		}
 		parentName := strings.TrimSpace(useCase.config.lineageParent)
 		if parentName == "" {
 			continue
@@ -73,12 +76,8 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	plan := clientPlan{engineRegistry: engineRegistry}
 	for _, useCase := range useCases {
 		norm := normalizedByName[useCase.name]
-		def, err := translateUseCaseDefinition(useCase, norm, normalizedByName)
-		if err != nil {
+		if err := registerEngineUseCase(engineRegistry, useCase, norm, normalizedByName); err != nil {
 			return clientPlan{}, err
-		}
-		if err := engineRegistry.Register(def); err != nil {
-			return clientPlan{}, fmt.Errorf("lockman: register use case %q: %w", useCase.name, err)
 		}
 		if useCase.kind == useCaseKindRun {
 			plan.hasRunUseCases = true
@@ -89,6 +88,51 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	}
 
 	return plan, nil
+}
+
+func registerEngineUseCase(
+	engineRegistry *lockregistry.Registry,
+	useCase *useCaseCore,
+	normalized sdk.UseCase,
+	normalizedByName map[string]sdk.UseCase,
+) error {
+	if len(useCase.config.composite) == 0 {
+		def, err := translateUseCaseDefinition(useCase, normalized, normalizedByName)
+		if err != nil {
+			return err
+		}
+		if err := engineRegistry.Register(def); err != nil {
+			return fmt.Errorf("lockman: register use case %q: %w", useCase.name, err)
+		}
+		return nil
+	}
+
+	memberIDs := make([]string, 0, len(useCase.config.composite))
+	for _, member := range useCase.config.composite {
+		def, err := translateCompositeMemberDefinition(useCase, normalized, member)
+		if err != nil {
+			return err
+		}
+		if err := engineRegistry.Register(def); err != nil {
+			return fmt.Errorf("lockman: register composite member %q for use case %q: %w", member.name, useCase.name, err)
+		}
+		memberIDs = append(memberIDs, def.ID)
+	}
+
+	if err := engineRegistry.RegisterComposite(definitions.CompositeDefinition{
+		ID:               normalized.DefinitionID(),
+		Members:          memberIDs,
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   len(memberIDs),
+		ExecutionKind:    definitions.ExecutionSync,
+	}); err != nil {
+		return fmt.Errorf("lockman: register composite use case %q: %w", useCase.name, err)
+	}
+
+	return nil
 }
 
 func hasStartupIdentity(cfg *clientConfig) bool {
@@ -161,6 +205,36 @@ func translateUseCaseDefinition(
 	}
 
 	return definition, nil
+}
+
+func translateCompositeMemberDefinition(
+	useCase *useCaseCore,
+	normalized sdk.UseCase,
+	member compositeMemberConfig,
+) (definitions.LockDefinition, error) {
+	ttl := useCase.config.ttl
+	if ttl <= 0 {
+		ttl = defaultLeaseTTL
+	}
+	if member.name == "" {
+		return definitions.LockDefinition{}, fmt.Errorf("lockman: composite member name is required for use case %q", useCase.name)
+	}
+
+	return definitions.LockDefinition{
+		ID:            compositeMemberDefinitionID(normalized.DefinitionID(), member.name),
+		Kind:          definitions.KindParent,
+		Resource:      member.name,
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      ttl,
+		WaitTimeout:   useCase.config.wait,
+		Rank:          member.rank,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("{"+sdk.ResourceKeyInputKey+"}", []string{sdk.ResourceKeyInputKey}),
+	}, nil
+}
+
+func compositeMemberDefinitionID(useCaseDefinitionID string, memberName string) string {
+	return fmt.Sprintf("%s.member.%s", useCaseDefinitionID, strings.ReplaceAll(memberName, " ", "_"))
 }
 
 func toSDKUseCaseKind(kind useCaseKind) sdk.UseCaseKind {
@@ -276,6 +350,10 @@ func (c *Client) validateRunRequest(ctx context.Context, req RunRequest) (sdk.Ru
 	identity, err := c.resolveIdentity(ctx, req.ownerID)
 	if err != nil {
 		return sdk.RunRequest{}, Identity{}, err
+	}
+
+	if len(req.compositeMemberInputs) > 0 {
+		return sdk.RunRequest{}, identity, nil
 	}
 
 	return sdk.BindRunRequest(

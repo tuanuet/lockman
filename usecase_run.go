@@ -21,12 +21,8 @@ func (u RunUseCase[T]) With(input T, opts ...CallOption) (RunRequest, error) {
 	if u.core == nil {
 		return RunRequest{}, fmt.Errorf("lockman: run use case is not defined")
 	}
-	if u.binding.build == nil {
+	if len(u.core.config.composite) == 0 && u.binding.build == nil {
 		return RunRequest{}, fmt.Errorf("lockman: run use case binding is required")
-	}
-	resourceKey, err := u.binding.build(input)
-	if err != nil {
-		return RunRequest{}, fmt.Errorf("lockman: bind run request: %w", err)
 	}
 
 	call := applyCallOptions(opts...)
@@ -36,9 +32,21 @@ func (u RunUseCase[T]) With(input T, opts ...CallOption) (RunRequest, error) {
 
 	req := RunRequest{
 		useCaseName: u.core.name,
-		resourceKey: resourceKey,
 		ownerID:     call.ownerID,
 		useCaseCore: u.core,
+	}
+	if len(u.core.config.composite) > 0 {
+		memberInputs, err := buildCompositeMemberInputs(any(input), u.core.config.composite)
+		if err != nil {
+			return RunRequest{}, fmt.Errorf("lockman: bind composite run request: %w", err)
+		}
+		req.compositeMemberInputs = memberInputs
+	} else {
+		resourceKey, err := u.binding.build(input)
+		if err != nil {
+			return RunRequest{}, fmt.Errorf("lockman: bind run request: %w", err)
+		}
+		req.resourceKey = resourceKey
 	}
 	if u.core.registry != nil {
 		req.registryLink = u.core.registry.link
@@ -46,6 +54,24 @@ func (u RunUseCase[T]) With(input T, opts ...CallOption) (RunRequest, error) {
 	}
 
 	return req, nil
+}
+
+func buildCompositeMemberInputs(input any, members []compositeMemberConfig) ([]map[string]string, error) {
+	memberInputs := make([]map[string]string, 0, len(members))
+	for _, member := range members {
+		if member.build == nil {
+			return nil, errBindingFunctionRequired
+		}
+		if member.name == "" {
+			return nil, fmt.Errorf("lockman: composite member name is required")
+		}
+		bound, err := member.build(input)
+		if err != nil {
+			return nil, err
+		}
+		memberInputs = append(memberInputs, bound)
+	}
+	return memberInputs, nil
 }
 
 func (u RunUseCase[T]) sdkUseCase() *useCaseCore {

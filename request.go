@@ -19,12 +19,13 @@ func applyCallOptions(opts ...CallOption) callConfig {
 
 // RunRequest is an opaque request produced by RunUseCase.With.
 type RunRequest struct {
-	useCaseName     string
-	resourceKey     string
-	ownerID         string
-	useCaseCore     *useCaseCore
-	registryLink    sdk.RegistryLink
-	boundToRegistry bool
+	useCaseName           string
+	resourceKey           string
+	compositeMemberInputs []map[string]string
+	ownerID               string
+	useCaseCore           *useCaseCore
+	registryLink          sdk.RegistryLink
+	boundToRegistry       bool
 }
 
 // ClaimRequest is an opaque request produced by ClaimUseCase.With.

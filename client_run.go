@@ -28,6 +28,33 @@ func (c *Client) Run(ctx context.Context, req RunRequest, fn func(context.Contex
 		return ErrUseCaseNotFound
 	}
 
+	if len(req.compositeMemberInputs) > 0 {
+		compositeDefinitionID := normalizeUseCase(req.useCaseCore, map[string]int{}, req.registryLink).DefinitionID()
+		compositeRequest := definitions.CompositeLockRequest{
+			DefinitionID: compositeDefinitionID,
+			MemberInputs: req.compositeMemberInputs,
+			Ownership: definitions.OwnershipMeta{
+				ServiceName: identity.Service,
+				InstanceID:  identity.Instance,
+				HandlerName: req.useCaseName,
+				OwnerID:     identity.OwnerID,
+			},
+		}
+
+		err = c.runtime.ExecuteCompositeExclusive(ctx, compositeRequest, func(ctx context.Context, lease definitions.LeaseContext) error {
+			return fn(ctx, Lease{
+				UseCase:      req.useCaseName,
+				ResourceKey:  lease.ResourceKey,
+				ResourceKeys: append([]string(nil), lease.ResourceKeys...),
+				LeaseTTL:     lease.LeaseTTL,
+				Deadline:     lease.LeaseDeadline,
+				FencingToken: lease.FencingToken,
+			})
+		})
+
+		return mapEngineError(err, c.shuttingDown.Load())
+	}
+
 	translated := sdk.TranslateRun(normalized)
 	translated.Ownership.ServiceName = identity.Service
 	translated.Ownership.InstanceID = identity.Instance
@@ -36,6 +63,7 @@ func (c *Client) Run(ctx context.Context, req RunRequest, fn func(context.Contex
 		return fn(ctx, Lease{
 			UseCase:      req.useCaseName,
 			ResourceKey:  lease.ResourceKey,
+			ResourceKeys: append([]string(nil), lease.ResourceKeys...),
 			LeaseTTL:     lease.LeaseTTL,
 			Deadline:     lease.LeaseDeadline,
 			FencingToken: lease.FencingToken,

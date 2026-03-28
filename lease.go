@@ -6,6 +6,7 @@ import "time"
 type Lease struct {
 	UseCase      string
 	ResourceKey  string
+	ResourceKeys []string
 	LeaseTTL     time.Duration
 	Deadline     time.Time
 	FencingToken uint64

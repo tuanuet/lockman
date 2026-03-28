@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"lockman/internal/sdk"
 )
 
 var (
@@ -27,6 +29,19 @@ type useCaseConfig struct {
 	idempotent    bool
 	strict        bool
 	lineageParent string
+	composite     []compositeMemberConfig
+}
+
+type compositeMemberConfig struct {
+	name  string
+	rank  int
+	build func(any) (map[string]string, error)
+}
+
+// CompositeMember describes one member of a composite run use case.
+type CompositeMember[T any] struct {
+	name    string
+	binding Binding[T]
 }
 
 // BindResourceID binds a single resource id and normalizes it to "resource:<id>".
@@ -83,6 +98,52 @@ func WaitTimeout(timeout time.Duration) UseCaseOption {
 func Idempotent() UseCaseOption {
 	return func(cfg *useCaseConfig) {
 		cfg.idempotent = true
+	}
+}
+
+// Strict marks a run use case as requiring strict fenced execution.
+func Strict() UseCaseOption {
+	return func(cfg *useCaseConfig) {
+		cfg.strict = true
+	}
+}
+
+// DefineCompositeMember declares one typed member for a composite run use case.
+func DefineCompositeMember[T any](name string, binding Binding[T]) CompositeMember[T] {
+	return CompositeMember[T]{
+		name:    strings.TrimSpace(name),
+		binding: binding,
+	}
+}
+
+// Composite marks a run use case as a composite run made of ordered members.
+func Composite[T any](members ...CompositeMember[T]) UseCaseOption {
+	return func(cfg *useCaseConfig) {
+		composite := make([]compositeMemberConfig, 0, len(members))
+		for index, member := range members {
+			member := member
+			composite = append(composite, compositeMemberConfig{
+				name: strings.TrimSpace(member.name),
+				rank: index + 1,
+				build: func(input any) (map[string]string, error) {
+					typed, ok := input.(T)
+					if !ok {
+						return nil, fmt.Errorf("lockman: composite member input type mismatch")
+					}
+					if member.binding.build == nil {
+						return nil, errBindingFunctionRequired
+					}
+					resourceKey, err := member.binding.build(typed)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]string{
+						sdk.ResourceKeyInputKey: resourceKey,
+					}, nil
+				},
+			})
+		}
+		cfg.composite = composite
 	}
 }
 
