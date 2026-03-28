@@ -23,10 +23,6 @@ type clientConfig struct {
 	identityProvider func(context.Context) Identity
 }
 
-type callConfig struct {
-	ownerID string
-}
-
 // New is a placeholder constructor for the root SDK surface.
 // It currently always returns ErrRegistryRequired until registry/backend
 // wiring is implemented in later tasks. Options are accepted now only to
@@ -53,12 +49,5 @@ func WithIdentity(identity Identity) ClientOption {
 func WithIdentityProvider(provider func(context.Context) Identity) ClientOption {
 	return func(cfg *clientConfig) {
 		cfg.identityProvider = provider
-	}
-}
-
-// OwnerID overrides the owner identity for one call.
-func OwnerID(id string) CallOption {
-	return func(cfg *callConfig) {
-		cfg.ownerID = id
 	}
 }
