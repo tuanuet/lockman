@@ -129,6 +129,15 @@ Purpose:
 
 Runtime paths will often populate only lock identity, resource key, owner identity, and fencing token. Worker paths may also populate message and idempotency metadata.
 
+The guarded-write contract depends on this context being tied to the same resource boundary as the strict lock. A fresh fencing token from one strict boundary must never authorize a write to a different persisted boundary.
+
+That means repository implementations must either:
+
+- derive the persisted row target deterministically from `LockID` and `ResourceKey`
+- or validate that the requested business row corresponds to `LockID` and `ResourceKey` before applying the guarded write
+
+The adapter is not correct if it only proves token ordering while allowing a mismatched row target.
+
 ### Guard Outcome
 
 Recommended public shape:
@@ -167,13 +176,29 @@ func ContextFromLease(lease definitions.LeaseContext) Context
 func ContextFromClaim(claim definitions.ClaimContext) Context
 ```
 
-These helpers should:
+These helpers should use explicit field mappings.
 
-- preserve `DefinitionID` as `LockID`
-- preserve `ResourceKey`
-- preserve `FencingToken`
-- preserve `OwnerID`
-- preserve `MessageID` and `IdempotencyKey` when available
+`ContextFromClaim(...)` should map:
+
+| `guard.Context` field | Source |
+| --- | --- |
+| `LockID` | `claim.DefinitionID` |
+| `ResourceKey` | `claim.ResourceKey` |
+| `FencingToken` | `claim.FencingToken` |
+| `OwnerID` | `claim.Ownership.OwnerID` |
+| `MessageID` | `claim.Ownership.MessageID` |
+| `IdempotencyKey` | `claim.IdempotencyKey` |
+
+`ContextFromLease(...)` should map:
+
+| `guard.Context` field | Source |
+| --- | --- |
+| `LockID` | `lease.DefinitionID` |
+| `ResourceKey` | `lease.ResourceKey` |
+| `FencingToken` | `lease.FencingToken` |
+| `OwnerID` | `lease.Ownership.OwnerID` |
+| `MessageID` | zero value |
+| `IdempotencyKey` | zero value |
 
 These helpers should not attempt policy decisions. They exist to keep strict repository calls simple and consistent.
 
@@ -218,6 +243,8 @@ This is an adapter convention, not a mandatory SDK-wide schema contract.
 
 Phase 3b should not require every future adapter to use the exact same columns. It should only require equivalent guarded-write semantics.
 
+`updated_by_owner` is recommended metadata for auditability and diagnostics, not part of the minimum correctness condition. The guarded-write contract depends on the fencing comparison, not on persisting owner identity.
+
 ### Golden Path Operation
 
 The first concrete Postgres pattern should be:
@@ -225,29 +252,56 @@ The first concrete Postgres pattern should be:
 - guarded `UPDATE`
 - against one existing business row
 - using `last_fencing_token` on that row
+- with repository logic that binds the row to the guarded `LockID` and `ResourceKey`
+
+The adapter contract should pin this invariant explicitly:
+
+- fencing tokens are monotonically increasing per guarded boundary
+- a token equal to the stored token is treated as stale, not as a safe re-apply
+- adapters must therefore use strict less-than (`<`) when comparing the incoming token to the stored token
+
+The adapter must also distinguish `missing row` from `stale token`. A plain `rowsAffected == 0` check is insufficient because both cases can produce zero updated rows.
 
 Recommended query shape:
 
 ```sql
-UPDATE orders
-SET
-  status = $1,
-  last_fencing_token = $2,
-  updated_at = NOW(),
-  updated_by_owner = $3
-WHERE id = $4
-  AND last_fencing_token < $2
+WITH target AS (
+  SELECT id, resource_key, last_fencing_token
+  FROM orders
+  WHERE id = $4
+),
+updated AS (
+  UPDATE orders
+  SET
+    status = $1,
+    last_fencing_token = $2,
+    updated_at = NOW(),
+    updated_by_owner = $3
+  WHERE id = $4
+    AND resource_key = $5
+    AND last_fencing_token < $2
+  RETURNING id
+)
+SELECT
+  EXISTS(SELECT 1 FROM target) AS found,
+  EXISTS(SELECT 1 FROM updated) AS applied,
+  COALESCE((SELECT last_fencing_token FROM target), 0) AS current_token,
+  COALESCE((SELECT resource_key FROM target), '') AS current_resource_key
 ```
 
 Semantics:
 
-- if one row updates, return `OutcomeApplied`
-- if zero rows update because the current token is greater than or equal to the incoming token, return `OutcomeStaleRejected`
+- if `applied=true`, return `OutcomeApplied`
+- if `found=true` and the persisted boundary matches the requested boundary but `current_token >= incoming_token`, return `OutcomeStaleRejected`
+- if `found=false`, return a domain-specific not-found or invariant error rather than `OutcomeStaleRejected`
+- if `found=true` but the persisted boundary does not match the requested `LockID` / `ResourceKey` contract, return a domain-specific invariant error rather than applying the write
 
 This gives one atomic write rule that developers can understand immediately:
 
 - newer token wins
 - older or equal token loses
+- missing row is not stale
+- mismatched boundary is not stale
 
 ### Why Not A Side Guard Table First
 
@@ -299,16 +353,7 @@ err := workersMgr.ExecuteClaimed(ctx, req, func(ctx context.Context, claim defin
 		return err
 	}
 
-	switch outcome {
-	case guard.OutcomeApplied:
-		return nil
-	case guard.OutcomeStaleRejected:
-		return nil
-	case guard.OutcomeDuplicateIgnored:
-		return nil
-	default:
-		return someBusinessError(outcome)
-	}
+	return mapGuardOutcomeForWorker(outcome)
 })
 ```
 
@@ -317,6 +362,8 @@ Important points:
 - the repository method remains domain-specific
 - `guard.ContextFromClaim(...)` keeps the repository call small and explicit
 - stale or duplicate outcomes are business results, not infrastructure failures
+- `mapGuardOutcomeForWorker(...)` is boundary-layer policy logic, not business logic inside each repository method
+- Phase 3b should not recommend per-handler `switch` blocks that hard-code `ack` / `retry` / `drop` behavior inline
 
 ### Relationship To Existing Idempotency
 
@@ -335,7 +382,17 @@ The relationship should be:
 - Phase 2 idempotency protects duplicate message processing
 - Phase 3b guarded writes protect stale database updates
 
-The public `guard.Outcome` type should still include `OutcomeDuplicateIgnored` because worker flows already need that vocabulary, but the first Postgres guarded-update adapter mainly proves `OutcomeApplied` and `OutcomeStaleRejected`.
+The public `guard.Outcome` type should still include `OutcomeDuplicateIgnored` because worker flows already need that vocabulary, but the first Postgres guarded-update adapter should be documented as producing only:
+
+- `OutcomeApplied`
+- `OutcomeStaleRejected`
+
+for its minimal guarded single-row `UPDATE` path.
+
+`OutcomeDuplicateIgnored` remains part of the shared vocabulary for:
+
+- future adapter patterns such as insert-or-ignore or explicit dedup helpers
+- application-layer repository methods that classify duplicates above the minimal guarded-update primitive
 
 ## Runtime Compatibility
 
@@ -395,6 +452,8 @@ Integration-style tests for the first Postgres adapter should verify:
 - a newer fencing token updates the row and returns `OutcomeApplied`
 - an older fencing token does not update the row and returns `OutcomeStaleRejected`
 - an equal fencing token also returns `OutcomeStaleRejected`
+- a missing row does not return `OutcomeStaleRejected`; it returns a domain-specific not-found or invariant error
+- a boundary mismatch between the requested guarded resource and the persisted row does not apply the write and does not return `OutcomeStaleRejected`
 - database failure returns `error`, not a fabricated success or stale outcome
 
 ### Worker-Oriented End-To-End Tests
@@ -423,7 +482,7 @@ Phase 3b should add a focused package surface:
 
 ```text
 lockkit/guard/
-lockkit/guard/postgres/   (or equivalent adapter package name)
+lockkit/guard/postgres/
 ```
 
 Documentation should make the boundary explicit:
