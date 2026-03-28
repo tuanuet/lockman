@@ -70,6 +70,21 @@ func NewUseCase(name string, kind UseCaseKind, requirements CapabilityRequiremen
 	}
 }
 
+// DefinitionID returns the stable low-level definition identifier for the normalized use case.
+func (u UseCase) DefinitionID() string {
+	return string(u.internal.id)
+}
+
+// PublicName returns the registered public use-case name.
+func (u UseCase) PublicName() string {
+	return u.internal.publicName
+}
+
+// Kind returns whether the normalized use case runs through sync or claim flows.
+func (u UseCase) Kind() UseCaseKind {
+	return UseCaseKind(u.internal.kind)
+}
+
 func stableUseCaseID(name string, kind useCaseKind) useCaseID {
 	hash := fnv.New64a()
 	_, _ = hash.Write([]byte{nameDelimiter(kind)})

@@ -47,3 +47,25 @@ func TestRegistryRejectsUseCaseFromDifferentRegistry(t *testing.T) {
 		t.Fatal("expected cross-registry registration rejection")
 	}
 }
+
+func TestRegistryRegisterIsAtomicOnFailure(t *testing.T) {
+	reg := NewRegistry()
+	valid := DefineRun[string](
+		"order.approve",
+		BindResourceID("order", func(v string) string { return v }),
+	)
+	invalid := DefineRun[string](
+		"   ",
+		BindResourceID("order", func(v string) string { return v }),
+	)
+
+	if err := reg.Register(valid, invalid); err == nil {
+		t.Fatal("expected batch registration failure")
+	}
+	if len(reg.byName) != 0 {
+		t.Fatalf("expected registry to remain empty, got %d entries", len(reg.byName))
+	}
+	if valid.core.registry != nil {
+		t.Fatal("expected valid use case to remain unbound after batch failure")
+	}
+}

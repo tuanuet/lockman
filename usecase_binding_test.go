@@ -133,18 +133,18 @@ func TestRunUseCaseWithNilBindKeyFunctionReturnsErrorNotPanic(t *testing.T) {
 	}
 }
 
-func TestRunUseCaseWithTrimsOwnerOverride(t *testing.T) {
+func TestRunUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
 	uc := DefineRun[string](
 		"order.approve",
 		BindKey(func(v string) string { return v }),
 	)
 
-	req, err := uc.With("key-1", OwnerID("   "))
-	if err != nil {
-		t.Fatalf("With returned error: %v", err)
+	_, err := uc.With("key-1", OwnerID("   "))
+	if err == nil {
+		t.Fatal("expected empty owner override to fail")
 	}
-	if req.ownerID != "" {
-		t.Fatalf("expected trimmed empty owner override, got %q", req.ownerID)
+	if !errors.Is(err, ErrIdentityRequired) {
+		t.Fatalf("expected ErrIdentityRequired, got %v", err)
 	}
 }
 
@@ -193,5 +193,24 @@ func TestClaimUseCaseWithRejectsInvalidDelivery(t *testing.T) {
 				t.Fatalf("expected delivery validation error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestClaimUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
+	uc := DefineClaim[string](
+		"order.process",
+		BindResourceID("order", func(v string) string { return v }),
+	)
+
+	_, err := uc.With("123", Delivery{
+		MessageID:     "msg-1",
+		ConsumerGroup: "orders",
+		Attempt:       1,
+	}, OwnerID("   "))
+	if err == nil {
+		t.Fatal("expected empty owner override to fail")
+	}
+	if !errors.Is(err, ErrIdentityRequired) {
+		t.Fatalf("expected ErrIdentityRequired, got %v", err)
 	}
 }

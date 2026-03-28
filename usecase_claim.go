@@ -36,13 +36,23 @@ func (u ClaimUseCase[T]) With(input T, delivery Delivery, opts ...CallOption) (C
 	}
 
 	call := applyCallOptions(opts...)
-	return ClaimRequest{
+	if call.ownerIDSet && call.ownerID == "" {
+		return ClaimRequest{}, fmt.Errorf("lockman: owner override is required: %w", ErrIdentityRequired)
+	}
+
+	req := ClaimRequest{
 		useCaseName: u.core.name,
 		resourceKey: resourceKey,
 		ownerID:     call.ownerID,
 		delivery:    delivery,
 		useCaseCore: u.core,
-	}, nil
+	}
+	if u.core.registry != nil {
+		req.registryLink = u.core.registry.link
+		req.boundToRegistry = true
+	}
+
+	return req, nil
 }
 
 func (u ClaimUseCase[T]) sdkUseCase() *useCaseCore {

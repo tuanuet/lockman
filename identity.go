@@ -1,6 +1,11 @@
 package lockman
 
-import "context"
+import (
+	"context"
+
+	"lockman/lockkit/drivers"
+	"lockman/lockkit/idempotency"
+)
 
 // Identity identifies the caller for lock ownership and diagnostics.
 type Identity struct {
@@ -8,9 +13,6 @@ type Identity struct {
 	Service  string
 	Instance string
 }
-
-// Client is a placeholder root SDK client entry point for now.
-type Client struct{}
 
 // ClientOption configures a client.
 type ClientOption func(*clientConfig)
@@ -21,21 +23,9 @@ type CallOption func(*callConfig)
 type clientConfig struct {
 	identity         Identity
 	identityProvider func(context.Context) Identity
-}
-
-// New is a placeholder constructor for the root SDK surface.
-// It currently always returns ErrRegistryRequired until registry/backend
-// wiring is implemented in later tasks. Options are accepted now only to
-// pin the intended public SDK API shape.
-func New(opts ...ClientOption) (*Client, error) {
-	cfg := &clientConfig{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(cfg)
-		}
-	}
-
-	return nil, ErrRegistryRequired
+	registry         *Registry
+	backend          drivers.Driver
+	idempotency      idempotency.Store
 }
 
 // WithIdentity sets a static caller identity for the client.
@@ -49,5 +39,26 @@ func WithIdentity(identity Identity) ClientOption {
 func WithIdentityProvider(provider func(context.Context) Identity) ClientOption {
 	return func(cfg *clientConfig) {
 		cfg.identityProvider = provider
+	}
+}
+
+// WithRegistry binds the client to the centralized use-case registry.
+func WithRegistry(registry *Registry) ClientOption {
+	return func(cfg *clientConfig) {
+		cfg.registry = registry
+	}
+}
+
+// WithBackend sets the lock backend used by runtime and worker flows.
+func WithBackend(backend drivers.Driver) ClientOption {
+	return func(cfg *clientConfig) {
+		cfg.backend = backend
+	}
+}
+
+// WithIdempotency sets the idempotency store for claim-based flows.
+func WithIdempotency(store idempotency.Store) ClientOption {
+	return func(cfg *clientConfig) {
+		cfg.idempotency = store
 	}
 }

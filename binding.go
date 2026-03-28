@@ -22,9 +22,11 @@ type Binding[T any] struct {
 type UseCaseOption func(*useCaseConfig)
 
 type useCaseConfig struct {
-	ttl        time.Duration
-	wait       time.Duration
-	idempotent bool
+	ttl           time.Duration
+	wait          time.Duration
+	idempotent    bool
+	strict        bool
+	lineageParent string
 }
 
 // BindResourceID binds a single resource id and normalizes it to "resource:<id>".
@@ -87,6 +89,7 @@ func Idempotent() UseCaseOption {
 // OwnerID overrides the owner identity for one call.
 func OwnerID(id string) CallOption {
 	return func(cfg *callConfig) {
+		cfg.ownerIDSet = true
 		cfg.ownerID = strings.TrimSpace(id)
 	}
 }

@@ -1,7 +1,10 @@
 package lockman
 
+import "lockman/internal/sdk"
+
 type callConfig struct {
-	ownerID string
+	ownerID    string
+	ownerIDSet bool
 }
 
 func applyCallOptions(opts ...CallOption) callConfig {
@@ -16,17 +19,21 @@ func applyCallOptions(opts ...CallOption) callConfig {
 
 // RunRequest is an opaque request produced by RunUseCase.With.
 type RunRequest struct {
-	useCaseName string
-	resourceKey string
-	ownerID     string
-	useCaseCore *useCaseCore
+	useCaseName     string
+	resourceKey     string
+	ownerID         string
+	useCaseCore     *useCaseCore
+	registryLink    sdk.RegistryLink
+	boundToRegistry bool
 }
 
 // ClaimRequest is an opaque request produced by ClaimUseCase.With.
 type ClaimRequest struct {
-	useCaseName string
-	resourceKey string
-	ownerID     string
-	delivery    Delivery
-	useCaseCore *useCaseCore
+	useCaseName     string
+	resourceKey     string
+	ownerID         string
+	delivery        Delivery
+	useCaseCore     *useCaseCore
+	registryLink    sdk.RegistryLink
+	boundToRegistry bool
 }
