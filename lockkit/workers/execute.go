@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/internal/lineage"
@@ -22,12 +22,12 @@ const (
 
 type claimAcquirePlan struct {
 	resourceKey string
-	lineage     *drivers.LineageLeaseMeta
+	lineage     *backend.LineageLeaseMeta
 }
 
 type renewableLease struct {
-	lease        drivers.LeaseRecord
-	lineage      *drivers.LineageLeaseMeta
+	lease        backend.LeaseRecord
+	lineage      *backend.LineageLeaseMeta
 	fencingToken uint64
 }
 
@@ -342,7 +342,7 @@ func mapAcquireError(err error) error {
 	switch {
 	case stdErrors.Is(err, lockerrors.ErrOverlapRejected):
 		return lockerrors.ErrOverlapRejected
-	case stdErrors.Is(err, drivers.ErrLeaseAlreadyHeld):
+	case stdErrors.Is(err, backend.ErrLeaseAlreadyHeld):
 		return lockerrors.ErrLockBusy
 	case stdErrors.Is(err, context.DeadlineExceeded):
 		return lockerrors.ErrLockAcquireTimeout
@@ -382,12 +382,12 @@ func (m *Manager) acquireClaimLease(
 		if plan.lineage != nil {
 			return renewableLease{}, lockerrors.ErrPolicyViolation
 		}
-		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		strictDriver, ok := m.driver.(backend.StrictDriver)
 		if !ok {
 			return renewableLease{}, lockerrors.ErrPolicyViolation
 		}
 
-		fenced, err := strictDriver.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+		fenced, err := strictDriver.AcquireStrict(ctx, backend.StrictAcquireRequest{
 			DefinitionID: def.ID,
 			ResourceKey:  plan.resourceKey,
 			OwnerID:      ownerID,
@@ -403,7 +403,7 @@ func (m *Manager) acquireClaimLease(
 	}
 
 	if plan.lineage == nil {
-		lease, err := m.driver.Acquire(ctx, drivers.AcquireRequest{
+		lease, err := m.driver.Acquire(ctx, backend.AcquireRequest{
 			DefinitionID: def.ID,
 			ResourceKeys: []string{plan.resourceKey},
 			OwnerID:      ownerID,
@@ -415,12 +415,12 @@ func (m *Manager) acquireClaimLease(
 		return renewableLease{lease: lease}, nil
 	}
 
-	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	lineageDriver, ok := m.driver.(backend.LineageDriver)
 	if !ok {
 		return renewableLease{}, lockerrors.ErrPolicyViolation
 	}
 
-	lease, err := lineageDriver.AcquireWithLineage(ctx, drivers.LineageAcquireRequest{
+	lease, err := lineageDriver.AcquireWithLineage(ctx, backend.LineageAcquireRequest{
 		DefinitionID: def.ID,
 		ResourceKey:  plan.resourceKey,
 		OwnerID:      ownerID,
@@ -443,7 +443,7 @@ func (m *Manager) releaseClaimLease(ctx context.Context, held renewableLease) er
 		if held.lineage != nil {
 			return lockerrors.ErrPolicyViolation
 		}
-		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		strictDriver, ok := m.driver.(backend.StrictDriver)
 		if !ok {
 			return lockerrors.ErrPolicyViolation
 		}
@@ -454,7 +454,7 @@ func (m *Manager) releaseClaimLease(ctx context.Context, held renewableLease) er
 		return m.driver.Release(ctx, held.lease)
 	}
 
-	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	lineageDriver, ok := m.driver.(backend.LineageDriver)
 	if !ok {
 		return lockerrors.ErrPolicyViolation
 	}
@@ -485,10 +485,10 @@ func workerDefinitionUsesLineage(def definitions.LockDefinition, children map[st
 	return def.ParentRef != "" || len(children[def.ID]) > 0
 }
 
-func cloneWorkerLineageMeta(meta drivers.LineageLeaseMeta) drivers.LineageLeaseMeta {
+func cloneWorkerLineageMeta(meta backend.LineageLeaseMeta) backend.LineageLeaseMeta {
 	out := meta
 	if len(meta.AncestorKeys) > 0 {
-		out.AncestorKeys = append([]drivers.AncestorKey(nil), meta.AncestorKeys...)
+		out.AncestorKeys = append([]backend.AncestorKey(nil), meta.AncestorKeys...)
 	}
 	return out
 }

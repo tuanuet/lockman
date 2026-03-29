@@ -1,125 +1,37 @@
+// Package drivers is a temporary compatibility layer.
+//
+// The stable adapter-facing contracts live in the top-level lockman/backend package.
+// New code should depend on lockman/backend directly.
 package drivers
 
-import (
-	"context"
-	"errors"
-	"time"
+import "lockman/backend"
 
-	"lockman/lockkit/definitions"
-)
-
+// Sentinel errors are owned by the backend contract package.
 var (
-	ErrInvalidRequest     = errors.New("drivers: invalid request")
-	ErrLeaseAlreadyHeld   = errors.New("drivers: lease already held")
-	ErrLeaseNotFound      = errors.New("drivers: lease not found")
-	ErrLeaseExpired       = errors.New("drivers: lease expired")
-	ErrLeaseOwnerMismatch = errors.New("drivers: lease owner mismatch")
+	ErrInvalidRequest     = backend.ErrInvalidRequest
+	ErrLeaseAlreadyHeld   = backend.ErrLeaseAlreadyHeld
+	ErrLeaseNotFound      = backend.ErrLeaseNotFound
+	ErrLeaseExpired       = backend.ErrLeaseExpired
+	ErrLeaseOwnerMismatch = backend.ErrLeaseOwnerMismatch
 )
 
-// AcquireRequest describes the inputs required to obtain a lease for a resource.
-type AcquireRequest struct {
-	DefinitionID string
-	ResourceKeys []string
-	OwnerID      string
-	LeaseTTL     time.Duration
-}
+type (
+	Driver                = backend.Driver
+	StrictDriver          = backend.StrictDriver
+	LineageDriver         = backend.LineageDriver
+	AcquireRequest        = backend.AcquireRequest
+	LeaseRecord           = backend.LeaseRecord
+	FencedLeaseRecord     = backend.FencedLeaseRecord
+	PresenceRequest       = backend.PresenceRequest
+	PresenceRecord        = backend.PresenceRecord
+	StrictAcquireRequest  = backend.StrictAcquireRequest
+	AncestorKey           = backend.AncestorKey
+	LineageLeaseMeta      = backend.LineageLeaseMeta
+	LineageAcquireRequest = backend.LineageAcquireRequest
+	LockKind              = backend.LockKind
+)
 
-// LeaseRecord represents metadata returned after a successful lease operation.
-type LeaseRecord struct {
-	DefinitionID string
-	ResourceKeys []string
-	OwnerID      string
-	LeaseTTL     time.Duration
-	AcquiredAt   time.Time
-	ExpiresAt    time.Time
-}
-
-func (l LeaseRecord) IsExpired(now time.Time) bool {
-	if l.LeaseTTL <= 0 {
-		return true
-	}
-	return now.After(l.ExpiresAt)
-}
-
-// FencedLeaseRecord wraps a lease record with the fencing token issued by strict drivers.
-type FencedLeaseRecord struct {
-	Lease        LeaseRecord
-	FencingToken uint64
-}
-
-// PresenceRequest encapsulates the inputs required to inspect a resource's current state.
-type PresenceRequest struct {
-	DefinitionID string
-	ResourceKeys []string
-}
-
-// PresenceRecord surfaces whether the resource is actively leased and, if so, lease metadata.
-type PresenceRecord struct {
-	Present      bool
-	DefinitionID string
-	ResourceKeys []string
-	Lease        LeaseRecord
-}
-
-// Driver defines the backend contract any lock driver must fulfill.
-type Driver interface {
-	Acquire(ctx context.Context, req AcquireRequest) (LeaseRecord, error)
-	Renew(ctx context.Context, lease LeaseRecord) (LeaseRecord, error)
-	Release(ctx context.Context, lease LeaseRecord) error
-	CheckPresence(ctx context.Context, req PresenceRequest) (PresenceRecord, error)
-	Ping(ctx context.Context) error
-}
-
-// StrictAcquireRequest describes the inputs required to obtain a strict-mode lease
-// for a single resource key with a fencing token.
-type StrictAcquireRequest struct {
-	DefinitionID string
-	ResourceKey  string
-	OwnerID      string
-	LeaseTTL     time.Duration
-}
-
-// StrictDriver is an optional capability for backends that can issue fencing tokens
-// for strict-mode acquire/renew/release operations.
-//
-// Drivers must also implement Driver; callers can feature-detect this interface via
-// a type assertion.
-type StrictDriver interface {
-	AcquireStrict(ctx context.Context, req StrictAcquireRequest) (FencedLeaseRecord, error)
-	RenewStrict(ctx context.Context, lease LeaseRecord, fencingToken uint64) (FencedLeaseRecord, error)
-	ReleaseStrict(ctx context.Context, lease LeaseRecord, fencingToken uint64) error
-}
-
-// AncestorKey describes an ancestor lock resource key for lineage-aware operations.
-type AncestorKey struct {
-	DefinitionID string
-	ResourceKey  string
-}
-
-// LineageLeaseMeta includes the lineage details drivers must persist or return for
-// lineage-aware renew/release operations.
-type LineageLeaseMeta struct {
-	LeaseID      string
-	Kind         definitions.LockKind
-	AncestorKeys []AncestorKey
-}
-
-// LineageAcquireRequest describes the inputs required to acquire a lineage-aware lease.
-type LineageAcquireRequest struct {
-	DefinitionID string
-	ResourceKey  string
-	OwnerID      string
-	LeaseTTL     time.Duration
-	Lineage      LineageLeaseMeta
-}
-
-// LineageDriver is an optional capability for backends that can execute lineage-aware
-// acquire/renew/release operations (e.g. parent-child overlap protection).
-//
-// Drivers must also implement Driver; callers can feature-detect this interface via
-// a type assertion.
-type LineageDriver interface {
-	AcquireWithLineage(ctx context.Context, req LineageAcquireRequest) (LeaseRecord, error)
-	RenewWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) (LeaseRecord, LineageLeaseMeta, error)
-	ReleaseWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) error
-}
+const (
+	KindParent LockKind = backend.KindParent
+	KindChild  LockKind = backend.KindChild
+)

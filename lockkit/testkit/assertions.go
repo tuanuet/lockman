@@ -3,11 +3,11 @@ package testkit
 import (
 	"testing"
 
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 )
 
 // AssertSingleResourceLease ensures a lease record matches a single key expectation.
-func AssertSingleResourceLease(t *testing.T, lease drivers.LeaseRecord, defID, ownerID, resourceKey string) {
+func AssertSingleResourceLease(t *testing.T, lease backend.LeaseRecord, defID, ownerID, resourceKey string) {
 	t.Helper()
 
 	if lease.DefinitionID != defID {

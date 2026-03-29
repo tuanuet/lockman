@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/registry"
@@ -25,7 +25,7 @@ type definitionSnapshotReader interface {
 // Manager orchestrates single-resource worker claim execution for Phase 2.
 type Manager struct {
 	registry    registry.Reader
-	driver      drivers.Driver
+	driver      backend.Driver
 	idempotency idempotency.Store
 
 	active sync.Map
@@ -42,7 +42,7 @@ type Manager struct {
 }
 
 // NewManager validates dependencies and returns a configured worker manager.
-func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.Store) (*Manager, error) {
+func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.Store) (*Manager, error) {
 	if reg == nil {
 		return nil, lockerrors.ErrRegistryViolation
 	}
@@ -60,12 +60,12 @@ func NewManager(reg registry.Reader, driver drivers.Driver, store idempotency.St
 		return nil, fmt.Errorf("%w: %v", lockerrors.ErrPolicyViolation, err)
 	}
 	if registry.RequiresLineageDriver(reg) {
-		if _, ok := driver.(drivers.LineageDriver); !ok {
+		if _, ok := driver.(backend.LineageDriver); !ok {
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}
 	if registry.RequiresStrictWorkerDriver(reg) {
-		if _, ok := driver.(drivers.StrictDriver); !ok {
+		if _, ok := driver.(backend.StrictDriver); !ok {
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}

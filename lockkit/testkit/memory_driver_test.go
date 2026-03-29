@@ -6,17 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	lockerrors "lockman/lockkit/errors"
 )
 
-func requireStrictDriver(t *testing.T, driver *MemoryDriver) drivers.StrictDriver {
+func requireStrictDriver(t *testing.T, driver *MemoryDriver) backend.StrictDriver {
 	t.Helper()
 
-	strict, ok := any(driver).(drivers.StrictDriver)
+	strict, ok := any(driver).(backend.StrictDriver)
 	if !ok {
-		t.Fatal("memory driver must implement drivers.StrictDriver")
+		t.Fatal("memory driver must implement backend.StrictDriver")
 	}
 	return strict
 }
@@ -26,7 +25,7 @@ func TestMemoryDriverAcquireStrictIssuesIncreasingTokens(t *testing.T) {
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	first, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	first, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -39,7 +38,7 @@ func TestMemoryDriverAcquireStrictIssuesIncreasingTokens(t *testing.T) {
 		t.Fatalf("ReleaseStrict first returned error: %v", err)
 	}
 
-	second, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	second, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-b",
@@ -58,7 +57,7 @@ func TestMemoryDriverRenewStrictPreservesToken(t *testing.T) {
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	acquired, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -88,7 +87,7 @@ func TestMemoryDriverRenewStrictRejectsWrongToken(t *testing.T) {
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	acquired, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -99,7 +98,7 @@ func TestMemoryDriverRenewStrictRejectsWrongToken(t *testing.T) {
 	}
 
 	_, err = strict.RenewStrict(ctx, acquired.Lease, acquired.FencingToken+1)
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected ErrLeaseOwnerMismatch for wrong renew token, got %v", err)
 	}
 }
@@ -109,7 +108,7 @@ func TestMemoryDriverReleaseStrictRejectsWrongToken(t *testing.T) {
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	acquired, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	acquired, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -120,7 +119,7 @@ func TestMemoryDriverReleaseStrictRejectsWrongToken(t *testing.T) {
 	}
 
 	err = strict.ReleaseStrict(ctx, acquired.Lease, acquired.FencingToken+1)
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected ErrLeaseOwnerMismatch for wrong token, got %v", err)
 	}
 }
@@ -130,7 +129,7 @@ func TestMemoryDriverAcquireStrictCounterIsScopedByDefinitionAndResource(t *test
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	defA1, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	defA1, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict.a",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -143,7 +142,7 @@ func TestMemoryDriverAcquireStrictCounterIsScopedByDefinitionAndResource(t *test
 		t.Fatalf("ReleaseStrict defA returned error: %v", err)
 	}
 
-	defB1, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	defB1, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict.b",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-b",
@@ -162,7 +161,7 @@ func TestMemoryDriverReleaseStrictRejectsStaleLeaseFromDifferentDefinitionBounda
 	strict := requireStrictDriver(t, driver)
 	ctx := context.Background()
 
-	first, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	first, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict.a",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -175,7 +174,7 @@ func TestMemoryDriverReleaseStrictRejectsStaleLeaseFromDifferentDefinitionBounda
 		t.Fatalf("ReleaseStrict first returned error: %v", err)
 	}
 
-	second, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	second, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict.b",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-a",
@@ -186,7 +185,7 @@ func TestMemoryDriverReleaseStrictRejectsStaleLeaseFromDifferentDefinitionBounda
 	}
 
 	err = strict.ReleaseStrict(ctx, first.Lease, first.FencingToken)
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected stale cross-definition release to fail, got %v", err)
 	}
 
@@ -199,13 +198,13 @@ func TestMemoryDriverAcquireStrictRejectsEmptyResourceKey(t *testing.T) {
 	driver := NewMemoryDriver()
 	strict := requireStrictDriver(t, driver)
 
-	_, err := strict.AcquireStrict(context.Background(), drivers.StrictAcquireRequest{
+	_, err := strict.AcquireStrict(context.Background(), backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "",
 		OwnerID:      "worker-a",
 		LeaseTTL:     time.Second,
 	})
-	if !errors.Is(err, drivers.ErrInvalidRequest) {
+	if !errors.Is(err, backend.ErrInvalidRequest) {
 		t.Fatalf("expected ErrInvalidRequest for empty resource key, got %v", err)
 	}
 }
@@ -213,7 +212,7 @@ func TestMemoryDriverAcquireStrictRejectsEmptyResourceKey(t *testing.T) {
 func TestMemoryDriverAcquireAndRelease(t *testing.T) {
 	driver := NewMemoryDriver()
 
-	lease, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+	lease, err := driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "svc-a:instance-1",
@@ -229,7 +228,7 @@ func TestMemoryDriverAcquireAndRelease(t *testing.T) {
 		t.Fatalf("Release returned error: %v", err)
 	}
 
-	presence, err := driver.CheckPresence(context.Background(), drivers.PresenceRequest{
+	presence, err := driver.CheckPresence(context.Background(), backend.PresenceRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{"order:123"},
 	})
@@ -245,15 +244,15 @@ func TestMemoryDriverAcquireAndRelease(t *testing.T) {
 func TestMemoryDriverAcquireWithLineageRejectsParentWhileChildHeld(t *testing.T) {
 	driver := NewMemoryDriver()
 
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -266,14 +265,14 @@ func TestMemoryDriverAcquireWithLineageRejectsParentWhileChildHeld(t *testing.T)
 		_ = driver.ReleaseWithLineage(context.Background(), childLease, childReq.Lineage)
 	}()
 
-	_, err = driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	_, err = driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: "order",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-b",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-parent",
-			Kind:    definitions.KindParent,
+			Kind:    backend.KindParent,
 		},
 	})
 	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
@@ -283,15 +282,15 @@ func TestMemoryDriverAcquireWithLineageRejectsParentWhileChildHeld(t *testing.T)
 
 func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -304,7 +303,7 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 		_ = driver.ReleaseWithLineage(context.Background(), childLease, childReq.Lineage)
 	}()
 
-	record, err := driver.CheckPresence(context.Background(), drivers.PresenceRequest{
+	record, err := driver.CheckPresence(context.Background(), backend.PresenceRequest{
 		DefinitionID: "order",
 		ResourceKeys: []string{"order:123"},
 	})
@@ -318,15 +317,15 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 
 func TestMemoryDriverRenewWithLineageExtendsDescendantMembershipTTL(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     30 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -361,15 +360,15 @@ func TestMemoryDriverRenewWithLineageExtendsDescendantMembershipTTL(t *testing.T
 
 func TestMemoryDriverRenewWithLineageFailsWhenLineageStateMissing(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     25 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -384,30 +383,30 @@ func TestMemoryDriverRenewWithLineageFailsWhenLineageStateMissing(t *testing.T) 
 
 	childLease.LeaseTTL = 80 * time.Millisecond
 	_, _, err = driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
-	if !errors.Is(err, drivers.ErrLeaseExpired) {
+	if !errors.Is(err, backend.ErrLeaseExpired) {
 		t.Fatalf("expected renew failure when lineage state is missing, got %v", err)
 	}
 
 	time.Sleep(35 * time.Millisecond)
 
-	reacquired, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	reacquired, err := driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: childReq.DefinitionID,
 		ResourceKey:  childReq.ResourceKey,
 		OwnerID:      "worker-b",
 		LeaseTTL:     50 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID:      "lease-child-reacquired",
 			Kind:         childReq.Lineage.Kind,
-			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+			AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 		},
 	})
 	if err != nil {
 		t.Fatalf("expected child lease to expire on original ttl, got %v", err)
 	}
-	if err := driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+	if err := driver.ReleaseWithLineage(context.Background(), reacquired, backend.LineageLeaseMeta{
 		LeaseID:      "lease-child-reacquired",
 		Kind:         childReq.Lineage.Kind,
-		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 	}); err != nil {
 		t.Fatalf("release reacquired child failed: %v", err)
 	}
@@ -415,15 +414,15 @@ func TestMemoryDriverRenewWithLineageFailsWhenLineageStateMissing(t *testing.T) 
 
 func TestMemoryDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     25 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -439,30 +438,30 @@ func TestMemoryDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testi
 
 	childLease.LeaseTTL = 80 * time.Millisecond
 	_, _, err = driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
-	if !errors.Is(err, drivers.ErrLeaseExpired) {
+	if !errors.Is(err, backend.ErrLeaseExpired) {
 		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
 	}
 
 	time.Sleep(35 * time.Millisecond)
 
-	reacquired, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	reacquired, err := driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: childReq.DefinitionID,
 		ResourceKey:  childReq.ResourceKey,
 		OwnerID:      "worker-b",
 		LeaseTTL:     50 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID:      "lease-child-reacquired",
 			Kind:         childReq.Lineage.Kind,
-			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+			AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 		},
 	})
 	if err != nil {
 		t.Fatalf("expected child lease to expire on original ttl, got %v", err)
 	}
-	if err := driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+	if err := driver.ReleaseWithLineage(context.Background(), reacquired, backend.LineageLeaseMeta{
 		LeaseID:      "lease-child-reacquired",
 		Kind:         childReq.Lineage.Kind,
-		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 	}); err != nil {
 		t.Fatalf("release reacquired child failed: %v", err)
 	}
@@ -470,15 +469,15 @@ func TestMemoryDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testi
 
 func TestMemoryDriverReleaseWithLineageClearsDescendantMembership(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -497,22 +496,22 @@ func TestMemoryDriverReleaseWithLineageClearsDescendantMembership(t *testing.T) 
 		t.Fatalf("expected descendant membership cleanup, got %d entries", got)
 	}
 
-	parentLease, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	parentLease, err := driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: "order",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-b",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-parent",
-			Kind:    definitions.KindParent,
+			Kind:    backend.KindParent,
 		},
 	})
 	if err != nil {
 		t.Fatalf("expected parent acquire after child release, got %v", err)
 	}
-	if err := driver.ReleaseWithLineage(context.Background(), parentLease, drivers.LineageLeaseMeta{
+	if err := driver.ReleaseWithLineage(context.Background(), parentLease, backend.LineageLeaseMeta{
 		LeaseID: "lease-parent",
-		Kind:    definitions.KindParent,
+		Kind:    backend.KindParent,
 	}); err != nil {
 		t.Fatalf("parent release failed: %v", err)
 	}
@@ -520,15 +519,15 @@ func TestMemoryDriverReleaseWithLineageClearsDescendantMembership(t *testing.T) 
 
 func TestMemoryDriverAcquireWithLineagePrunesExpiredDescendantMembership(t *testing.T) {
 	driver := NewMemoryDriver()
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     20 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -540,23 +539,23 @@ func TestMemoryDriverAcquireWithLineagePrunesExpiredDescendantMembership(t *test
 
 	time.Sleep(30 * time.Millisecond)
 
-	parentLease, err := driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	parentLease, err := driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: "order",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-b",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-parent",
-			Kind:    definitions.KindParent,
+			Kind:    backend.KindParent,
 		},
 	})
 	if err != nil {
 		t.Fatalf("expected parent acquire after child expiry, got %v", err)
 	}
 	defer func() {
-		_ = driver.ReleaseWithLineage(context.Background(), parentLease, drivers.LineageLeaseMeta{
+		_ = driver.ReleaseWithLineage(context.Background(), parentLease, backend.LineageLeaseMeta{
 			LeaseID: "lease-parent",
-			Kind:    definitions.KindParent,
+			Kind:    backend.KindParent,
 		})
 	}()
 
@@ -568,28 +567,28 @@ func TestMemoryDriverAcquireWithLineagePrunesExpiredDescendantMembership(t *test
 
 func TestMemoryDriverReleaseWithLineagePreservesOtherDescendants(t *testing.T) {
 	driver := NewMemoryDriver()
-	firstChildReq := drivers.LineageAcquireRequest{
+	firstChildReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "worker-a",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child-1",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
 	}
-	secondChildReq := drivers.LineageAcquireRequest{
+	secondChildReq := backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:line-2",
 		OwnerID:      "worker-b",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child-2",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -608,14 +607,14 @@ func TestMemoryDriverReleaseWithLineagePreservesOtherDescendants(t *testing.T) {
 		t.Fatalf("first child release failed: %v", err)
 	}
 
-	_, err = driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	_, err = driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: "order",
 		ResourceKey:  "order:123",
 		OwnerID:      "worker-c",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-parent",
-			Kind:    definitions.KindParent,
+			Kind:    backend.KindParent,
 		},
 	})
 	if !errors.Is(err, lockerrors.ErrOverlapRejected) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"lockman/backend"
 	"lockman/internal/sdk"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	lockregistry "lockman/lockkit/registry"
 )
@@ -251,19 +251,19 @@ func toExecutionKind(kind useCaseKind) definitions.ExecutionKind {
 	return definitions.ExecutionSync
 }
 
-func hasStrictBackend(backend drivers.Driver) bool {
-	if backend == nil {
+func hasStrictBackend(drv backend.Driver) bool {
+	if drv == nil {
 		return false
 	}
-	_, ok := backend.(drivers.StrictDriver)
+	_, ok := drv.(backend.StrictDriver)
 	return ok
 }
 
-func hasLineageBackend(backend drivers.Driver) bool {
-	if backend == nil {
+func hasLineageBackend(drv backend.Driver) bool {
+	if drv == nil {
 		return false
 	}
-	_, ok := backend.(drivers.LineageDriver)
+	_, ok := drv.(backend.LineageDriver)
 	return ok
 }
 

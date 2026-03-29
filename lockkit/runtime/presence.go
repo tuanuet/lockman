@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 )
 
@@ -40,7 +40,7 @@ func (m *Manager) CheckPresence(
 		return status, err
 	}
 
-	record, err := m.driver.CheckPresence(ctx, drivers.PresenceRequest{
+	record, err := m.driver.CheckPresence(ctx, backend.PresenceRequest{
 		DefinitionID: def.ID,
 		ResourceKeys: []string{resourceKey},
 	})

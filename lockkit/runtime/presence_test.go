@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/observe"
 	"lockman/lockkit/registry"
@@ -35,7 +35,7 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
-	_, err = driver.Acquire(context.Background(), drivers.AcquireRequest{
+	_, err = driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "svc:one",
@@ -147,7 +147,7 @@ func TestCheckPresenceRecordsMetricsWithResolvedDefinitionID(t *testing.T) {
 	}
 
 	driver := testkit.NewMemoryDriver()
-	if _, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+	if _, err := driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: def.ID,
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "svc:one",
@@ -241,15 +241,15 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
 
-	childReq := drivers.LineageAcquireRequest{
+	childReq := backend.LineageAcquireRequest{
 		DefinitionID: "ItemLock",
 		ResourceKey:  "order:123:item:line-1",
 		OwnerID:      "svc:child",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "lease-child",
-			Kind:    definitions.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "OrderLock", ResourceKey: "order:123"},
 			},
 		},
@@ -278,23 +278,23 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 }
 
 type pingFailDriver struct {
-	inner drivers.Driver
+	inner backend.Driver
 	err   error
 }
 
-func (d pingFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d pingFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.inner.Acquire(ctx, req)
 }
 
-func (d pingFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d pingFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.inner.Renew(ctx, lease)
 }
 
-func (d pingFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d pingFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.inner.Release(ctx, lease)
 }
 
-func (d pingFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d pingFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.inner.CheckPresence(ctx, req)
 }
 

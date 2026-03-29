@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	lockerrors "lockman/lockkit/errors"
 )
 
@@ -109,7 +109,7 @@ func (m *Manager) renewLease(ctx context.Context, current renewableLease) (renew
 		if current.lineage != nil {
 			return renewableLease{}, lockerrors.ErrPolicyViolation
 		}
-		strictDriver, ok := m.driver.(drivers.StrictDriver)
+		strictDriver, ok := m.driver.(backend.StrictDriver)
 		if !ok {
 			return renewableLease{}, lockerrors.ErrPolicyViolation
 		}
@@ -119,7 +119,7 @@ func (m *Manager) renewLease(ctx context.Context, current renewableLease) (renew
 			return renewableLease{}, err
 		}
 		if updated.FencingToken != current.fencingToken {
-			return renewableLease{}, drivers.ErrLeaseNotFound
+			return renewableLease{}, backend.ErrLeaseNotFound
 		}
 		return renewableLease{
 			lease:        updated.Lease,
@@ -135,7 +135,7 @@ func (m *Manager) renewLease(ctx context.Context, current renewableLease) (renew
 		return renewableLease{lease: updated}, nil
 	}
 
-	lineageDriver, ok := m.driver.(drivers.LineageDriver)
+	lineageDriver, ok := m.driver.(backend.LineageDriver)
 	if !ok {
 		return renewableLease{}, lockerrors.ErrPolicyViolation
 	}

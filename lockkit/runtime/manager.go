@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/observe"
 	"lockman/lockkit/registry"
@@ -16,7 +16,7 @@ import (
 // Manager orchestrates standard exclusive lock execution for Phase 1.
 type Manager struct {
 	registry      registry.Reader
-	driver        drivers.Driver
+	driver        backend.Driver
 	recorder      observe.Recorder
 	active        sync.Map
 	shuttingDown  atomic.Bool
@@ -27,7 +27,7 @@ type Manager struct {
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
-func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Recorder) (*Manager, error) {
+func NewManager(reg registry.Reader, driver backend.Driver, recorder observe.Recorder) (*Manager, error) {
 	validator, ok := reg.(interface{ Validate() error })
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid registry", lockerrors.ErrRegistryViolation)
@@ -39,12 +39,12 @@ func NewManager(reg registry.Reader, driver drivers.Driver, recorder observe.Rec
 		return nil, lockerrors.ErrPolicyViolation
 	}
 	if registry.RequiresLineageDriver(reg) {
-		if _, ok := driver.(drivers.LineageDriver); !ok {
+		if _, ok := driver.(backend.LineageDriver); !ok {
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}
 	if registry.RequiresStrictRuntimeDriver(reg) {
-		if _, ok := driver.(drivers.StrictDriver); !ok {
+		if _, ok := driver.(backend.StrictDriver); !ok {
 			return nil, lockerrors.ErrPolicyViolation
 		}
 	}

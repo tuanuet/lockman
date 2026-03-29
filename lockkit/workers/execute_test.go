@@ -163,7 +163,7 @@ func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
 		LeaseTTL:     30 * time.Second,
 		Lineage: drivers.LineageLeaseMeta{
 			LeaseID: "parent-lease",
-			Kind:    definitions.KindParent,
+			Kind:    drivers.KindParent,
 		},
 	}
 	parentLease, err := driver.AcquireWithLineage(context.Background(), parentReq)

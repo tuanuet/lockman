@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	"lockman/lockkit/idempotency"
 	lockruntime "lockman/lockkit/runtime"
 	"lockman/lockkit/workers"
@@ -13,7 +13,7 @@ import (
 // Client executes registered run and claim use cases against the configured backend.
 type Client struct {
 	registry         *Registry
-	backend          drivers.Driver
+	backend          backend.Driver
 	idempotency      idempotency.Store
 	identity         Identity
 	identityProvider func(context.Context) Identity

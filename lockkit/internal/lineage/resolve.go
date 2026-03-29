@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 )
 
 var (
@@ -18,13 +18,13 @@ var (
 type AcquirePlan struct {
 	DefinitionID string
 	ResourceKey  string
-	Kind         definitions.LockKind
-	AncestorKeys []drivers.AncestorKey
+	Kind         backend.LockKind
+	AncestorKeys []backend.AncestorKey
 	LeaseID      string
 }
 
-func (p AcquirePlan) LeaseMeta() drivers.LineageLeaseMeta {
-	return drivers.LineageLeaseMeta{
+func (p AcquirePlan) LeaseMeta() backend.LineageLeaseMeta {
+	return backend.LineageLeaseMeta{
 		LeaseID:      p.LeaseID,
 		Kind:         p.Kind,
 		AncestorKeys: cloneAncestorKeys(p.AncestorKeys),
@@ -53,7 +53,7 @@ func ResolveAcquirePlan(
 	return AcquirePlan{
 		DefinitionID: def.ID,
 		ResourceKey:  resourceKey,
-		Kind:         def.Kind,
+		Kind:         backend.LockKind(def.Kind),
 		// Ancestors are ordered root-first so script key assembly, renew, and release stay stable.
 		AncestorKeys: ancestors,
 		LeaseID:      leaseID,
@@ -64,7 +64,7 @@ func resolveAncestors(
 	def definitions.LockDefinition,
 	definitionsByID map[string]definitions.LockDefinition,
 	input map[string]string,
-) ([]drivers.AncestorKey, error) {
+) ([]backend.AncestorKey, error) {
 	if def.ParentRef != "" && def.Kind != definitions.KindChild {
 		return nil, fmt.Errorf("lineage: non-child definition %q must not set parent ref", def.ID)
 	}
@@ -79,7 +79,7 @@ func resolveAncestors(
 		def.ID: {},
 	}
 
-	stack := make([]drivers.AncestorKey, 0, 4)
+	stack := make([]backend.AncestorKey, 0, 4)
 	parentID := def.ParentRef
 	for parentID != "" {
 		if _, seen := visited[parentID]; seen {
@@ -96,7 +96,7 @@ func resolveAncestors(
 		if err != nil {
 			return nil, err
 		}
-		stack = append(stack, drivers.AncestorKey{
+		stack = append(stack, backend.AncestorKey{
 			DefinitionID: parent.ID,
 			ResourceKey:  key,
 		})
@@ -112,11 +112,11 @@ func resolveAncestors(
 	return stack, nil
 }
 
-func cloneAncestorKeys(input []drivers.AncestorKey) []drivers.AncestorKey {
+func cloneAncestorKeys(input []backend.AncestorKey) []backend.AncestorKey {
 	if len(input) == 0 {
 		return nil
 	}
-	out := make([]drivers.AncestorKey, len(input))
+	out := make([]backend.AncestorKey, len(input))
 	copy(out, input)
 	return out
 }

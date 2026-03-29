@@ -3,7 +3,7 @@ package lockman
 import (
 	"context"
 
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	"lockman/lockkit/idempotency"
 )
 
@@ -24,7 +24,7 @@ type clientConfig struct {
 	identity         Identity
 	identityProvider func(context.Context) Identity
 	registry         *Registry
-	backend          drivers.Driver
+	backend          backend.Driver
 	idempotency      idempotency.Store
 }
 
@@ -50,9 +50,9 @@ func WithRegistry(registry *Registry) ClientOption {
 }
 
 // WithBackend sets the lock backend used by runtime and worker flows.
-func WithBackend(backend drivers.Driver) ClientOption {
+func WithBackend(drv backend.Driver) ClientOption {
 	return func(cfg *clientConfig) {
-		cfg.backend = backend
+		cfg.backend = drv
 	}
 }
 

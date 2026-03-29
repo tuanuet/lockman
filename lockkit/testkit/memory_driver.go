@@ -5,15 +5,14 @@ import (
 	"sync"
 	"time"
 
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	lockerrors "lockman/lockkit/errors"
 )
 
 // MemoryDriver is a naive single-resource driver useful for tests and local builds.
 type MemoryDriver struct {
 	mu     sync.Mutex
-	leases map[string]drivers.LeaseRecord
+	leases map[string]backend.LeaseRecord
 
 	// strictCounters tracks fencing tokens by strict boundary (definition + resource key).
 	strictCounters map[string]uint64
@@ -28,20 +27,20 @@ type MemoryDriver struct {
 }
 
 type lineageLeaseState struct {
-	lease    drivers.LeaseRecord
-	lineage  drivers.LineageLeaseMeta
+	lease    backend.LeaseRecord
+	lineage  backend.LineageLeaseMeta
 	expireAt time.Time
 }
 
 type strictLeaseState struct {
-	lease        drivers.LeaseRecord
+	lease        backend.LeaseRecord
 	fencingToken uint64
 }
 
 // NewMemoryDriver returns a ready-to-use in-memory driver.
 func NewMemoryDriver() *MemoryDriver {
 	return &MemoryDriver{
-		leases:                make(map[string]drivers.LeaseRecord),
+		leases:                make(map[string]backend.LeaseRecord),
 		strictCounters:        make(map[string]uint64),
 		strictLeases:          make(map[string]strictLeaseState),
 		lineageLeases:         make(map[string]lineageLeaseState),
@@ -50,12 +49,12 @@ func NewMemoryDriver() *MemoryDriver {
 }
 
 // Acquire attempts to claim a single resource. It rejects already held leases.
-func (m *MemoryDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (m *MemoryDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	if len(req.ResourceKeys) != 1 {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 	if req.LeaseTTL <= 0 {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 
 	key := req.ResourceKeys[0]
@@ -68,12 +67,12 @@ func (m *MemoryDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) 
 
 	if existing, ok := m.leases[key]; ok {
 		if !existing.IsExpired(now) {
-			return drivers.LeaseRecord{}, drivers.ErrLeaseAlreadyHeld
+			return backend.LeaseRecord{}, backend.ErrLeaseAlreadyHeld
 		}
 		delete(m.leases, key)
 	}
 
-	lease := drivers.LeaseRecord{
+	lease := backend.LeaseRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: append([]string(nil), req.ResourceKeys...),
 		OwnerID:      req.OwnerID,
@@ -86,9 +85,9 @@ func (m *MemoryDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) 
 }
 
 // Renew refreshes an existing lease while the owner still holds it.
-func (m *MemoryDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (m *MemoryDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -101,14 +100,14 @@ func (m *MemoryDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (dr
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.LeaseRecord{}, drivers.ErrLeaseNotFound
+		return backend.LeaseRecord{}, backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.LeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+		return backend.LeaseRecord{}, backend.ErrLeaseOwnerMismatch
 	}
 	if existing.IsExpired(now) {
 		delete(m.leases, key)
-		return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+		return backend.LeaseRecord{}, backend.ErrLeaseExpired
 	}
 
 	ttl := lease.LeaseTTL
@@ -123,9 +122,9 @@ func (m *MemoryDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (dr
 }
 
 // Release removes the lease so another owner can claim the resource.
-func (m *MemoryDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (m *MemoryDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.ErrInvalidRequest
+		return backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -137,10 +136,10 @@ func (m *MemoryDriver) Release(ctx context.Context, lease drivers.LeaseRecord) e
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.ErrLeaseNotFound
+		return backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.ErrLeaseOwnerMismatch
+		return backend.ErrLeaseOwnerMismatch
 	}
 
 	delete(m.leases, key)
@@ -148,12 +147,12 @@ func (m *MemoryDriver) Release(ctx context.Context, lease drivers.LeaseRecord) e
 }
 
 // AcquireStrict attempts to claim a single resource and returns a fencing token.
-func (m *MemoryDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+func (m *MemoryDriver) AcquireStrict(ctx context.Context, req backend.StrictAcquireRequest) (backend.FencedLeaseRecord, error) {
 	if req.ResourceKey == "" {
-		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.FencedLeaseRecord{}, backend.ErrInvalidRequest
 	}
 	if req.LeaseTTL <= 0 {
-		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.FencedLeaseRecord{}, backend.ErrInvalidRequest
 	}
 
 	key := req.ResourceKey
@@ -166,13 +165,13 @@ func (m *MemoryDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcqu
 
 	if existing, ok := m.leases[key]; ok {
 		if !existing.IsExpired(now) {
-			return drivers.FencedLeaseRecord{}, drivers.ErrLeaseAlreadyHeld
+			return backend.FencedLeaseRecord{}, backend.ErrLeaseAlreadyHeld
 		}
 		delete(m.leases, key)
 		delete(m.strictLeases, strictBoundaryKey(existing.DefinitionID, key))
 	}
 
-	lease := drivers.LeaseRecord{
+	lease := backend.LeaseRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: []string{req.ResourceKey},
 		OwnerID:      req.OwnerID,
@@ -191,16 +190,16 @@ func (m *MemoryDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcqu
 		fencingToken: nextToken,
 	}
 
-	return drivers.FencedLeaseRecord{
+	return backend.FencedLeaseRecord{
 		Lease:        lease,
 		FencingToken: nextToken,
 	}, nil
 }
 
 // RenewStrict refreshes an existing strict lease while preserving its fencing token.
-func (m *MemoryDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+func (m *MemoryDriver) RenewStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) (backend.FencedLeaseRecord, error) {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.FencedLeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.FencedLeaseRecord{}, backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -214,26 +213,26 @@ func (m *MemoryDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecor
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseNotFound
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseOwnerMismatch
 	}
 	if existing.IsExpired(now) {
 		delete(m.leases, key)
 		delete(m.strictLeases, boundary)
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseExpired
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseExpired
 	}
 	if existing.DefinitionID != lease.DefinitionID {
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseOwnerMismatch
 	}
 
 	strictState, ok := m.strictLeases[boundary]
 	if !ok {
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseNotFound
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseNotFound
 	}
 	if strictState.lease.OwnerID != lease.OwnerID || strictState.fencingToken != fencingToken {
-		return drivers.FencedLeaseRecord{}, drivers.ErrLeaseOwnerMismatch
+		return backend.FencedLeaseRecord{}, backend.ErrLeaseOwnerMismatch
 	}
 
 	ttl := lease.LeaseTTL
@@ -248,16 +247,16 @@ func (m *MemoryDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecor
 	strictState.lease = existing
 	m.strictLeases[boundary] = strictState
 
-	return drivers.FencedLeaseRecord{
+	return backend.FencedLeaseRecord{
 		Lease:        existing,
 		FencingToken: strictState.fencingToken,
 	}, nil
 }
 
 // ReleaseStrict removes a strict lease after owner and fencing token validation.
-func (m *MemoryDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+func (m *MemoryDriver) ReleaseStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) error {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.ErrInvalidRequest
+		return backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -270,21 +269,21 @@ func (m *MemoryDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRec
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.ErrLeaseNotFound
+		return backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.ErrLeaseOwnerMismatch
+		return backend.ErrLeaseOwnerMismatch
 	}
 	if existing.DefinitionID != lease.DefinitionID {
-		return drivers.ErrLeaseOwnerMismatch
+		return backend.ErrLeaseOwnerMismatch
 	}
 
 	strictState, ok := m.strictLeases[boundary]
 	if !ok {
-		return drivers.ErrLeaseNotFound
+		return backend.ErrLeaseNotFound
 	}
 	if strictState.lease.OwnerID != lease.OwnerID || strictState.fencingToken != fencingToken {
-		return drivers.ErrLeaseOwnerMismatch
+		return backend.ErrLeaseOwnerMismatch
 	}
 
 	delete(m.leases, key)
@@ -293,9 +292,9 @@ func (m *MemoryDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRec
 }
 
 // CheckPresence reports whether the resource is currently held.
-func (m *MemoryDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (m *MemoryDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	if len(req.ResourceKeys) != 1 {
-		return drivers.PresenceRecord{}, drivers.ErrInvalidRequest
+		return backend.PresenceRecord{}, backend.ErrInvalidRequest
 	}
 
 	key := req.ResourceKeys[0]
@@ -306,7 +305,7 @@ func (m *MemoryDriver) CheckPresence(ctx context.Context, req drivers.PresenceRe
 
 	m.pruneExpired(now)
 
-	record := drivers.PresenceRecord{
+	record := backend.PresenceRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: []string{key},
 	}
@@ -326,15 +325,15 @@ func (m *MemoryDriver) CheckPresence(ctx context.Context, req drivers.PresenceRe
 	return record, nil
 }
 
-func (m *MemoryDriver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
+func (m *MemoryDriver) AcquireWithLineage(ctx context.Context, req backend.LineageAcquireRequest) (backend.LeaseRecord, error) {
 	if req.ResourceKey == "" {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 	if req.LeaseTTL <= 0 {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 	if req.Lineage.LeaseID == "" {
-		return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.ErrInvalidRequest
 	}
 
 	now := time.Now()
@@ -344,10 +343,10 @@ func (m *MemoryDriver) AcquireWithLineage(ctx context.Context, req drivers.Linea
 
 	m.pruneExpired(now)
 	if err := m.rejectLineageConflict(now, req); err != nil {
-		return drivers.LeaseRecord{}, err
+		return backend.LeaseRecord{}, err
 	}
 
-	lease := drivers.LeaseRecord{
+	lease := backend.LeaseRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: []string{req.ResourceKey},
 		OwnerID:      req.OwnerID,
@@ -356,7 +355,7 @@ func (m *MemoryDriver) AcquireWithLineage(ctx context.Context, req drivers.Linea
 		ExpiresAt:    now.Add(req.LeaseTTL),
 	}
 
-	meta := drivers.LineageLeaseMeta{
+	meta := backend.LineageLeaseMeta{
 		LeaseID:      req.Lineage.LeaseID,
 		Kind:         req.Lineage.Kind,
 		AncestorKeys: cloneAncestorKeys(req.Lineage.AncestorKeys),
@@ -366,12 +365,12 @@ func (m *MemoryDriver) AcquireWithLineage(ctx context.Context, req drivers.Linea
 	return lease, nil
 }
 
-func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease backend.LeaseRecord, lineage backend.LineageLeaseMeta) (backend.LeaseRecord, backend.LineageLeaseMeta, error) {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrInvalidRequest
 	}
 	if lineage.LeaseID == "" {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrInvalidRequest
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -384,28 +383,28 @@ func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease drivers.Lease
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseNotFound
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseOwnerMismatch
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseOwnerMismatch
 	}
 	if existing.IsExpired(now) {
 		delete(m.leases, key)
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseExpired
 	}
 
 	state, ok := m.lineageLeases[lineage.LeaseID]
 	if !ok {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseExpired
 	}
 	for _, ancestor := range lineage.AncestorKeys {
 		ancestorKey := formatAncestorKey(ancestor)
 		members := m.descendantsByAncestor[ancestorKey]
 		if members == nil {
-			return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+			return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseExpired
 		}
 		if _, ok := members[lineage.LeaseID]; !ok {
-			return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, drivers.ErrLeaseExpired
+			return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, backend.ErrLeaseExpired
 		}
 	}
 
@@ -437,19 +436,19 @@ func (m *MemoryDriver) RenewWithLineage(ctx context.Context, lease drivers.Lease
 		}
 	}
 
-	return existing, drivers.LineageLeaseMeta{
+	return existing, backend.LineageLeaseMeta{
 		LeaseID:      lineage.LeaseID,
 		Kind:         lineage.Kind,
 		AncestorKeys: cloneAncestorKeys(lineage.AncestorKeys),
 	}, nil
 }
 
-func (m *MemoryDriver) ReleaseWithLineage(ctx context.Context, lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) error {
+func (m *MemoryDriver) ReleaseWithLineage(ctx context.Context, lease backend.LeaseRecord, lineage backend.LineageLeaseMeta) error {
 	if len(lease.ResourceKeys) != 1 {
-		return drivers.ErrInvalidRequest
+		return backend.ErrInvalidRequest
 	}
 	if lineage.LeaseID == "" {
-		return drivers.ErrInvalidRequest
+		return backend.ErrInvalidRequest
 	}
 
 	key := lease.ResourceKeys[0]
@@ -462,10 +461,10 @@ func (m *MemoryDriver) ReleaseWithLineage(ctx context.Context, lease drivers.Lea
 
 	existing, ok := m.leases[key]
 	if !ok {
-		return drivers.ErrLeaseNotFound
+		return backend.ErrLeaseNotFound
 	}
 	if existing.OwnerID != lease.OwnerID {
-		return drivers.ErrLeaseOwnerMismatch
+		return backend.ErrLeaseOwnerMismatch
 	}
 
 	delete(m.leases, key)
@@ -490,15 +489,15 @@ func (m *MemoryDriver) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (m *MemoryDriver) rejectLineageConflict(now time.Time, req drivers.LineageAcquireRequest) error {
+func (m *MemoryDriver) rejectLineageConflict(now time.Time, req backend.LineageAcquireRequest) error {
 	// Exact-key conflicts are handled as plain contention.
 	if existing, ok := m.leases[req.ResourceKey]; ok && !existing.IsExpired(now) {
-		return drivers.ErrLeaseAlreadyHeld
+		return backend.ErrLeaseAlreadyHeld
 	}
 
 	switch req.Lineage.Kind {
-	case definitions.KindParent:
-		ancestorKey := formatAncestorKey(drivers.AncestorKey{
+	case backend.KindParent:
+		ancestorKey := formatAncestorKey(backend.AncestorKey{
 			DefinitionID: req.DefinitionID,
 			ResourceKey:  req.ResourceKey,
 		})
@@ -507,7 +506,7 @@ func (m *MemoryDriver) rejectLineageConflict(now time.Time, req drivers.LineageA
 				return lockerrors.ErrOverlapRejected
 			}
 		}
-	case definitions.KindChild:
+	case backend.KindChild:
 		for _, ancestor := range req.Lineage.AncestorKeys {
 			if existing, ok := m.leases[ancestor.ResourceKey]; ok && !existing.IsExpired(now) {
 				return lockerrors.ErrOverlapRejected
@@ -518,7 +517,7 @@ func (m *MemoryDriver) rejectLineageConflict(now time.Time, req drivers.LineageA
 	return nil
 }
 
-func (m *MemoryDriver) storeLeaseAndMembership(lease drivers.LeaseRecord, lineage drivers.LineageLeaseMeta) {
+func (m *MemoryDriver) storeLeaseAndMembership(lease backend.LeaseRecord, lineage backend.LineageLeaseMeta) {
 	key := lease.ResourceKeys[0]
 	m.leases[key] = lease
 	m.lineageLeases[lineage.LeaseID] = lineageLeaseState{
@@ -568,16 +567,16 @@ func strictBoundaryKey(definitionID, resourceKey string) string {
 	return definitionID + "\x00" + resourceKey
 }
 
-func formatAncestorKey(key drivers.AncestorKey) string {
+func formatAncestorKey(key backend.AncestorKey) string {
 	// Stable join; resource keys may contain ":" so use a separator unlikely to appear.
 	return key.DefinitionID + "\x00" + key.ResourceKey
 }
 
-func cloneAncestorKeys(input []drivers.AncestorKey) []drivers.AncestorKey {
+func cloneAncestorKeys(input []backend.AncestorKey) []backend.AncestorKey {
 	if len(input) == 0 {
 		return nil
 	}
-	out := make([]drivers.AncestorKey, len(input))
+	out := make([]backend.AncestorKey, len(input))
 	copy(out, input)
 	return out
 }

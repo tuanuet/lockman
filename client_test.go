@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"lockman/lockkit/drivers"
+	"lockman/backend"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/testkit"
@@ -204,22 +204,22 @@ func mustRegisterUseCases(t *testing.T, reg *Registry, useCases ...registeredUse
 }
 
 type exactOnlyDriverStub struct {
-	inner drivers.Driver
+	inner backend.Driver
 }
 
-func (d exactOnlyDriverStub) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d exactOnlyDriverStub) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.inner.Acquire(ctx, req)
 }
 
-func (d exactOnlyDriverStub) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d exactOnlyDriverStub) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.inner.Renew(ctx, lease)
 }
 
-func (d exactOnlyDriverStub) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d exactOnlyDriverStub) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.inner.Release(ctx, lease)
 }
 
-func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.inner.CheckPresence(ctx, req)
 }
 
