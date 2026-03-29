@@ -10,7 +10,7 @@ import (
 	"lockman/backend"
 	"lockman/lockkit/definitions"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 	"lockman/lockkit/internal/policy"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/testkit"

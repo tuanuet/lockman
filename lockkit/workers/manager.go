@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 
 	"lockman/backend"
+	"lockman/idempotency"
 	"lockman/lockkit/definitions"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/idempotency"
 	"lockman/lockkit/registry"
 )
 

@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 
 	"lockman/backend"
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 	lockruntime "lockman/lockkit/runtime"
 	"lockman/lockkit/workers"
 )

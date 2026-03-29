@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"lockman/backend"
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 )
 
 // Identity identifies the caller for lock ownership and diagnostics.

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"lockman/backend"
+	"lockman/idempotency"
 	"lockman/lockkit/definitions"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/idempotency"
 	"lockman/lockkit/internal/lineage"
 	"lockman/lockkit/internal/policy"
 )

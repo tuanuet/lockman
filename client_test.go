@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"lockman/backend"
+	"lockman/idempotency"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/idempotency"
 	"lockman/lockkit/testkit"
 )
 

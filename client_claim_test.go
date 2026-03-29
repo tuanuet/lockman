@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 	"lockman/lockkit/testkit"
 )
 

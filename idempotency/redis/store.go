@@ -3,7 +3,7 @@ package redis
 import (
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 	redisstore "lockman/lockkit/idempotency/redis"
 )
 
