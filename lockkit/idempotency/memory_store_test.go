@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 )
 
 type fakeClock struct {

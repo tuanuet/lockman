@@ -10,7 +10,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 )
 
 func TestStoreBeginRejectsSecondActiveClaim(t *testing.T) {

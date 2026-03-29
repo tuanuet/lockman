@@ -12,7 +12,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/idempotency"
+	"lockman/idempotency"
 )
 
 const defaultKeyPrefix = "lockman:idempotency"

@@ -19,7 +19,7 @@ import (
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/guard"
 	guardpostgres "lockman/lockkit/guard/postgres"
-	redisstore "lockman/lockkit/idempotency/redis"
+	redisstore "lockman/idempotency/redis"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/workers"
 )
@@ -93,7 +93,7 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 
 	prefix := fmt.Sprintf("lockman:example:phase3b:guarded-worker:%d", time.Now().UnixNano())
 	driver := redisdriver.NewDriver(client, prefix+":lease")
-	store := redisstore.NewStore(client, prefix+":idempotency")
+	store := redisstore.New(client, prefix+":idempotency")
 
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{

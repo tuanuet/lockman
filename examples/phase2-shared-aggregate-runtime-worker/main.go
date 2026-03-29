@@ -13,7 +13,7 @@ import (
 	"lockman/lockkit/definitions"
 	"lockman/lockkit/observe"
 	redisdriver "lockman/lockkit/drivers/redis"
-	redisstore "lockman/lockkit/idempotency/redis"
+	redisstore "lockman/idempotency/redis"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/runtime"
 	"lockman/lockkit/workers"
@@ -44,7 +44,7 @@ func run(out io.Writer, redisURL string) error {
 
 	prefix := fmt.Sprintf("lockman:example:phase2:shared-boundary:%d", time.Now().UnixNano())
 	driver := redisdriver.NewDriver(client, prefix+":lease")
-	store := redisstore.NewStore(client, prefix+":idempotency")
+	store := redisstore.New(client, prefix+":idempotency")
 
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
