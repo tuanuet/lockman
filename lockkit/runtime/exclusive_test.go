@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	"lockman/lockkit/observe"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/testkit"
@@ -503,22 +503,22 @@ func TestExecuteExclusiveRejectsChildWhenParentHeldByAnotherManager(t *testing.T
 }
 
 type exactOnlyDriverStub struct {
-	inner drivers.Driver
+	inner backend.Driver
 }
 
-func (d exactOnlyDriverStub) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d exactOnlyDriverStub) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.inner.Acquire(ctx, req)
 }
 
-func (d exactOnlyDriverStub) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d exactOnlyDriverStub) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.inner.Renew(ctx, lease)
 }
 
-func (d exactOnlyDriverStub) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d exactOnlyDriverStub) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.inner.Release(ctx, lease)
 }
 
-func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.inner.CheckPresence(ctx, req)
 }
 
@@ -911,21 +911,21 @@ func TestExecuteExclusiveCancellationPropagates(t *testing.T) {
 
 type contextSensitiveDriver struct{}
 
-func (contextSensitiveDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (contextSensitiveDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	<-ctx.Done()
-	return drivers.LeaseRecord{}, ctx.Err()
+	return backend.LeaseRecord{}, ctx.Err()
 }
 
-func (contextSensitiveDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
-	return drivers.LeaseRecord{}, drivers.ErrInvalidRequest
+func (contextSensitiveDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, backend.ErrInvalidRequest
 }
 
-func (contextSensitiveDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (contextSensitiveDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return nil
 }
 
-func (contextSensitiveDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
-	return drivers.PresenceRecord{}, nil
+func (contextSensitiveDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{}, nil
 }
 
 func (contextSensitiveDriver) Ping(ctx context.Context) error {
@@ -946,14 +946,14 @@ func newBlockingDriver() *blockingDriver {
 	}
 }
 
-func (b *blockingDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (b *blockingDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	b.startOnce.Do(func() { close(b.start) })
 	select {
 	case <-ctx.Done():
-		return drivers.LeaseRecord{}, ctx.Err()
+		return backend.LeaseRecord{}, ctx.Err()
 	case <-b.resume:
 		now := time.Now()
-		return drivers.LeaseRecord{
+		return backend.LeaseRecord{
 			DefinitionID: req.DefinitionID,
 			ResourceKeys: append([]string{}, req.ResourceKeys...),
 			OwnerID:      req.OwnerID,
@@ -964,16 +964,16 @@ func (b *blockingDriver) Acquire(ctx context.Context, req drivers.AcquireRequest
 	}
 }
 
-func (b *blockingDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (b *blockingDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return lease, nil
 }
 
-func (b *blockingDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (b *blockingDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return nil
 }
 
-func (b *blockingDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
-	return drivers.PresenceRecord{}, nil
+func (b *blockingDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{}, nil
 }
 
 func (b *blockingDriver) Ping(ctx context.Context) error {

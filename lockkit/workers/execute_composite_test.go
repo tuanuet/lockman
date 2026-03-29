@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/internal/policy"
@@ -19,7 +19,7 @@ import (
 type compositeWorkerManagerHarness struct {
 	*Manager
 	testStore  *idempotency.MemoryStore
-	testDriver drivers.Driver
+	testDriver backend.Driver
 }
 
 func TestExecuteCompositeClaimedPopulatesResourceKeysInCanonicalOrder(t *testing.T) {
@@ -48,7 +48,7 @@ func TestExecuteCompositeClaimedPopulatesResourceKeysInCanonicalOrder(t *testing
 func TestExecuteCompositeClaimedRollsBackOnPartialAcquireFailure(t *testing.T) {
 	reg := newRollbackCompositeWorkerRegistry(t)
 	store := idempotency.NewMemoryStore()
-	driver := newFailingCompositeClaimDriver(2, drivers.ErrLeaseAlreadyHeld)
+	driver := newFailingCompositeClaimDriver(2, backend.ErrLeaseAlreadyHeld)
 	mgr, err := NewManager(reg, driver, store)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -535,10 +535,10 @@ func overlapCompositeClaimRequest() definitions.CompositeClaimRequest {
 	}
 }
 
-func assertNotHeld(t *testing.T, driver drivers.Driver, definitionID string, key string) {
+func assertNotHeld(t *testing.T, driver backend.Driver, definitionID string, key string) {
 	t.Helper()
 
-	presence, err := driver.CheckPresence(context.Background(), drivers.PresenceRequest{
+	presence, err := driver.CheckPresence(context.Background(), backend.PresenceRequest{
 		DefinitionID: definitionID,
 		ResourceKeys: []string{key},
 	})
@@ -565,47 +565,47 @@ func newFailingCompositeClaimDriver(failAt int, failErr error) *failingComposite
 	}
 }
 
-func (d *failingCompositeClaimDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *failingCompositeClaimDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	attempt := d.acquireCount.Add(1)
 	if d.failAt > 0 && attempt == d.failAt {
-		return drivers.LeaseRecord{}, d.failErr
+		return backend.LeaseRecord{}, d.failErr
 	}
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *failingCompositeClaimDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *failingCompositeClaimDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.base.Renew(ctx, lease)
 }
 
-func (d *failingCompositeClaimDriver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
+func (d *failingCompositeClaimDriver) AcquireWithLineage(ctx context.Context, req backend.LineageAcquireRequest) (backend.LeaseRecord, error) {
 	attempt := d.acquireCount.Add(1)
 	if d.failAt > 0 && attempt == d.failAt {
-		return drivers.LeaseRecord{}, d.failErr
+		return backend.LeaseRecord{}, d.failErr
 	}
 	return d.base.AcquireWithLineage(ctx, req)
 }
 
 func (d *failingCompositeClaimDriver) RenewWithLineage(
 	ctx context.Context,
-	lease drivers.LeaseRecord,
-	lineage drivers.LineageLeaseMeta,
-) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+	lease backend.LeaseRecord,
+	lineage backend.LineageLeaseMeta,
+) (backend.LeaseRecord, backend.LineageLeaseMeta, error) {
 	return d.base.RenewWithLineage(ctx, lease, lineage)
 }
 
-func (d *failingCompositeClaimDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *failingCompositeClaimDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
 func (d *failingCompositeClaimDriver) ReleaseWithLineage(
 	ctx context.Context,
-	lease drivers.LeaseRecord,
-	lineage drivers.LineageLeaseMeta,
+	lease backend.LeaseRecord,
+	lineage backend.LineageLeaseMeta,
 ) error {
 	return d.base.ReleaseWithLineage(ctx, lease, lineage)
 }
 
-func (d *failingCompositeClaimDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *failingCompositeClaimDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -623,22 +623,22 @@ type multiMemberRenewFailDriver struct {
 	failed          atomic.Bool
 }
 
-func (d *multiMemberRenewFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *multiMemberRenewFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *multiMemberRenewFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *multiMemberRenewFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	if len(lease.ResourceKeys) == 1 && lease.ResourceKeys[0] == d.failResourceKey && d.failed.CompareAndSwap(false, true) {
-		return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+		return backend.LeaseRecord{}, backend.ErrLeaseExpired
 	}
 	return d.base.Renew(ctx, lease)
 }
 
-func (d *multiMemberRenewFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *multiMemberRenewFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d *multiMemberRenewFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *multiMemberRenewFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 

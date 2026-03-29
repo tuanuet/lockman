@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/idempotency"
 	"lockman/lockkit/internal/policy"
@@ -156,14 +156,14 @@ func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
 	reg := workerRegistryWithLineageChain(t)
 	mgr := newWorkerManagerWithDriver(t, reg, driver)
 
-	parentReq := drivers.LineageAcquireRequest{
+	parentReq := backend.LineageAcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKey:  "order:123",
 		OwnerID:      "external-parent",
 		LeaseTTL:     30 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: "parent-lease",
-			Kind:    drivers.KindParent,
+			Kind:    backend.KindParent,
 		},
 	}
 	parentLease, err := driver.AcquireWithLineage(context.Background(), parentReq)
@@ -529,7 +529,7 @@ func newWorkerManagerWithRenewFailure(t *testing.T) workerManagerHarness {
 	store := idempotency.NewMemoryStore()
 	driver := &renewFailDriver{
 		base:     testkit.NewMemoryDriver(),
-		renewErr: drivers.ErrLeaseExpired,
+		renewErr: backend.ErrLeaseExpired,
 	}
 	mgr, err := NewManager(reg, driver, store)
 	if err != nil {
@@ -560,7 +560,7 @@ func newWorkerRegistryForTest(t *testing.T, idempotencyRequired bool) *registry.
 	return reg
 }
 
-func newWorkerManagerWithDriver(t *testing.T, reg *registry.Registry, driver drivers.Driver) *Manager {
+func newWorkerManagerWithDriver(t *testing.T, reg *registry.Registry, driver backend.Driver) *Manager {
 	t.Helper()
 
 	mgr, err := NewManager(reg, driver, idempotency.NewMemoryStore())
@@ -719,25 +719,25 @@ func (d *postCallbackRenewFailDriver) releaseRenew() {
 	close(d.allowRenewResult)
 }
 
-func (d *postCallbackRenewFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *postCallbackRenewFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *postCallbackRenewFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *postCallbackRenewFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	select {
 	case <-d.renewStartedCh:
 	default:
 		close(d.renewStartedCh)
 	}
 	<-d.allowRenewResult
-	return drivers.LeaseRecord{}, drivers.ErrLeaseExpired
+	return backend.LeaseRecord{}, backend.ErrLeaseExpired
 }
 
-func (d *postCallbackRenewFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *postCallbackRenewFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d *postCallbackRenewFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *postCallbackRenewFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -751,22 +751,22 @@ type renewFailDriver struct {
 	renewSeen atomic.Bool
 }
 
-func (d *renewFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *renewFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *renewFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *renewFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	if d.renewSeen.CompareAndSwap(false, true) {
-		return drivers.LeaseRecord{}, d.renewErr
+		return backend.LeaseRecord{}, d.renewErr
 	}
 	return d.base.Renew(ctx, lease)
 }
 
-func (d *renewFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *renewFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d *renewFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *renewFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -784,19 +784,19 @@ func newStrictRenewProbeDriver() *strictRenewProbeDriver {
 	return &strictRenewProbeDriver{base: testkit.NewMemoryDriver()}
 }
 
-func (d *strictRenewProbeDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *strictRenewProbeDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *strictRenewProbeDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *strictRenewProbeDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.base.Renew(ctx, lease)
 }
 
-func (d *strictRenewProbeDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *strictRenewProbeDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d *strictRenewProbeDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *strictRenewProbeDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -804,17 +804,17 @@ func (d *strictRenewProbeDriver) Ping(ctx context.Context) error {
 	return d.base.Ping(ctx)
 }
 
-func (d *strictRenewProbeDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+func (d *strictRenewProbeDriver) AcquireStrict(ctx context.Context, req backend.StrictAcquireRequest) (backend.FencedLeaseRecord, error) {
 	return d.base.AcquireStrict(ctx, req)
 }
 
-func (d *strictRenewProbeDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+func (d *strictRenewProbeDriver) RenewStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) (backend.FencedLeaseRecord, error) {
 	d.renewCalls.Add(1)
 	d.lastRenewToken.Store(fencingToken)
 	return d.base.RenewStrict(ctx, lease, fencingToken)
 }
 
-func (d *strictRenewProbeDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+func (d *strictRenewProbeDriver) ReleaseStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) error {
 	return d.base.ReleaseStrict(ctx, lease, fencingToken)
 }
 
@@ -826,19 +826,19 @@ func newStrictRenewMismatchDriver() *strictRenewMismatchDriver {
 	return &strictRenewMismatchDriver{base: testkit.NewMemoryDriver()}
 }
 
-func (d *strictRenewMismatchDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *strictRenewMismatchDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d *strictRenewMismatchDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *strictRenewMismatchDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.base.Renew(ctx, lease)
 }
 
-func (d *strictRenewMismatchDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *strictRenewMismatchDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d *strictRenewMismatchDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *strictRenewMismatchDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -846,20 +846,20 @@ func (d *strictRenewMismatchDriver) Ping(ctx context.Context) error {
 	return d.base.Ping(ctx)
 }
 
-func (d *strictRenewMismatchDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
+func (d *strictRenewMismatchDriver) AcquireStrict(ctx context.Context, req backend.StrictAcquireRequest) (backend.FencedLeaseRecord, error) {
 	return d.base.AcquireStrict(ctx, req)
 }
 
-func (d *strictRenewMismatchDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+func (d *strictRenewMismatchDriver) RenewStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) (backend.FencedLeaseRecord, error) {
 	updated, err := d.base.RenewStrict(ctx, lease, fencingToken)
 	if err != nil {
-		return drivers.FencedLeaseRecord{}, err
+		return backend.FencedLeaseRecord{}, err
 	}
 	updated.FencingToken++
 	return updated, nil
 }
 
-func (d *strictRenewMismatchDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+func (d *strictRenewMismatchDriver) ReleaseStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) error {
 	return d.base.ReleaseStrict(ctx, lease, fencingToken)
 }
 
@@ -868,19 +868,19 @@ type strictAcquireFailDriver struct {
 	err  error
 }
 
-func (d strictAcquireFailDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d strictAcquireFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	return d.base.Acquire(ctx, req)
 }
 
-func (d strictAcquireFailDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d strictAcquireFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return d.base.Renew(ctx, lease)
 }
 
-func (d strictAcquireFailDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d strictAcquireFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	return d.base.Release(ctx, lease)
 }
 
-func (d strictAcquireFailDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d strictAcquireFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	return d.base.CheckPresence(ctx, req)
 }
 
@@ -888,14 +888,14 @@ func (d strictAcquireFailDriver) Ping(ctx context.Context) error {
 	return d.base.Ping(ctx)
 }
 
-func (d strictAcquireFailDriver) AcquireStrict(ctx context.Context, req drivers.StrictAcquireRequest) (drivers.FencedLeaseRecord, error) {
-	return drivers.FencedLeaseRecord{}, d.err
+func (d strictAcquireFailDriver) AcquireStrict(ctx context.Context, req backend.StrictAcquireRequest) (backend.FencedLeaseRecord, error) {
+	return backend.FencedLeaseRecord{}, d.err
 }
 
-func (d strictAcquireFailDriver) RenewStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) (drivers.FencedLeaseRecord, error) {
+func (d strictAcquireFailDriver) RenewStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) (backend.FencedLeaseRecord, error) {
 	return d.base.RenewStrict(ctx, lease, fencingToken)
 }
 
-func (d strictAcquireFailDriver) ReleaseStrict(ctx context.Context, lease drivers.LeaseRecord, fencingToken uint64) error {
+func (d strictAcquireFailDriver) ReleaseStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) error {
 	return d.base.ReleaseStrict(ctx, lease, fencingToken)
 }

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/testkit"
@@ -110,7 +110,7 @@ func TestExecuteCompositeExclusiveInvalidOverridesRejectedBeforeAcquire(t *testi
 
 func TestExecuteCompositeExclusiveReleasesAcquiredMembersInReverseOrderOnFailure(t *testing.T) {
 	reg := newRollbackCompositeRegistry(t)
-	driver := newFailingCompositeDriver(3, drivers.ErrLeaseAlreadyHeld)
+	driver := newFailingCompositeDriver(3, backend.ErrLeaseAlreadyHeld)
 	mgr, err := NewManager(reg, driver, nil)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -558,30 +558,30 @@ type failingCompositeDriver struct {
 	failErr         error
 	acquireCount    int
 	released        []string
-	leasesByKey     map[string]drivers.LeaseRecord
-	presenceRecords map[string]drivers.LeaseRecord
+	leasesByKey     map[string]backend.LeaseRecord
+	presenceRecords map[string]backend.LeaseRecord
 }
 
 func newFailingCompositeDriver(failAt int, failErr error) *failingCompositeDriver {
 	return &failingCompositeDriver{
 		failAt:          failAt,
 		failErr:         failErr,
-		leasesByKey:     make(map[string]drivers.LeaseRecord),
-		presenceRecords: make(map[string]drivers.LeaseRecord),
+		leasesByKey:     make(map[string]backend.LeaseRecord),
+		presenceRecords: make(map[string]backend.LeaseRecord),
 	}
 }
 
-func (d *failingCompositeDriver) Acquire(ctx context.Context, req drivers.AcquireRequest) (drivers.LeaseRecord, error) {
+func (d *failingCompositeDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.acquireCount++
 	if d.failAt > 0 && d.acquireCount == d.failAt {
-		return drivers.LeaseRecord{}, d.failErr
+		return backend.LeaseRecord{}, d.failErr
 	}
 
 	now := time.Now()
-	lease := drivers.LeaseRecord{
+	lease := backend.LeaseRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: append([]string(nil), req.ResourceKeys...),
 		OwnerID:      req.OwnerID,
@@ -597,12 +597,12 @@ func (d *failingCompositeDriver) Acquire(ctx context.Context, req drivers.Acquir
 	return lease, nil
 }
 
-func (d *failingCompositeDriver) Renew(ctx context.Context, lease drivers.LeaseRecord) (drivers.LeaseRecord, error) {
+func (d *failingCompositeDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
 	return lease, nil
 }
 
-func (d *failingCompositeDriver) AcquireWithLineage(ctx context.Context, req drivers.LineageAcquireRequest) (drivers.LeaseRecord, error) {
-	return d.Acquire(ctx, drivers.AcquireRequest{
+func (d *failingCompositeDriver) AcquireWithLineage(ctx context.Context, req backend.LineageAcquireRequest) (backend.LeaseRecord, error) {
+	return d.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: []string{req.ResourceKey},
 		OwnerID:      req.OwnerID,
@@ -612,17 +612,17 @@ func (d *failingCompositeDriver) AcquireWithLineage(ctx context.Context, req dri
 
 func (d *failingCompositeDriver) RenewWithLineage(
 	ctx context.Context,
-	lease drivers.LeaseRecord,
-	lineage drivers.LineageLeaseMeta,
-) (drivers.LeaseRecord, drivers.LineageLeaseMeta, error) {
+	lease backend.LeaseRecord,
+	lineage backend.LineageLeaseMeta,
+) (backend.LeaseRecord, backend.LineageLeaseMeta, error) {
 	renewed, err := d.Renew(ctx, lease)
 	if err != nil {
-		return drivers.LeaseRecord{}, drivers.LineageLeaseMeta{}, err
+		return backend.LeaseRecord{}, backend.LineageLeaseMeta{}, err
 	}
 	return renewed, lineage, nil
 }
 
-func (d *failingCompositeDriver) Release(ctx context.Context, lease drivers.LeaseRecord) error {
+func (d *failingCompositeDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if len(lease.ResourceKeys) == 0 {
@@ -638,17 +638,17 @@ func (d *failingCompositeDriver) Release(ctx context.Context, lease drivers.Leas
 
 func (d *failingCompositeDriver) ReleaseWithLineage(
 	ctx context.Context,
-	lease drivers.LeaseRecord,
-	lineage drivers.LineageLeaseMeta,
+	lease backend.LeaseRecord,
+	lineage backend.LineageLeaseMeta,
 ) error {
 	return d.Release(ctx, lease)
 }
 
-func (d *failingCompositeDriver) CheckPresence(ctx context.Context, req drivers.PresenceRequest) (drivers.PresenceRecord, error) {
+func (d *failingCompositeDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	record := drivers.PresenceRecord{
+	record := backend.PresenceRecord{
 		DefinitionID: req.DefinitionID,
 		ResourceKeys: append([]string(nil), req.ResourceKeys...),
 	}
