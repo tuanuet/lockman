@@ -1,3 +1,9 @@
+// Package redis provides a transitional Redis-backed implementation of the
+// top-level lockman/idempotency.Store.
+//
+// Note: this package currently delegates to the legacy lockkit Redis store
+// implementation. It will be replaced by the extracted adapter module in a
+// later task.
 package redis
 
 import (
