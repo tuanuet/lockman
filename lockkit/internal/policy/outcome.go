@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"lockman/backend"
 	lockerrors "lockman/lockkit/errors"
 )
 
@@ -37,11 +38,20 @@ func OutcomeFromError(err error) WorkerOutcome {
 		return OutcomeDLQ
 	case errors.Is(err, lockerrors.ErrDuplicateIgnored):
 		return OutcomeAck
+	case errors.Is(err, backend.ErrInvalidRequest):
+		// Invalid backend requests are not transient and should not be retried forever.
+		return OutcomeDrop
 	case errors.Is(err, lockerrors.ErrPolicyViolation):
 		return OutcomeDrop
 	case errors.Is(err, lockerrors.ErrInvariantRejected):
 		return OutcomeDrop
 	case errors.Is(err, lockerrors.ErrWorkerShuttingDown):
+		return OutcomeRetry
+	case errors.Is(err, backend.ErrLeaseAlreadyHeld):
+		return OutcomeRetry
+	case errors.Is(err, backend.ErrLeaseNotFound), errors.Is(err, backend.ErrLeaseExpired), errors.Is(err, backend.ErrLeaseOwnerMismatch):
+		// Treat backend lease state mismatches as retriable: the worker can be rescheduled
+		// and reacquire a new lease for the message.
 		return OutcomeRetry
 	case errors.Is(err, lockerrors.ErrLockBusy):
 		return OutcomeRetry

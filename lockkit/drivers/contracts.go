@@ -2,6 +2,10 @@
 //
 // The stable adapter-facing contracts live in the top-level lockman/backend package.
 // New code should depend on lockman/backend directly.
+//
+// Deprecated: use the top-level lockman/backend package. This package exists only to
+// keep internal engine code compiling during migration and should not be treated as
+// a supported contract surface.
 package drivers
 
 import "lockman/backend"
