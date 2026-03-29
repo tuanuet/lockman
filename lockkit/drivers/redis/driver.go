@@ -11,7 +11,6 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 )
@@ -740,7 +739,7 @@ func validateLineageLeaseMeta(meta drivers.LineageLeaseMeta) error {
 	if strings.TrimSpace(meta.LeaseID) == "" {
 		return drivers.ErrInvalidRequest
 	}
-	if meta.Kind != definitions.KindParent && meta.Kind != definitions.KindChild {
+	if meta.Kind != drivers.KindParent && meta.Kind != drivers.KindChild {
 		return drivers.ErrInvalidRequest
 	}
 	for _, ancestor := range meta.AncestorKeys {

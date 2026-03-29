@@ -13,7 +13,6 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/definitions"
 	"lockman/lockkit/drivers"
 	lockerrors "lockman/lockkit/errors"
 )
@@ -569,7 +568,7 @@ func newParentAcquireRequest(leaseID string) drivers.LineageAcquireRequest {
 		LeaseTTL:     2 * time.Second,
 		Lineage: drivers.LineageLeaseMeta{
 			LeaseID: leaseID,
-			Kind:    definitions.KindParent,
+			Kind:    drivers.KindParent,
 		},
 	}
 }
@@ -582,7 +581,7 @@ func newChildAcquireRequest(leaseID, itemID string, ttl time.Duration) drivers.L
 		LeaseTTL:     ttl,
 		Lineage: drivers.LineageLeaseMeta{
 			LeaseID: leaseID,
-			Kind:    definitions.KindChild,
+			Kind:    drivers.KindChild,
 			AncestorKeys: []drivers.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
