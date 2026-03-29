@@ -99,7 +99,7 @@ It creates a clean separation:
 
 This option requires one extra rule to be explicit:
 
-- any shared type that adapter modules need must either be promoted out of `lockkit` or explicitly whitelisted as an allowed engine dependency
+- any shared type that adapter modules need must be promoted out of `lockkit`
 
 ### Option C: Split Adapters Into Separate Repositories Immediately
 
@@ -152,7 +152,6 @@ The refactor should follow this rule:
 
 - if a type is part of the supported adapter authoring surface, promote it to a top-level contract package
 - if a type is only meaningful inside the engine, keep it in `lockkit`
-- if promotion is not worth the churn for this phase, the spec must explicitly whitelist that dependency rather than leaving it implicit
 
 The target is to avoid accidental adapter dependencies on:
 
@@ -161,6 +160,8 @@ The target is to avoid accidental adapter dependencies on:
 - engine-only runtime or worker internals
 
 This means the migration must evaluate shared seams intentionally instead of moving adapter files first and discovering hidden `lockkit` dependencies later.
+
+This spec intentionally does not allow a temporary whitelist for adapter-module dependencies on `lockkit/...`.
 
 ### `lockkit` Responsibilities After Refactor
 
@@ -220,6 +221,35 @@ This module owns:
 
 It should depend on the top-level `guard` contract package rather than on `lockkit/guard`.
 
+### Workspace Wiring
+
+The monorepo should use a root-level `go.work` file for local development and CI.
+
+The initial workspace should include:
+
+- `.`
+- `./redis`
+- `./idempotency/redis`
+- `./guard/postgres`
+
+The root `go.mod` should not use local `replace` directives to stitch these adapter modules together.
+
+The intended development model is:
+
+- `go.work` binds the modules together inside the monorepo
+- each module keeps its own `go.mod`
+- root and adapter CI commands run intentionally against the workspace rather than relying on ad-hoc local replacements
+
+This workspace model is for monorepo development only.
+
+For released-module behavior, the root module should not rely on sibling adapter modules being present through `go.work`.
+
+To keep that boundary clean:
+
+- runnable adapter-dependent examples should move into the relevant adapter modules
+- root-module docs may still show adapter usage snippets, but the root module should not keep runnable examples or tests that require sibling adapter modules to exist
+- published root-module validation with `GOWORK=off` should still succeed without adapter modules checked out next to it
+
 ## Contract Migration
 
 ### Backend Contract
@@ -230,6 +260,8 @@ Create a top-level `backend` package that contains the current driver contracts 
 - `StrictDriver`
 - `LineageDriver`
 - request and record types
+- backend-level sentinel errors used across adapters and engine
+- any shared lineage metadata enums needed by the backend contract
 
 `lockman.WithBackend(...)` should accept `backend.Driver`.
 
@@ -239,6 +271,12 @@ If any current backend contract types still depend on `lockkit/definitions`, the
 - be simplified so adapter modules do not need those engine definition types directly
 
 The preferred outcome is that adapter modules do not need `lockkit/definitions` at all.
+
+This is a design requirement, not an implementation-time choice.
+
+The current `definitions.LockKind` seam should be resolved by promoting a backend-scoped shared kind type rather than leaving lineage-capable adapters coupled to `lockkit/definitions`.
+
+The current driver-level sentinel errors should also move into `backend`, so adapter modules and engine code preserve `errors.Is(...)` compatibility without importing `lockkit/errors`.
 
 ### Idempotency Contract
 
@@ -252,20 +290,22 @@ Create a top-level `guard` package and move:
 
 - `Context`
 - `Outcome`
-- `ContextFromLease(...)`
-- `ContextFromClaim(...)`
 
 The new Postgres adapter module should import this package.
 
 The existing `advanced/guard` namespace remains documentation-only for now and should not collide semantically with the new `guard` contract package.
 
-This contract layer needs one extra clarification:
+This contract layer is for adapter authors and lower-level integrations in this phase, not for the default `Run(...)` or `Claim(...)` happy path.
 
-- `guard` is primarily a contract for adapter authors and lower-level integrations, not part of the default `Run(...)` or `Claim(...)` happy path
+The public `lockman.Lease` and `lockman.Claim` types should not expand in this refactor.
 
-If the new top-level `guard` package is expected to work from public callback values alone, then the public `lockman.Lease` and `lockman.Claim` types must expand to expose the required fields.
+That means lease/claim-to-guard mapping should move behind a root-internal bridge built from internal execution contexts rather than being exposed as part of the top-level `guard` contract.
 
-If the team does not want to expand those public callback structs in this phase, then `guard.ContextFromLease(...)` and `guard.ContextFromClaim(...)` should remain engine-facing helpers built from internal execution contexts rather than from the current public SDK structs.
+So the top-level `guard` package should expose stable data types only:
+
+- `Context`
+- `Outcome`
+- any guard-scoped sentinel errors needed by guard adapter modules
 
 ## SDK Surface Impact
 
@@ -299,7 +339,7 @@ The callsite should not learn about `lockkit` to use supported adapters.
 Examples and docs that currently import `lockkit/drivers/redis`, `lockkit/idempotency/redis`, or `lockkit/guard/postgres` should be handled intentionally:
 
 - keep supported first-contact examples on the top-level adapter paths
-- migrate supported adapter examples to the new module paths where needed
+- move runnable adapter-dependent examples into the relevant adapter modules
 - either migrate or explicitly archive engine-level historical examples
 - stop teaching direct imports from `lockkit` for supported adapter usage
 
@@ -325,7 +365,8 @@ Verify:
 
 - root SDK compiles against top-level contracts
 - existing client tests still pass
-- examples using supported adapters build against new module paths
+- root-module verification passes with `GOWORK=off`
+- root module no longer requires runnable adapter-dependent examples to compile
 
 ### Adapter Modules
 
@@ -337,16 +378,21 @@ The monorepo should still support a top-level verification story that runs all m
 
 This means the plan should add explicit multi-module verification commands.
 
+The verification model should assume `go.work` is present and active.
+
+It should also include an explicit released-root check with `GOWORK=off` so workspace-only success does not hide broken published-module behavior.
+
 ## Migration Order
 
 The migration should happen in this order:
 
 1. introduce stable top-level contracts
-2. decide which shared types must be promoted and which engine-only helpers stay internal
-3. repoint root SDK internals to those contracts
-4. move concrete adapter implementations into nested modules
-5. migrate supported examples and docs
-6. clean up remaining `lockkit` adapter imports
+2. promote the shared types needed by adapter modules out of `lockkit`
+3. add `go.work` and wire the nested modules into the monorepo workspace
+4. repoint root SDK internals to those contracts
+5. move concrete adapter implementations into nested modules
+6. move runnable adapter-dependent examples into adapter modules and retarget root docs
+7. clean up remaining `lockkit` adapter imports
 
 This order keeps the refactor understandable and avoids mixing contract redesign with concrete adapter moves in one unreadable step.
 
@@ -387,8 +433,18 @@ Some current adapter seams depend on `lockkit/definitions`, `lockkit/errors`, an
 Mitigation:
 
 - identify those seams explicitly before moving files
-- promote only the shared types that adapter modules actually need
-- document any temporary whitelist rather than allowing accidental `lockkit` bleed-through
+- promote the shared types that adapter modules actually need
+- reject any implementation that leaves adapter modules importing `lockkit/...`
+
+### Workspace-Only Success Risk
+
+`go.work` can make local CI green while the published root module is still broken when consumed alone.
+
+Mitigation:
+
+- keep runnable adapter-dependent examples out of the root module
+- run an explicit `GOWORK=off` root-module verification step
+- treat any root-module dependency on sibling adapter modules as a design failure for this phase
 
 ### Memory Adapter Ambiguity
 
@@ -396,10 +452,8 @@ The in-memory idempotency store currently lives under `lockkit/idempotency`.
 
 Mitigation:
 
-- classify it explicitly as internal/test support and leave it in `lockkit`, or
-- move it to the new top-level `idempotency` contract area if it is meant to be a supported adapter
-
-Do not leave its status implicit.
+- move `NewMemoryStore` into the new top-level `idempotency` package
+- treat it as supported in-memory utility rather than as an engine-local adapter
 
 ## Success Criteria
 
@@ -410,4 +464,7 @@ This refactor is successful when:
 - root SDK depends on stable top-level contracts rather than adapter internals
 - first-contact docs and supported examples no longer teach `lockkit` adapter imports
 - `lockkit` reads as engine implementation rather than as the home of supported concrete adapters
-- the spec explicitly accounts for any remaining concrete in-memory helper kept under `lockkit`
+- adapter modules do not import `lockkit/...`
+- the repository builds and tests through an explicit `go.work`-based multi-module workflow
+- the root module also verifies successfully with `GOWORK=off`
+- the in-memory idempotency utility no longer lives under `lockkit`
