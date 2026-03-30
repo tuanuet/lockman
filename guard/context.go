@@ -27,5 +27,5 @@ const (
 var (
 	// ErrInvariantRejected indicates a guarded write was rejected because the
 	// persisted boundary did not satisfy the strict-lock invariants.
-	ErrInvariantRejected = errors.New("guard invariant rejected")
+	ErrInvariantRejected = errors.New("invariant rejected")
 )
