@@ -28,4 +28,4 @@ Public SDK errors are meant to tell you what to do next.
 - `lockman.ErrLeaseLost`: the lease was lost before the callback completed
 - `lockman.ErrInvariantRejected`: a runtime invariant rejected the execution
 
-If you are seeing lower-level internal engine errors in application code, you are below the default SDK surface.
+If you are seeing lower-level internal engine errors in application code, you are below the default SDK surface. Runnable adapter-backed examples now live in the adapter modules rather than under the root `examples/` tree.

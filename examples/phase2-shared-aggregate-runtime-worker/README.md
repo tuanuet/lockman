@@ -1,5 +1,7 @@
 # Shared Aggregate Runtime/Worker Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example shows one aggregate boundary touched by both a direct human-action path and a background-worker path.
 
 ## What It Teaches
@@ -21,11 +23,9 @@ That does not automatically mean `ExecutionKind=both` is wrong. A single shared 
 
 One important nuance: split definitions over the same key shape do not automatically create one shared lease namespace. If you need `runtime` and `workers` to contend on the exact same lock record, use one shared `ExecutionKind=both` definition instead.
 
-## Run
+## Status
 
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-shared-aggregate-runtime-worker
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Output To Notice
 

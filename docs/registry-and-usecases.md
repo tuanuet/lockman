@@ -44,3 +44,5 @@ Callsites should see:
 - one `Run(...)` or `Claim(...)`
 
 Callsites should not need to pass raw definition IDs, registry lookups, or `map[string]string`.
+
+Runnable examples that need concrete adapters now live with those adapter modules. The registry contract stays in the root SDK, but the runnable Redis-backed onboarding flows live under `redis/examples/...` and `idempotency/redis/examples/...`.

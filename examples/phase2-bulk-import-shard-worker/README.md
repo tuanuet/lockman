@@ -1,5 +1,7 @@
 # Bulk Import Shard Worker Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example shows the default boundary for bulk import: one worker owns one shard, and the lock follows that shard boundary.
 
 ## What It Teaches
@@ -12,11 +14,9 @@ This example shows the default boundary for bulk import: one worker owns one sha
 
 Assume the import job is split into shards and this worker is responsible for shard `07`. The business question is not "can I lock one smaller chunk?" but "what is the smallest boundary that still gives safe ownership for all work this worker may perform?" In this teaching case, the answer is the shard.
 
-## Run
+## Status
 
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-bulk-import-shard-worker
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Output To Notice
 

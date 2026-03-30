@@ -1,5 +1,7 @@
 # Phase 3a Strict Worker Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example demonstrates strict async worker execution in Phase 3a using Redis leases and Redis idempotency state.
 
 ## What It Shows
@@ -9,16 +11,9 @@ This example demonstrates strict async worker execution in Phase 3a using Redis 
 - Terminal idempotency state after successful callback completion
 - Current Phase 3a limit: guarded persistence writes remain Phase 3b work
 
-## Prerequisites
+## Status
 
-- Redis running locally
-- `LOCKMAN_REDIS_URL` pointing to that Redis instance
-
-## Run
-
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase3a-strict-worker
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Output To Notice
 

@@ -1,5 +1,7 @@
 # Shared Definition Contention Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example shows the opposite choice from the split-definition teaching case: one shared `ExecutionKind=both` definition is used by both `runtime` and `workers`, so both paths contend on the exact same lock record.
 
 ## What It Teaches
@@ -18,11 +20,9 @@ Assume the sync approval path and the async approval path are truly the same bus
 
 Because the definition is shared, the lock backend stores one shared lease namespace for `order:123`.
 
-## Run
+## Status
 
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-shared-definition-contention
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Output To Notice
 

@@ -1,5 +1,7 @@
 # Phase 2 Composite Worker Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example is the async counterpart to the sync composite example. It combines composite locking with worker-style idempotent claim execution.
 
 ## What It Shows
@@ -9,16 +11,9 @@ This example is the async counterpart to the sync composite example. It combines
 - Redis-backed idempotency completion for one async composite job
 - Canonical ordering of composite member resource keys in worker callbacks
 
-## Prerequisites
+## Status
 
-- Redis running locally
-- `LOCKMAN_REDIS_URL` pointing to that Redis instance
-
-## Run
-
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-composite-worker
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Flow
 

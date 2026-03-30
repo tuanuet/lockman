@@ -1,5 +1,7 @@
 # Phase 2 Basic Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example is the shortest path to understand async single-resource worker locking in Phase 2.
 
 ## What It Shows
@@ -10,16 +12,9 @@ This example is the shortest path to understand async single-resource worker loc
 - Duplicate message suppression after the first successful completion
 - Presence checks while the lease is held and after it is released
 
-## Prerequisites
+## Status
 
-- Redis running locally
-- `LOCKMAN_REDIS_URL` pointing to that Redis instance
-
-## Run
-
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-basic
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Flow
 

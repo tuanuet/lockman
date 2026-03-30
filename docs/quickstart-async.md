@@ -54,4 +54,11 @@ err = client.Claim(ctx, req, func(ctx context.Context, claim lockman.Claim) erro
 })
 ```
 
-Runnable example: [`examples/async-order-processor`](../examples/async-order-processor)
+Runnable example: [`idempotency/redis/examples/async-order-processor`](../idempotency/redis/examples/async-order-processor)
+
+Run it from the adapter module root:
+
+```bash
+cd idempotency/redis
+go run ./examples/async-order-processor
+```

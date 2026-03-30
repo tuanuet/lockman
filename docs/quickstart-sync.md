@@ -49,4 +49,11 @@ err = client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error 
 })
 ```
 
-Runnable example: [`examples/sync-order-approval`](../examples/sync-order-approval)
+Runnable example: [`redis/examples/sync-order-approval`](../redis/examples/sync-order-approval)
+
+Run it from the adapter module root:
+
+```bash
+cd redis
+go run ./examples/sync-order-approval
+```

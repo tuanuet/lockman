@@ -1,28 +1,12 @@
 # Phase 3b Guarded Worker Example
 
+Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+
 This example demonstrates the Phase 3b strict-worker path where a fencing token is issued by the worker runtime and then enforced again at the Postgres write boundary. Each run uses a unique Postgres table name and drops that table during cleanup so repeated runs do not share state.
 
-## Prerequisites
+## Status
 
-- Redis running and reachable by the example
-- Postgres running and reachable by the example
-- A database matching `LOCKMAN_POSTGRES_DSN`
-- Permission to create and drop a temporary example table in that database
-
-## Environment Variables
-
-- `LOCKMAN_REDIS_URL`
-  Points the example at Redis.
-- `LOCKMAN_POSTGRES_DSN`
-  Points the example at Postgres through the pgx stdlib driver.
-
-## Run
-
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
-LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
-go run ./examples/phase3b-guarded-worker
-```
+This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
 
 ## Output Meaning
 
