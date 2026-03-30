@@ -8,10 +8,10 @@ import (
 	"os"
 	"time"
 
+	"lockman/backend"
 	"lockman/lockkit/definitions"
-	"lockman/lockkit/drivers"
-	"lockman/lockkit/observe"
 	lockerrors "lockman/lockkit/errors"
+	"lockman/lockkit/observe"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/runtime"
 	"lockman/lockkit/testkit"
@@ -49,7 +49,7 @@ func run(out io.Writer) error {
 	}
 
 	resourceKey := "order:123"
-	leaseA, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+	leaseA, err := driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{resourceKey},
 		OwnerID:      "owner-a",
@@ -62,14 +62,14 @@ func run(out io.Writer) error {
 		return err
 	}
 
-	_, err = driver.Acquire(context.Background(), drivers.AcquireRequest{
+	_, err = driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{resourceKey},
 		OwnerID:      "owner-b",
 		LeaseTTL:     leaseTTL,
 	})
 	switch {
-	case errors.Is(err, drivers.ErrLeaseAlreadyHeld), errors.Is(err, lockerrors.ErrLockBusy):
+	case errors.Is(err, backend.ErrLeaseAlreadyHeld), errors.Is(err, lockerrors.ErrLockBusy):
 		if _, writeErr := fmt.Fprintln(out, "owner-b before ttl: lock busy"); writeErr != nil {
 			return writeErr
 		}
@@ -81,7 +81,7 @@ func run(out io.Writer) error {
 
 	time.Sleep(leaseTTL + 20*time.Millisecond)
 
-	leaseB, err := driver.Acquire(context.Background(), drivers.AcquireRequest{
+	leaseB, err := driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: "OrderLock",
 		ResourceKeys: []string{resourceKey},
 		OwnerID:      "owner-b",
