@@ -12,6 +12,8 @@ import (
 )
 
 // Store is a type alias to the extracted adapter store.
+//
+// Deprecated: new code should import `lockman/idempotency/redis` directly.
 type Store = idredis.Store
 
 // New creates a Redis idempotency store compatible with lockman.WithIdempotency(...).
@@ -27,4 +29,3 @@ func New(client goredis.UniversalClient, keyPrefix string) idempotency.Store {
 func NewStore(client goredis.UniversalClient, keyPrefix string) *Store {
 	return idredis.NewStore(client, keyPrefix)
 }
-
