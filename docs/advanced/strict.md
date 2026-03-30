@@ -27,4 +27,4 @@ err := client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 })
 ```
 
-Runnable example: [`examples/strict-fenced-write`](../../examples/strict-fenced-write)
+Runnable example: [`redis/examples/strict-fenced-write`](../../redis/examples/strict-fenced-write)

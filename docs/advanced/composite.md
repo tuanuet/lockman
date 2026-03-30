@@ -29,4 +29,4 @@ err := client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 })
 ```
 
-Runnable example: [`examples/composite-transfer`](../../examples/composite-transfer)
+Runnable example: [`redis/examples/composite-transfer`](../../redis/examples/composite-transfer)
