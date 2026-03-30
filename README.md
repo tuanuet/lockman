@@ -14,7 +14,7 @@
 
 ## Install
 
-This repository is still pre-release. The current module path is:
+Install the root SDK module with:
 
 ```bash
 go get github.com/tuanuet/lockman
@@ -108,7 +108,9 @@ More detail:
 
 ## Status
 
-`lockman` is still pre-release. The SDK direction is now user-first and example-driven, but package paths and API details may still change before release.
+`lockman` `v1.0.0` is released.
+
+The root SDK path `github.com/tuanuet/lockman` is the stable entry point for synchronous and asynchronous use-case locking. Adapter modules such as `backend/redis`, `idempotency/redis`, and `guard/postgres` are versioned as nested Go modules with their own module-path tags.
 
 ## Development
 
