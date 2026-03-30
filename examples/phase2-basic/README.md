@@ -1,6 +1,6 @@
 # Phase 2 Basic Example
 
-Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+This example source is kept in the root workspace. Its `main.go` is gated behind the `lockman_examples` build tag so default root verification does not depend on sibling adapter modules.
 
 This example is the shortest path to understand async single-resource worker locking in Phase 2.
 
@@ -14,7 +14,15 @@ This example is the shortest path to understand async single-resource worker loc
 
 ## Status
 
-This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
+- This remains a runnable workspace example.
+- It intentionally uses the lower-level `registry` and `workers` APIs because it demonstrates an advanced worker lifecycle.
+- If you want the default user-facing API first, start with [`docs/quickstart-async.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/quickstart-async.md).
+
+## Run
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/phase2-basic
+```
 
 ## Flow
 

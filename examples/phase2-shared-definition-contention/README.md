@@ -1,6 +1,6 @@
 # Shared Definition Contention Example
 
-Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+This example source is kept in the root workspace. Its `main.go` is gated behind the `lockman_examples` build tag so default root verification does not depend on sibling adapter modules.
 
 This example shows the opposite choice from the split-definition teaching case: one shared `ExecutionKind=both` definition is used by both `runtime` and `workers`, so both paths contend on the exact same lock record.
 
@@ -22,7 +22,15 @@ Because the definition is shared, the lock backend stores one shared lease names
 
 ## Status
 
-This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
+- This remains a runnable workspace example.
+- It intentionally uses the lower-level `runtime`, `registry`, and `workers` APIs because it teaches an advanced shared-contention model.
+- If you want the default user-facing API first, start with [`docs/quickstart-sync.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/quickstart-sync.md) and [`docs/quickstart-async.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/quickstart-async.md).
+
+## Run
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/phase2-shared-definition-contention
+```
 
 ## Output To Notice
 

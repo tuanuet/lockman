@@ -94,7 +94,13 @@ cd redis
 go run ./examples/sync-order-approval
 ```
 
-Historical engine-first and phase-oriented example directories still exist in `examples/`, but adapter-dependent root Go packages were retired so the root module can validate without sibling adapter modules.
+Preserved root example copies still exist in `examples/`. Adapter-backed root copies are gated behind the `lockman_examples` build tag so the root module can still validate cleanly by default:
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sync-order-approval
+```
+
+Phase-oriented root examples remain available as advanced workspace examples and intentionally keep their lower-level `registry` or `workers` setup where that better teaches the scenario.
 
 ## Advanced Cases
 

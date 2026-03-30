@@ -1,12 +1,22 @@
 # Phase 3b Guarded Worker Example
 
-Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+This example source is kept in the root workspace. Its `main.go` is gated behind the `lockman_examples` build tag so default root verification does not depend on sibling adapter modules.
 
 This example demonstrates the Phase 3b strict-worker path where a fencing token is issued by the worker runtime and then enforced again at the Postgres write boundary. Each run uses a unique Postgres table name and drops that table during cleanup so repeated runs do not share state.
 
 ## Status
 
-This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
+- This remains a runnable workspace example.
+- It intentionally uses the lower-level `registry` and `workers` APIs because it demonstrates advanced strict worker execution plus guarded persistence.
+- If you want the default user-facing API first, start with [`docs/advanced/strict.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/advanced/strict.md) and [`docs/advanced/guard.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/advanced/guard.md).
+
+## Run
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
+LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
+go run -tags lockman_examples ./examples/phase3b-guarded-worker
+```
 
 ## Output Meaning
 

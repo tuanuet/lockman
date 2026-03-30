@@ -1,6 +1,6 @@
 # Shared Aggregate Runtime/Worker Example
 
-Archived note: the runnable Go package was removed from the root module during adapter-module extraction. This README remains as historical guidance only and is not part of released-root verification.
+This example source is kept in the root workspace. Its `main.go` is gated behind the `lockman_examples` build tag so default root verification does not depend on sibling adapter modules.
 
 This example shows one aggregate boundary touched by both a direct human-action path and a background-worker path.
 
@@ -25,7 +25,15 @@ One important nuance: split definitions over the same key shape do not automatic
 
 ## Status
 
-This root path is archived. Keep using it only as historical documentation while the adapter-module refactor is in flight.
+- This remains a runnable workspace example.
+- It intentionally uses lower-level `runtime` and `workers` APIs because it compares two advanced execution lifecycles on the same aggregate boundary.
+- If you want the default user-facing API first, start with [`docs/quickstart-sync.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/quickstart-sync.md) and [`docs/quickstart-async.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/quickstart-async.md).
+
+## Run
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/phase2-shared-aggregate-runtime-worker
+```
 
 ## Output To Notice
 

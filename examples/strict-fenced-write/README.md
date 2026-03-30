@@ -1,10 +1,16 @@
 # Strict Fenced Write Example
 
-This runnable example moved to the Redis adapter module.
+This example source is kept in the root workspace for discoverability. The root `main.go` is gated behind the `lockman_examples` build tag so default root verification stays clean.
 
-Run it from the adapter module root:
+Run the preserved root copy from the workspace root:
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/strict-fenced-write
+```
+
+Canonical published runnable path:
 
 ```bash
 cd redis
-go run ./examples/strict-fenced-write
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/strict-fenced-write
 ```
