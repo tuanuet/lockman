@@ -37,3 +37,32 @@ jobs:
 
       - name: Compile tagged root examples
         run: go test -tags lockman_examples ./examples/... -run '^$'
+
+  external-consumer:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Verify released modules install outside the repo
+        env:
+          GOWORK: off
+          GOPROXY: https://proxy.golang.org,direct
+        run: |
+          tmpdir="$(mktemp -d)"
+          cp testdata/externalconsumer/smoke_test.go "$tmpdir/smoke_test.go"
+          cd "$tmpdir"
+          go mod init lockmanconsumer
+          go get github.com/tuanuet/lockman@v1.0.0
+          go get github.com/tuanuet/lockman/backend/redis@v1.0.0
+          go get github.com/tuanuet/lockman/idempotency/redis@v1.0.0
+          go get github.com/tuanuet/lockman/guard/postgres@v1.0.0
+          go test ./...
