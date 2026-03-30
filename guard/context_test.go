@@ -1,6 +1,8 @@
 package guard_test
 
 import (
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/build"
 	"go/parser"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"lockman/guard"
+	lockerrors "lockman/lockkit/errors"
 )
 
 func TestContextContractFieldsAreStable(t *testing.T) {
@@ -36,6 +39,16 @@ func TestOutcomeStringsRemainStable(t *testing.T) {
 		if string(outcome) != want {
 			t.Fatalf("outcome %q changed, want %q", outcome, want)
 		}
+	}
+}
+
+func TestInvariantRejectedSentinelRemainsStable(t *testing.T) {
+	wrapped := fmt.Errorf("guard failed: %w", guard.ErrInvariantRejected)
+	if !errors.Is(wrapped, guard.ErrInvariantRejected) {
+		t.Fatalf("expected wrapped guard invariant error to match sentinel")
+	}
+	if !errors.Is(lockerrors.ErrInvariantRejected, guard.ErrInvariantRejected) {
+		t.Fatalf("expected legacy lockkit invariant error to alias guard sentinel")
 	}
 }
 
