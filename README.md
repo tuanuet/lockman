@@ -14,10 +14,10 @@
 
 ## Install
 
-This repository is still pre-release. The current in-repo module path is:
+This repository is still pre-release. The current module path is:
 
 ```bash
-go get lockman
+go get github.com/tuanuet/lockman
 ```
 
 ## Happy Path
