@@ -5,28 +5,20 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
 	"lockman"
-	"lockman/advanced/composite"
-	lockredis "lockman/redis"
+	lockredis "lockman/backend/redis"
 )
 
-type transferInput struct {
-	AccountID string
-	LedgerID  string
+type approveInput struct {
+	OrderID string
 }
 
-var transferFunds = composite.DefineRunWithOptions(
-	"transfer.run",
-	[]lockman.UseCaseOption{
-		lockman.TTL(5 * time.Second),
-	},
-	composite.DefineMember("account", lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID })),
-	composite.DefineMember("ledger", lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID })),
+var approveOrder = lockman.DefineRun[approveInput](
+	"order.approve",
+	lockman.BindResourceID("order", func(in approveInput) string { return in.OrderID }),
 )
 
 func main() {
@@ -45,13 +37,13 @@ func main() {
 
 func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	reg := lockman.NewRegistry()
-	if err := reg.Register(transferFunds); err != nil {
+	if err := reg.Register(approveOrder); err != nil {
 		return err
 	}
 
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
-		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-worker"}),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "orders-api"}),
 		lockman.WithBackend(lockredis.New(redisClient, "")),
 	)
 	if err != nil {
@@ -59,20 +51,16 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	}
 	defer client.Shutdown(context.Background())
 
-	req, err := transferFunds.With(transferInput{
-		AccountID: "acct-123",
-		LedgerID:  "ledger-456",
-	})
+	req, err := approveOrder.With(approveInput{OrderID: "123"})
 	if err != nil {
 		return err
 	}
 
 	if err := client.Run(context.Background(), req, func(_ context.Context, lease lockman.Lease) error {
-		joined := strings.Join(lease.ResourceKeys, ",")
-		if _, err := fmt.Fprintf(out, "transfer locked: %s\n", joined); err != nil {
+		if _, err := fmt.Fprintf(out, "approved order: %s\n", "123"); err != nil {
 			return err
 		}
-		_, err := fmt.Fprintf(out, "lease ttl: %s\n", lease.LeaseTTL)
+		_, err := fmt.Fprintf(out, "lease key: %s\n", lease.ResourceKey)
 		return err
 	}); err != nil {
 		return err

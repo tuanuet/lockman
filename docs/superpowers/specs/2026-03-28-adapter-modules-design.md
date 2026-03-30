@@ -46,7 +46,7 @@ First, `lockkit` is supposed to become internal engine territory, but it still c
 - `lockkit/idempotency/redis`
 - `lockkit/guard/postgres`
 
-Second, historical and engine-level examples still import those low-level adapter packages directly, which keeps the internal engine boundary blurry even though the new first-contact SDK path already prefers `lockman/redis` and `lockman/idempotency/redis`.
+Second, historical and engine-level examples still import those low-level adapter packages directly, which keeps the internal engine boundary blurry even though the new first-contact SDK path already prefers `lockman/backend/redis` and `lockman/idempotency/redis`.
 
 Third, the root module currently carries third-party dependencies that belong to adapters rather than to the SDK core:
 
@@ -193,7 +193,7 @@ This module owns:
 - Redis-specific tests
 - Redis-specific third-party dependencies
 
-The root package `lockman/redis` should no longer be a thin wrapper around an internal `lockkit` package. It becomes the adapter module itself.
+The root package `lockman/backend/redis` should no longer be a thin wrapper around an internal `lockkit` package. It becomes the adapter module itself.
 
 ### Redis Idempotency Module
 
@@ -228,7 +228,7 @@ The monorepo should use a root-level `go.work` file for local development and CI
 The initial workspace should include:
 
 - `.`
-- `./redis`
+- `./backend/redis`
 - `./idempotency/redis`
 - `./guard/postgres`
 

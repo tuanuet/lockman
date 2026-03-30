@@ -12,7 +12,7 @@ import (
 
 	"lockman"
 	"lockman/advanced/strict"
-	lockredis "lockman/redis"
+	lockredis "lockman/backend/redis"
 )
 
 type writeInput struct {

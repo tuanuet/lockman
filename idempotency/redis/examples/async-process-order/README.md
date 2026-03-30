@@ -2,7 +2,7 @@
 
 This example wires both:
 
-- `lockman/redis` as the backend
+- `lockman/backend/redis` as the backend
 - `lockman/idempotency/redis` as the idempotency store
 
 ## Run

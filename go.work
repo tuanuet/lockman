@@ -2,7 +2,7 @@ go 1.22
 
 use (
 	.
-	./redis
+	./backend/redis
 	./idempotency/redis
 	./guard/postgres
 )

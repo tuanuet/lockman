@@ -11,6 +11,6 @@ LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examp
 Canonical published runnable path:
 
 ```bash
-cd redis
+cd backend/redis
 LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/sync-transfer-funds
 ```

@@ -20,7 +20,7 @@ import (
 	"lockman/lockkit/registry"
 	"lockman/lockkit/runtime"
 	"lockman/lockkit/workers"
-	lockredis "lockman/redis"
+	lockredis "lockman/backend/redis"
 )
 
 const defaultRedisURL = "redis://localhost:6379/0"

@@ -1,4 +1,4 @@
-module lockman/redis
+module lockman/backend/redis
 
 go 1.22
 

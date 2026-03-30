@@ -11,7 +11,7 @@ import (
 
 	"lockman"
 	idempotencyredis "lockman/idempotency/redis"
-	lockredis "lockman/redis"
+	lockredis "lockman/backend/redis"
 )
 
 type processInput struct {

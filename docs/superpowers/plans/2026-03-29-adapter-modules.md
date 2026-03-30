@@ -106,12 +106,12 @@
 
 ### New adapter-module runnable examples
 
-- `redis/examples/sync-approve-order/main.go`
-- `redis/examples/sync-approve-order/main_test.go`
-- `redis/examples/sync-transfer-funds/main.go`
-- `redis/examples/sync-transfer-funds/main_test.go`
-- `redis/examples/sync-fenced-write/main.go`
-- `redis/examples/sync-fenced-write/main_test.go`
+- `backend/redis/examples/sync-approve-order/main.go`
+- `backend/redis/examples/sync-approve-order/main_test.go`
+- `backend/redis/examples/sync-transfer-funds/main.go`
+- `backend/redis/examples/sync-transfer-funds/main_test.go`
+- `backend/redis/examples/sync-fenced-write/main.go`
+- `backend/redis/examples/sync-fenced-write/main_test.go`
 - `idempotency/redis/examples/async-process-order/main.go`
 - `idempotency/redis/examples/async-process-order/main_test.go`
 
@@ -328,13 +328,13 @@ Create `go.work` with:
 ```text
 use (
 	.
-	./redis
+	./backend/redis
 )
 ```
 
 - [ ] **Step 3: Create `redis/go.mod` and move Redis backend implementation**
 
-Create `redis/go.mod` with `module lockman/redis` (matching the root module path pattern) and move the concrete implementation from `lockkit/drivers/redis` into the `redis` module so `lockman/redis` is the real adapter package.
+Create `redis/go.mod` with `module lockman/backend/redis` (matching the root module path pattern) and move the concrete implementation from `lockkit/drivers/redis` into the `redis` module so `lockman/backend/redis` is the real adapter package.
 
 - [ ] **Step 4: Repoint imports to top-level `backend` and promoted shared types**
 
@@ -351,7 +351,7 @@ If root no longer needs `go-redis` for compilation after runnable examples move 
 
 - [ ] **Step 7: Run focused Redis module tests**
 
-Run: `cd redis && go test ./... -v`
+Run: `cd backend/redis && go test ./... -v`
 Expected: PASS
 
 - [ ] **Step 8: Run workspace verification for root + Redis**
@@ -360,7 +360,7 @@ Run:
 
 ```bash
 go test ./...
-cd redis && go test ./... -v
+cd backend/redis && go test ./... -v
 ```
 
 Expected: PASS for the root module plus the Redis module.
@@ -392,7 +392,7 @@ Wire the new module into `go.work` by updating it to:
 ```text
 use (
 	.
-	./redis
+	./backend/redis
 	./idempotency/redis
 )
 ```
@@ -423,7 +423,7 @@ Run:
 
 ```bash
 go test ./...
-cd redis && go test ./... -v
+cd backend/redis && go test ./... -v
 cd ../idempotency/redis && go test ./... -v
 ```
 
@@ -457,7 +457,7 @@ Wire the new module into `go.work` by updating it to:
 ```text
 use (
 	.
-	./redis
+	./backend/redis
 	./idempotency/redis
 	./guard/postgres
 )
@@ -488,7 +488,7 @@ Run:
 
 ```bash
 go test ./...
-cd redis && go test ./... -v
+cd backend/redis && go test ./... -v
 cd ../idempotency/redis && go test ./... -v
 cd ../../guard/postgres && go test ./... -v
 ```
@@ -505,12 +505,12 @@ git commit -m "refactor: extract postgres guard module"
 ## Task 7: Move Runnable Adapter-Dependent Examples Out Of Root
 
 **Files:**
-- Create: `redis/examples/sync-approve-order/main.go`
-- Create: `redis/examples/sync-approve-order/main_test.go`
-- Create: `redis/examples/sync-transfer-funds/main.go`
-- Create: `redis/examples/sync-transfer-funds/main_test.go`
-- Create: `redis/examples/sync-fenced-write/main.go`
-- Create: `redis/examples/sync-fenced-write/main_test.go`
+- Create: `backend/redis/examples/sync-approve-order/main.go`
+- Create: `backend/redis/examples/sync-approve-order/main_test.go`
+- Create: `backend/redis/examples/sync-transfer-funds/main.go`
+- Create: `backend/redis/examples/sync-transfer-funds/main_test.go`
+- Create: `backend/redis/examples/sync-fenced-write/main.go`
+- Create: `backend/redis/examples/sync-fenced-write/main_test.go`
 - Create: `idempotency/redis/examples/async-process-order/main.go`
 - Create: `idempotency/redis/examples/async-process-order/main_test.go`
 - Modify or retire: root runnable adapter-dependent examples
@@ -547,7 +547,7 @@ Expected: PASS from the root module alone after runnable adapter-dependent examp
 Run:
 
 ```bash
-cd redis && go test ./examples/... -v
+cd backend/redis && go test ./examples/... -v
 cd ../idempotency/redis && go test ./examples/... -v
 ```
 
@@ -623,7 +623,7 @@ Run:
 ```bash
 go work sync
 go mod tidy
-cd redis && go mod tidy
+cd backend/redis && go mod tidy
 cd ../idempotency/redis && go mod tidy
 cd ../../guard/postgres && go mod tidy
 ```
@@ -634,7 +634,7 @@ Run:
 
 ```bash
 go test ./...
-cd redis && go test ./... 
+cd backend/redis && go test ./... 
 cd ../idempotency/redis && go test ./...
 cd ../../guard/postgres && go test ./...
 ```

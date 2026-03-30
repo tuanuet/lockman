@@ -28,7 +28,7 @@ go get lockman
 ## Public Packages
 
 - `lockman`: default client, registry, use cases, `Run`, and `Claim`
-- `lockman/redis`: Redis backend constructor for `lockman.WithBackend(...)`
+- `lockman/backend/redis`: Redis backend constructor for `lockman.WithBackend(...)`
 - `lockman/idempotency/redis`: Redis idempotency store for `lockman.WithIdempotency(...)`
 - `lockman/advanced/composite`: advanced composite run authoring
 - `lockman/advanced/strict`: advanced strict fenced run authoring
@@ -80,17 +80,17 @@ return client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 
 ## Examples
 
-- Sync approve order: [`redis/examples/sync-approve-order`](redis/examples/sync-approve-order)
+- Sync approve order: [`backend/redis/examples/sync-approve-order`](backend/redis/examples/sync-approve-order)
 - Async process order: [`idempotency/redis/examples/async-process-order`](idempotency/redis/examples/async-process-order)
-- Sync transfer funds: [`redis/examples/sync-transfer-funds`](redis/examples/sync-transfer-funds)
-- Sync fenced write: [`redis/examples/sync-fenced-write`](redis/examples/sync-fenced-write)
+- Sync transfer funds: [`backend/redis/examples/sync-transfer-funds`](backend/redis/examples/sync-transfer-funds)
+- Sync fenced write: [`backend/redis/examples/sync-fenced-write`](backend/redis/examples/sync-fenced-write)
 
 All new examples read `LOCKMAN_REDIS_URL` and default to `redis://127.0.0.1:6379/0`.
 
 Run adapter-backed examples from the adapter module root, for example:
 
 ```bash
-cd redis
+cd backend/redis
 go run ./examples/sync-approve-order
 ```
 

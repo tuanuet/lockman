@@ -14,7 +14,7 @@ import (
 
 	"lockman"
 	"lockman/advanced/composite"
-	lockredis "lockman/redis"
+	lockredis "lockman/backend/redis"
 )
 
 type transferInput struct {
