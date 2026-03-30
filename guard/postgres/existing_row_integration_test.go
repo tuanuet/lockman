@@ -13,8 +13,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"lockman/guard"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/guard/postgres"
+	pgguard "lockman/guard/postgres"
 )
 
 const integrationTimeout = 5 * time.Second
@@ -34,7 +33,7 @@ func TestIntegrationExistingRowUpdateAppliesNewerToken(t *testing.T) {
 	}
 	status := runGuardedExistingRowUpdate(t, ctx, db, tableName, g, "order-1", "paid")
 
-	outcome, err := postgres.ClassifyExistingRowUpdate(g, status)
+	outcome, err := pgguard.ClassifyExistingRowUpdate(g, status)
 	if err != nil {
 		t.Fatalf("ClassifyExistingRowUpdate returned error: %v", err)
 	}
@@ -58,7 +57,7 @@ func TestIntegrationExistingRowUpdateRejectsOlderTokenAsStale(t *testing.T) {
 	}
 	status := runGuardedExistingRowUpdate(t, ctx, db, tableName, g, "order-1", "paid")
 
-	outcome, err := postgres.ClassifyExistingRowUpdate(g, status)
+	outcome, err := pgguard.ClassifyExistingRowUpdate(g, status)
 	if err != nil {
 		t.Fatalf("ClassifyExistingRowUpdate returned error: %v", err)
 	}
@@ -82,7 +81,7 @@ func TestIntegrationExistingRowUpdateRejectsEqualTokenAsStale(t *testing.T) {
 	}
 	status := runGuardedExistingRowUpdate(t, ctx, db, tableName, g, "order-1", "paid")
 
-	outcome, err := postgres.ClassifyExistingRowUpdate(g, status)
+	outcome, err := pgguard.ClassifyExistingRowUpdate(g, status)
 	if err != nil {
 		t.Fatalf("ClassifyExistingRowUpdate returned error: %v", err)
 	}
@@ -104,8 +103,8 @@ func TestIntegrationExistingRowUpdateRejectsMissingRowAsInvariant(t *testing.T) 
 	}
 	status := runGuardedExistingRowUpdate(t, ctx, db, tableName, g, "missing-order", "paid")
 
-	_, err := postgres.ClassifyExistingRowUpdate(g, status)
-	if !errors.Is(err, lockerrors.ErrInvariantRejected) {
+	_, err := pgguard.ClassifyExistingRowUpdate(g, status)
+	if !errors.Is(err, guard.ErrInvariantRejected) {
 		t.Fatalf("expected invariant rejection, got %v", err)
 	}
 }
@@ -125,8 +124,8 @@ func TestIntegrationExistingRowUpdateRejectsBoundaryMismatchAsInvariant(t *testi
 	}
 	status := runGuardedExistingRowUpdate(t, ctx, db, tableName, g, "order-1", "paid")
 
-	_, err := postgres.ClassifyExistingRowUpdate(g, status)
-	if !errors.Is(err, lockerrors.ErrInvariantRejected) {
+	_, err := pgguard.ClassifyExistingRowUpdate(g, status)
+	if !errors.Is(err, guard.ErrInvariantRejected) {
 		t.Fatalf("expected invariant rejection, got %v", err)
 	}
 }
@@ -199,7 +198,7 @@ VALUES ($1, $2, $3, $4, $5, $6)
 	}
 }
 
-func runGuardedExistingRowUpdate(t *testing.T, ctx context.Context, db *sql.DB, tableName string, g guard.Context, orderID, status string) postgres.ExistingRowStatus {
+func runGuardedExistingRowUpdate(t *testing.T, ctx context.Context, db *sql.DB, tableName string, g guard.Context, orderID, status string) pgguard.ExistingRowStatus {
 	t.Helper()
 
 	query := fmt.Sprintf(`
@@ -239,7 +238,7 @@ SELECT
 		g.ResourceKey,
 		g.LockID,
 	)
-	got, err := postgres.ScanExistingRowStatus(row)
+	got, err := pgguard.ScanExistingRowStatus(row)
 	if err != nil {
 		t.Fatalf("ScanExistingRowStatus returned error: %v", err)
 	}

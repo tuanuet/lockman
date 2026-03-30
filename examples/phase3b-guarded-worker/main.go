@@ -15,11 +15,10 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"lockman/guard"
+	guardpostgres "lockman/guard/postgres"
 	redisstore "lockman/idempotency/redis"
 	"lockman/lockkit/definitions"
 	redisdriver "lockman/lockkit/drivers/redis"
-	lockerrors "lockman/lockkit/errors"
-	guardpostgres "lockman/lockkit/guard/postgres"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/workers"
 )
@@ -279,7 +278,7 @@ func mapGuardOutcomeForWorker(outcome guard.Outcome) error {
 	case guard.OutcomeApplied, guard.OutcomeStaleRejected, guard.OutcomeDuplicateIgnored:
 		return nil
 	default:
-		return fmt.Errorf("%w: unsupported guard outcome %s", lockerrors.ErrInvariantRejected, outcome)
+		return fmt.Errorf("%w: unsupported guard outcome %s", guard.ErrInvariantRejected, outcome)
 	}
 }
 

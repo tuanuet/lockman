@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"lockman/guard"
-	lockerrors "lockman/lockkit/errors"
 )
 
 type ExistingRowStatus struct {
@@ -37,26 +36,26 @@ func ScanExistingRowStatus(scanner rowScanner) (ExistingRowStatus, error) {
 func ClassifyExistingRowUpdate(g guard.Context, status ExistingRowStatus) (guard.Outcome, error) {
 	switch {
 	case !status.Found:
-		return "", fmt.Errorf("%w: guarded row not found for %s", lockerrors.ErrInvariantRejected, g.ResourceKey)
+		return "", fmt.Errorf("%w: guarded row not found for %s", guard.ErrInvariantRejected, g.ResourceKey)
 	case status.Applied:
 		return guard.OutcomeApplied, nil
 	case status.CurrentLockID != g.LockID:
 		return "", fmt.Errorf(
 			"%w: guarded boundary mismatch want lock=%s got lock=%s",
-			lockerrors.ErrInvariantRejected,
+			guard.ErrInvariantRejected,
 			g.LockID,
 			status.CurrentLockID,
 		)
 	case status.CurrentResourceKey != g.ResourceKey:
 		return "", fmt.Errorf(
 			"%w: guarded boundary mismatch want=%s got=%s",
-			lockerrors.ErrInvariantRejected,
+			guard.ErrInvariantRejected,
 			g.ResourceKey,
 			status.CurrentResourceKey,
 		)
 	case status.CurrentToken >= g.FencingToken:
 		return guard.OutcomeStaleRejected, nil
 	default:
-		return "", fmt.Errorf("%w: inconsistent guarded update state", lockerrors.ErrInvariantRejected)
+		return "", fmt.Errorf("%w: inconsistent guarded update state", guard.ErrInvariantRejected)
 	}
 }

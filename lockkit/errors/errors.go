@@ -4,6 +4,7 @@ import (
 	stdErrors "errors"
 
 	"lockman/backend"
+	"lockman/guard"
 )
 
 var (
@@ -33,7 +34,7 @@ var (
 	ErrDuplicateIgnored = stdErrors.New("duplicate ignored")
 
 	// ErrInvariantRejected indicates runtime invariant checks rejected execution.
-	ErrInvariantRejected = stdErrors.New("invariant rejected")
+	ErrInvariantRejected = guard.ErrInvariantRejected
 
 	// ErrWorkerShuttingDown indicates worker runtime is shutting down.
 	ErrWorkerShuttingDown = stdErrors.New("worker shutting down")
