@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Test root workspace
+        run: go test ./...
+
+      - name: Test root without workspace
+        run: GOWORK=off go test ./...
+
+      - name: Test backend redis module
+        run: cd backend/redis && go test ./...
+
+      - name: Test idempotency redis module
+        run: cd idempotency/redis && go test ./...
+
+      - name: Test guard postgres module
+        run: cd guard/postgres && go test ./...
+
+      - name: Compile tagged root examples
+        run: go test -tags lockman_examples ./examples/... -run '^$'
