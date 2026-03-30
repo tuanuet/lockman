@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'backend/redis/v*'
+      - 'idempotency/redis/v*'
+      - 'guard/postgres/v*'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Test root workspace
+        run: go test ./...
+
+      - name: Test root without workspace
+        run: GOWORK=off go test ./...
+
+      - name: Test backend redis module
+        run: cd backend/redis && go test ./...
+
+      - name: Test idempotency redis module
+        run: cd idempotency/redis && go test ./...
+
+      - name: Test guard postgres module
+        run: cd guard/postgres && go test ./...
+
+      - name: Compile tagged root examples
+        run: go test -tags lockman_examples ./examples/... -run '^$'
+
+  external-consumer:
+    runs-on: ubuntu-latest
+    needs: verify
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Verify released module installs outside the repo
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GOWORK: off
+          GOPROXY: https://proxy.golang.org,direct
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v*)
+              module_path="github.com/tuanuet/lockman"
+              module_version="$GITHUB_REF_NAME"
+              root_version="$module_version"
+              cat > smoke_test.go <<'EOF'
+              package lockmanreleaseconsumer
+
+              import (
+              	"testing"
+
+              	"github.com/tuanuet/lockman"
+              )
+
+              func TestReleasedModuleCompiles(t *testing.T) {
+              	var _ lockman.Identity
+              	var _ = lockman.NewRegistry
+              }
+              EOF
+              ;;
+            backend/redis/v*)
+              module_path="github.com/tuanuet/lockman/backend/redis"
+              module_version="${GITHUB_REF_NAME#backend/redis/}"
+              root_version="$module_version"
+              cat > smoke_test.go <<'EOF'
+              package lockmanreleaseconsumer
+
+              import (
+              	"testing"
+
+              	"github.com/tuanuet/lockman"
+              	backendredis "github.com/tuanuet/lockman/backend/redis"
+              )
+
+              func TestReleasedModuleCompiles(t *testing.T) {
+              	var _ lockman.Identity
+              	var _ = backendredis.New
+              }
+              EOF
+              ;;
+            idempotency/redis/v*)
+              module_path="github.com/tuanuet/lockman/idempotency/redis"
+              module_version="${GITHUB_REF_NAME#idempotency/redis/}"
+              root_version="$module_version"
+              cat > smoke_test.go <<'EOF'
+              package lockmanreleaseconsumer
+
+              import (
+              	"testing"
+
+              	"github.com/tuanuet/lockman"
+              	idempotencyredis "github.com/tuanuet/lockman/idempotency/redis"
+              )
+
+              func TestReleasedModuleCompiles(t *testing.T) {
+              	var _ lockman.Identity
+              	var _ = idempotencyredis.New
+              }
+              EOF
+              ;;
+            guard/postgres/v*)
+              module_path="github.com/tuanuet/lockman/guard/postgres"
+              module_version="${GITHUB_REF_NAME#guard/postgres/}"
+              root_version="$module_version"
+              cat > smoke_test.go <<'EOF'
+              package lockmanreleaseconsumer
+
+              import (
+              	"testing"
+
+              	"github.com/tuanuet/lockman"
+              	guardpostgres "github.com/tuanuet/lockman/guard/postgres"
+              )
+
+              func TestReleasedModuleCompiles(t *testing.T) {
+              	var _ lockman.Identity
+              	var _ guardpostgres.ExistingRowStatus
+              }
+              EOF
+              ;;
+            *)
+              echo "unsupported tag: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          tmpdir="$(mktemp -d)"
+          mv smoke_test.go "$tmpdir/smoke_test.go"
+          cd "$tmpdir"
+          go mod init lockmanreleaseconsumer
+          go get "github.com/tuanuet/lockman@$root_version"
+          go get "$module_path@$module_version"
+          go test ./...
+
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - external-consumer
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
