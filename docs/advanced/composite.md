@@ -29,4 +29,7 @@ err := client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 })
 ```
 
-Runnable example: [`backend/redis/examples/sync-transfer-funds`](../../backend/redis/examples/sync-transfer-funds)
+Runnable examples:
+
+- Workspace SDK mirror: [`examples/sdk/sync-transfer-funds`](../../examples/sdk/sync-transfer-funds)
+- Published adapter copy: [`backend/redis/examples/sync-transfer-funds`](../../backend/redis/examples/sync-transfer-funds)

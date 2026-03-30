@@ -10,56 +10,46 @@ import (
 	"testing"
 )
 
-var restoredRootExamples = []string{
-	"examples/sync-approve-order/main.go",
-	"examples/async-process-order/main.go",
-	"examples/sync-transfer-funds/main.go",
-	"examples/sync-fenced-write/main.go",
-	"examples/async-single-resource/main.go",
-	"examples/async-bulk-import-shard/main.go",
-	"examples/async-composite-lock/main.go",
-	"examples/shared-aggregate-split-definitions/main.go",
-	"examples/shared-definition-contention/main.go",
-	"examples/strict-async-fencing/main.go",
-	"examples/strict-guarded-write/main.go",
+var sdkWorkspaceExamples = []string{
+	"examples/sdk/sync-approve-order/main.go",
+	"examples/sdk/async-process-order/main.go",
+	"examples/sdk/shared-aggregate-split-definitions/main.go",
+	"examples/sdk/parent-lock-over-composite/main.go",
+	"examples/sdk/sync-transfer-funds/main.go",
+	"examples/sdk/sync-fenced-write/main.go",
 }
 
-var restoredRootExampleTests = []string{
-	"examples/sync-approve-order/main_test.go",
-	"examples/async-process-order/main_test.go",
-	"examples/sync-transfer-funds/main_test.go",
-	"examples/sync-fenced-write/main_test.go",
-	"examples/async-single-resource/main_test.go",
-	"examples/async-bulk-import-shard/main_test.go",
-	"examples/async-composite-lock/main_test.go",
-	"examples/shared-aggregate-split-definitions/main_test.go",
-	"examples/shared-definition-contention/main_test.go",
-	"examples/strict-async-fencing/main_test.go",
-	"examples/strict-guarded-write/main_test.go",
+var sdkWorkspaceExampleTests = []string{
+	"examples/sdk/sync-approve-order/main_test.go",
+	"examples/sdk/async-process-order/main_test.go",
+	"examples/sdk/shared-aggregate-split-definitions/main_test.go",
+	"examples/sdk/parent-lock-over-composite/main_test.go",
+	"examples/sdk/sync-transfer-funds/main_test.go",
+	"examples/sdk/sync-fenced-write/main_test.go",
 }
 
-func TestRestoredRootExamplesExist(t *testing.T) {
+func TestSDKWorkspaceExamplesExist(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
 
-	for _, rel := range restoredRootExamples {
+	for _, rel := range sdkWorkspaceExamples {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
-			t.Fatalf("expected restored root example %s: %v", rel, err)
+			t.Fatalf("expected sdk workspace example %s: %v", rel, err)
 		}
 	}
 }
 
-func TestRestoredRootExamplesUseWorkspaceBuildTag(t *testing.T) {
+func TestSDKWorkspaceExamplesUseWorkspaceBuildTag(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
 
-	for _, rel := range restoredRootExamples {
+	for _, rel := range sdkWorkspaceExamples {
 		path := filepath.Join(root, rel)
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -71,28 +61,28 @@ func TestRestoredRootExamplesUseWorkspaceBuildTag(t *testing.T) {
 	}
 }
 
-func TestRestoredRootExampleTestsExist(t *testing.T) {
+func TestSDKWorkspaceExampleTestsExist(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
 
-	for _, rel := range restoredRootExampleTests {
+	for _, rel := range sdkWorkspaceExampleTests {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
-			t.Fatalf("expected restored root example test %s: %v", rel, err)
+			t.Fatalf("expected sdk workspace example test %s: %v", rel, err)
 		}
 	}
 }
 
-func TestRestoredRootExampleTestsUseWorkspaceBuildTag(t *testing.T) {
+func TestSDKWorkspaceExampleTestsUseWorkspaceBuildTag(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
 
-	for _, rel := range restoredRootExampleTests {
+	for _, rel := range sdkWorkspaceExampleTests {
 		path := filepath.Join(root, rel)
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -104,14 +94,14 @@ func TestRestoredRootExampleTestsUseWorkspaceBuildTag(t *testing.T) {
 	}
 }
 
-func TestRestoredRootExamplesAvoidRemovedShimImports(t *testing.T) {
+func TestSDKWorkspaceExamplesAvoidRemovedShimImports(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
 
-	for _, rel := range restoredRootExamples {
+	for _, rel := range sdkWorkspaceExamples {
 		path := filepath.Join(root, rel)
 		fset := token.NewFileSet()
 		parsed, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)

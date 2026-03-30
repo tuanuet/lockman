@@ -80,27 +80,34 @@ return client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 
 ## Examples
 
-- Sync approve order: [`backend/redis/examples/sync-approve-order`](backend/redis/examples/sync-approve-order)
-- Async process order: [`idempotency/redis/examples/async-process-order`](idempotency/redis/examples/async-process-order)
-- Sync transfer funds: [`backend/redis/examples/sync-transfer-funds`](backend/redis/examples/sync-transfer-funds)
-- Sync fenced write: [`backend/redis/examples/sync-fenced-write`](backend/redis/examples/sync-fenced-write)
+- Workspace guide: [`examples/README.md`](examples/README.md)
+- SDK mirror, sync approve order: [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order)
+- SDK mirror, async process order: [`examples/sdk/async-process-order`](examples/sdk/async-process-order)
+- SDK mirror, shared aggregate split definitions: [`examples/sdk/shared-aggregate-split-definitions`](examples/sdk/shared-aggregate-split-definitions)
+- SDK mirror, parent lock over composite: [`examples/sdk/parent-lock-over-composite`](examples/sdk/parent-lock-over-composite)
+- SDK mirror, sync transfer funds: [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds)
+- SDK mirror, sync fenced write: [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write)
+- Published adapter copy, sync approve order: [`backend/redis/examples/sync-approve-order`](backend/redis/examples/sync-approve-order)
+- Published adapter copy, async process order: [`idempotency/redis/examples/async-process-order`](idempotency/redis/examples/async-process-order)
+- Published adapter copy, sync transfer funds: [`backend/redis/examples/sync-transfer-funds`](backend/redis/examples/sync-transfer-funds)
+- Published adapter copy, sync fenced write: [`backend/redis/examples/sync-fenced-write`](backend/redis/examples/sync-fenced-write)
 
 All new examples read `LOCKMAN_REDIS_URL` and default to `redis://127.0.0.1:6379/0`.
 
-Run adapter-backed examples from the adapter module root, for example:
+Run the workspace SDK mirror from the repo root:
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/sync-approve-order
+```
+
+Run the published adapter-backed copy from the adapter module root:
 
 ```bash
 cd backend/redis
 go run ./examples/sync-approve-order
 ```
 
-Preserved root example copies still exist in `examples/`. Adapter-backed root copies are gated behind the `lockman_examples` build tag so the root module can still validate cleanly by default:
-
-```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sync-approve-order
-```
-
-Advanced root examples remain available as workspace examples and intentionally keep their lower-level `registry` or `workers` setup where that better teaches the scenario.
+Lower-level and scenario-heavy workspace examples now live under `examples/core/`. They intentionally keep their lower-level `registry`, `runtime`, or `workers` setup where that better teaches the scenario.
 
 ## Advanced Cases
 

@@ -27,4 +27,7 @@ err := client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 })
 ```
 
-Runnable example: [`backend/redis/examples/sync-fenced-write`](../../backend/redis/examples/sync-fenced-write)
+Runnable examples:
+
+- Workspace SDK mirror: [`examples/sdk/sync-fenced-write`](../../examples/sdk/sync-fenced-write)
+- Published adapter copy: [`backend/redis/examples/sync-fenced-write`](../../backend/redis/examples/sync-fenced-write)

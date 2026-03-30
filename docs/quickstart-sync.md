@@ -49,9 +49,18 @@ err = client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error 
 })
 ```
 
-Runnable example: [`backend/redis/examples/sync-approve-order`](../backend/redis/examples/sync-approve-order)
+Runnable examples:
 
-Run it from the adapter module root:
+- Workspace SDK mirror: [`examples/sdk/sync-approve-order`](../examples/sdk/sync-approve-order)
+- Published adapter copy: [`backend/redis/examples/sync-approve-order`](../backend/redis/examples/sync-approve-order)
+
+Run the workspace SDK mirror from the repo root:
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/sync-approve-order
+```
+
+Or run the published adapter copy from the adapter module root:
 
 ```bash
 cd backend/redis

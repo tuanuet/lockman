@@ -54,9 +54,18 @@ err = client.Claim(ctx, req, func(ctx context.Context, claim lockman.Claim) erro
 })
 ```
 
-Runnable example: [`idempotency/redis/examples/async-process-order`](../idempotency/redis/examples/async-process-order)
+Runnable examples:
 
-Run it from the adapter module root:
+- Workspace SDK mirror: [`examples/sdk/async-process-order`](../examples/sdk/async-process-order)
+- Published adapter copy: [`idempotency/redis/examples/async-process-order`](../idempotency/redis/examples/async-process-order)
+
+Run the workspace SDK mirror from the repo root:
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/async-process-order
+```
+
+Or run the published adapter copy from the adapter module root:
 
 ```bash
 cd idempotency/redis

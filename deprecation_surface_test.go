@@ -37,7 +37,7 @@ func TestTTLExampleDoesNotImportLegacyDriversPackage(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
-	example := filepath.Join(root, "examples", "lease-ttl-expiry", "main.go")
+	example := filepath.Join(root, "examples", "core", "lease-ttl-expiry", "main.go")
 
 	fset := token.NewFileSet()
 	parsed, err := parser.ParseFile(fset, example, nil, parser.ImportsOnly)
