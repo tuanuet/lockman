@@ -29,9 +29,9 @@
 - `lockkit/guard/postgres/existing_row.go`: the minimal Postgres adapter helper for scanning and classifying the guarded single-row `UPDATE` query shape
 - `lockkit/guard/postgres/existing_row_test.go`: unit tests for `Applied`, `StaleRejected`, missing-row, and boundary-mismatch classification
 - `lockkit/guard/postgres/existing_row_integration_test.go`: real-Postgres tests that execute the Phase 3b query pattern against a temporary table
-- `examples/phase3b-guarded-worker/main.go`: worker-first example using Redis strict execution plus Postgres guarded writes
-- `examples/phase3b-guarded-worker/main_test.go`: example output contract test
-- `examples/phase3b-guarded-worker/README.md`: example-specific prerequisites, run command, and output notes
+- `examples/strict-guarded-write/main.go`: worker-first example using Redis strict execution plus Postgres guarded writes
+- `examples/strict-guarded-write/main_test.go`: example output contract test
+- `examples/strict-guarded-write/README.md`: example-specific prerequisites, run command, and output notes
 
 ## Phase Scope
 
@@ -469,13 +469,13 @@ git commit -m "test: add postgres guarded update integration coverage"
 ### Task 4: Add The Worker-First Guarded-Write Example
 
 **Files:**
-- Create: `examples/phase3b-guarded-worker/main.go`
-- Create: `examples/phase3b-guarded-worker/main_test.go`
-- Create: `examples/phase3b-guarded-worker/README.md`
+- Create: `examples/strict-guarded-write/main.go`
+- Create: `examples/strict-guarded-write/main_test.go`
+- Create: `examples/strict-guarded-write/README.md`
 
 - [ ] **Step 1: Write the failing example test**
 
-Create `examples/phase3b-guarded-worker/main_test.go` with a skip gate for both Redis and Postgres:
+Create `examples/strict-guarded-write/main_test.go` with a skip gate for both Redis and Postgres:
 
 ```go
 func TestRunPrintsGuardedWorkerFlow(t *testing.T) {
@@ -515,12 +515,12 @@ func TestRunPrintsGuardedWorkerFlow(t *testing.T) {
 
 - [ ] **Step 2: Run the example test to verify it fails**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./examples/phase3b-guarded-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./examples/strict-guarded-write -v`
 Expected: FAIL because `main.go` and `run(...)` do not exist yet.
 
 - [ ] **Step 3: Implement the example**
 
-Create `examples/phase3b-guarded-worker/main.go` with:
+Create `examples/strict-guarded-write/main.go` with:
 
 - a `run(out io.Writer, redisURL, postgresDSN string) error` entry point
 - a strict async definition registered with `workers.NewManager(...)`
@@ -565,7 +565,7 @@ In other words, the example should treat `OutcomeStaleRejected` as a terminal AC
 
 - [ ] **Step 4: Write the example README**
 
-Create `examples/phase3b-guarded-worker/README.md` documenting:
+Create `examples/strict-guarded-write/README.md` documenting:
 
 - Redis and Postgres prerequisites
 - `LOCKMAN_REDIS_URL`
@@ -578,18 +578,18 @@ Use this run command:
 ```bash
 LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
-go run ./examples/phase3b-guarded-worker
+go run ./examples/strict-guarded-write
 ```
 
 - [ ] **Step 5: Run the example test to verify it passes**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./examples/phase3b-guarded-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable go test ./examples/strict-guarded-write -v`
 Expected: PASS
 
 - [ ] **Step 6: Commit the example batch**
 
 ```bash
-git add examples/phase3b-guarded-worker/main.go examples/phase3b-guarded-worker/main_test.go examples/phase3b-guarded-worker/README.md
+git add examples/strict-guarded-write/main.go examples/strict-guarded-write/main_test.go examples/strict-guarded-write/README.md
 git commit -m "feat: add phase 3b guarded worker example"
 ```
 
@@ -606,7 +606,7 @@ Update `README.md` to:
 - add a `Phase 3b Status` section
 - document that guarded-write persistence safety now exists through `lockkit/guard` and the Postgres example path
 - document `LOCKMAN_POSTGRES_DSN` next to the existing Redis verification commands
-- add `go run ./examples/phase3b-guarded-worker` to the command list
+- add `go run ./examples/strict-guarded-write` to the command list
 - add the new example README link near the Phase 3a strict examples
 
 Update `docs/lock-definition-reference.md` to:
@@ -631,7 +631,7 @@ Run:
 ```bash
 LOCKMAN_REDIS_URL=redis://localhost:6379/0 \
 LOCKMAN_POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/lockman?sslmode=disable \
-go test ./examples/phase3b-guarded-worker -v
+go test ./examples/strict-guarded-write -v
 ```
 
 Expected: PASS

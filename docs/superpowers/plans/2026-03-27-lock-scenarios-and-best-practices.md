@@ -281,11 +281,11 @@ Link explicitly to:
 
 - `docs/runtime-vs-workers.md`
 - `docs/lock-definition-reference.md`
-- `examples/phase2-basic/README.md`
-- `examples/phase2-composite-sync/README.md`
-- `examples/phase2-composite-worker/README.md`
-- `examples/phase2-overlap-reject/README.md`
-- `examples/phase2-parent-child-runtime/README.md`
+- `examples/async-single-resource/README.md`
+- `examples/sync-composite-lock/README.md`
+- `examples/async-composite-lock/README.md`
+- `examples/composite-overlap-reject/README.md`
+- `examples/parent-child-overlap/README.md`
 
 - [ ] **Step 5: Verify all required cross-links exist**
 
@@ -317,7 +317,7 @@ Expected: no verbatim copy of the existing runtime/workers short version or defi
 
 - [ ] **Step 3: Verify links and examples still exist**
 
-Run: `test -f docs/runtime-vs-workers.md && test -f docs/lock-definition-reference.md && test -f examples/phase2-basic/README.md && test -f examples/phase2-composite-sync/README.md && test -f examples/phase2-composite-worker/README.md && test -f examples/phase2-overlap-reject/README.md && test -f examples/phase2-parent-child-runtime/README.md && echo ok`
+Run: `test -f docs/runtime-vs-workers.md && test -f docs/lock-definition-reference.md && test -f examples/async-single-resource/README.md && test -f examples/sync-composite-lock/README.md && test -f examples/async-composite-lock/README.md && test -f examples/composite-overlap-reject/README.md && test -f examples/parent-child-overlap/README.md && echo ok`
 Expected: `ok`
 
 - [ ] **Step 4: Verify repository example coverage still passes**

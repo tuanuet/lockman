@@ -22,11 +22,11 @@
 ### Task 2: Add Local READMEs To Each Phase 2a Example
 
 **Files:**
-- Create: `examples/phase2-basic/README.md`
-- Create: `examples/phase2-composite-sync/README.md`
-- Create: `examples/phase2-composite-worker/README.md`
-- Create: `examples/phase2-overlap-reject/README.md`
-- Create: `examples/phase2-parent-child-runtime/README.md`
+- Create: `examples/async-single-resource/README.md`
+- Create: `examples/sync-composite-lock/README.md`
+- Create: `examples/async-composite-lock/README.md`
+- Create: `examples/composite-overlap-reject/README.md`
+- Create: `examples/parent-child-overlap/README.md`
 
 - [ ] Add a short purpose statement for each example.
 - [ ] Document prerequisites (`memory` or `Redis`) and the exact `go run` command.
@@ -38,14 +38,14 @@
 
 **Files:**
 - Verify: `README.md`
-- Verify: `examples/phase2-basic/README.md`
-- Verify: `examples/phase2-composite-sync/README.md`
-- Verify: `examples/phase2-composite-worker/README.md`
-- Verify: `examples/phase2-overlap-reject/README.md`
-- Verify: `examples/phase2-parent-child-runtime/README.md`
+- Verify: `examples/async-single-resource/README.md`
+- Verify: `examples/sync-composite-lock/README.md`
+- Verify: `examples/async-composite-lock/README.md`
+- Verify: `examples/composite-overlap-reject/README.md`
+- Verify: `examples/parent-child-overlap/README.md`
 
 - [ ] Run: `go test ./examples/... -v`
 - [ ] Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/... -v`
-- [ ] Run memory examples directly: `go run ./examples/phase2-composite-sync` and `go run ./examples/phase2-parent-child-runtime`
-- [ ] Run Redis examples directly: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-basic` and `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/phase2-composite-worker`
+- [ ] Run memory examples directly: `go run ./examples/sync-composite-lock` and `go run ./examples/parent-child-overlap`
+- [ ] Run Redis examples directly: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/async-single-resource` and `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run ./examples/async-composite-lock`
 - [ ] Fix any doc text that does not match observed output.

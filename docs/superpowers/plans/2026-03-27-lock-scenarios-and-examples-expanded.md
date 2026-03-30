@@ -117,13 +117,13 @@ git commit -m "docs: regroup lock scenarios guide by family"
 ### Task 2: Add The Shared Aggregate Runtime/Worker Example
 
 **Files:**
-- Create: `examples/phase2-shared-aggregate-runtime-worker/main.go`
-- Create: `examples/phase2-shared-aggregate-runtime-worker/main_test.go`
-- Create: `examples/phase2-shared-aggregate-runtime-worker/README.md`
+- Create: `examples/shared-aggregate-split-definitions/main.go`
+- Create: `examples/shared-aggregate-split-definitions/main_test.go`
+- Create: `examples/shared-aggregate-split-definitions/README.md`
 
 - [ ] **Step 1: Write the failing test for the new example output**
 
-Create `examples/phase2-shared-aggregate-runtime-worker/main_test.go` with a Redis-gated test that expects output containing these lines:
+Create `examples/shared-aggregate-split-definitions/main_test.go` with a Redis-gated test that expects output containing these lines:
 
 ```go
 expected := []string{
@@ -139,7 +139,7 @@ expected := []string{
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase2-shared-aggregate-runtime-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/shared-aggregate-split-definitions -v`
 Expected: FAIL because the example files do not exist yet
 
 - [ ] **Step 3: Implement the example**
@@ -167,22 +167,22 @@ Create `README.md` for this example that explains:
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase2-shared-aggregate-runtime-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/shared-aggregate-split-definitions -v`
 Expected: PASS
 
 - [ ] **Step 6: Commit the example**
 
 ```bash
-git add examples/phase2-shared-aggregate-runtime-worker
+git add examples/shared-aggregate-split-definitions
 git commit -m "feat(examples): add shared aggregate runtime worker example"
 ```
 
 ### Task 3: Add The Parent-Over-Composite Example
 
 **Files:**
-- Create: `examples/phase2-parent-over-composite/main.go`
-- Create: `examples/phase2-parent-over-composite/main_test.go`
-- Create: `examples/phase2-parent-over-composite/README.md`
+- Create: `examples/parent-lock-over-composite/main.go`
+- Create: `examples/parent-lock-over-composite/main_test.go`
+- Create: `examples/parent-lock-over-composite/README.md`
 
 - [ ] **Step 1: Write the failing test for the new example output**
 
@@ -199,7 +199,7 @@ expected := []string{
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `go test ./examples/phase2-parent-over-composite -v`
+Run: `go test ./examples/parent-lock-over-composite -v`
 Expected: FAIL because the example files do not exist yet
 
 - [ ] **Step 3: Implement the example**
@@ -223,22 +223,22 @@ Explain:
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `go test ./examples/phase2-parent-over-composite -v`
+Run: `go test ./examples/parent-lock-over-composite -v`
 Expected: PASS
 
 - [ ] **Step 6: Commit the example**
 
 ```bash
-git add examples/phase2-parent-over-composite
+git add examples/parent-lock-over-composite
 git commit -m "feat(examples): add parent over composite example"
 ```
 
 ### Task 4: Add The Bulk Import Shard Worker Example
 
 **Files:**
-- Create: `examples/phase2-bulk-import-shard-worker/main.go`
-- Create: `examples/phase2-bulk-import-shard-worker/main_test.go`
-- Create: `examples/phase2-bulk-import-shard-worker/README.md`
+- Create: `examples/async-bulk-import-shard/main.go`
+- Create: `examples/async-bulk-import-shard/main_test.go`
+- Create: `examples/async-bulk-import-shard/README.md`
 
 - [ ] **Step 1: Write the failing test for the new example output**
 
@@ -256,7 +256,7 @@ expected := []string{
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase2-bulk-import-shard-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/async-bulk-import-shard -v`
 Expected: FAIL because the example files do not exist yet
 
 - [ ] **Step 3: Implement the example**
@@ -278,13 +278,13 @@ Explain:
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase2-bulk-import-shard-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/async-bulk-import-shard -v`
 Expected: PASS
 
 - [ ] **Step 6: Commit the example**
 
 ```bash
-git add examples/phase2-bulk-import-shard-worker
+git add examples/async-bulk-import-shard
 git commit -m "feat(examples): add bulk import shard worker example"
 ```
 
@@ -301,9 +301,9 @@ Update the new scenarios so each one points readers to its matching example READ
 
 Update the matrix rows for the three new scenarios so `Next Doc/Example` points to:
 
-- `examples/phase2-shared-aggregate-runtime-worker/README.md`
-- `examples/phase2-parent-over-composite/README.md`
-- `examples/phase2-bulk-import-shard-worker/README.md`
+- `examples/shared-aggregate-split-definitions/README.md`
+- `examples/parent-lock-over-composite/README.md`
+- `examples/async-bulk-import-shard/README.md`
 
 - [ ] **Step 3: Add the three new example links into the final related-docs/examples section**
 
@@ -311,7 +311,7 @@ Ensure the final related list contains all three new example READMEs.
 
 - [ ] **Step 4: Verify the new links exist in the guide**
 
-Run: `awk '/^## Decision Matrix$/{flag=1;next}/^## Related Docs And Examples$/{flag=0}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README" && awk '/^## Related Docs And Examples$/{flag=1;next}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README|examples/phase2-basic/README|examples/phase2-composite-sync/README|examples/phase2-composite-worker/README|examples/phase2-overlap-reject/README|examples/phase2-parent-child-runtime/README"`
+Run: `awk '/^## Decision Matrix$/{flag=1;next}/^## Related Docs And Examples$/{flag=0}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README" && awk '/^## Related Docs And Examples$/{flag=1;next}flag' docs/lock-scenarios-and-best-practices.md | rg -n "phase2-shared-aggregate-runtime-worker/README|phase2-parent-over-composite/README|phase2-bulk-import-shard-worker/README|examples/async-single-resource/README|examples/sync-composite-lock/README|examples/async-composite-lock/README|examples/composite-overlap-reject/README|examples/parent-child-overlap/README"`
 Expected: the three new example links appear in the decision matrix rows, and both the new and existing example links appear in the final related-docs/examples section
 
 - [ ] **Step 5: Commit the wiring changes**
@@ -325,15 +325,15 @@ git commit -m "docs: link new lock scenario examples"
 
 **Files:**
 - Verify: `docs/lock-scenarios-and-best-practices.md`
-- Verify: `examples/phase2-shared-aggregate-runtime-worker/main.go`
-- Verify: `examples/phase2-shared-aggregate-runtime-worker/main_test.go`
-- Verify: `examples/phase2-shared-aggregate-runtime-worker/README.md`
-- Verify: `examples/phase2-parent-over-composite/main.go`
-- Verify: `examples/phase2-parent-over-composite/main_test.go`
-- Verify: `examples/phase2-parent-over-composite/README.md`
-- Verify: `examples/phase2-bulk-import-shard-worker/main.go`
-- Verify: `examples/phase2-bulk-import-shard-worker/main_test.go`
-- Verify: `examples/phase2-bulk-import-shard-worker/README.md`
+- Verify: `examples/shared-aggregate-split-definitions/main.go`
+- Verify: `examples/shared-aggregate-split-definitions/main_test.go`
+- Verify: `examples/shared-aggregate-split-definitions/README.md`
+- Verify: `examples/parent-lock-over-composite/main.go`
+- Verify: `examples/parent-lock-over-composite/main_test.go`
+- Verify: `examples/parent-lock-over-composite/README.md`
+- Verify: `examples/async-bulk-import-shard/main.go`
+- Verify: `examples/async-bulk-import-shard/main_test.go`
+- Verify: `examples/async-bulk-import-shard/README.md`
 
 - [ ] **Step 1: Verify the guide now contains all required family and scenario anchors**
 
@@ -342,7 +342,7 @@ Expected: all family and new-scenario anchors present
 
 - [ ] **Step 2: Verify the new example directories and files exist**
 
-Run: `test -f examples/phase2-shared-aggregate-runtime-worker/main.go && test -f examples/phase2-shared-aggregate-runtime-worker/main_test.go && test -f examples/phase2-shared-aggregate-runtime-worker/README.md && test -f examples/phase2-parent-over-composite/main.go && test -f examples/phase2-parent-over-composite/main_test.go && test -f examples/phase2-parent-over-composite/README.md && test -f examples/phase2-bulk-import-shard-worker/main.go && test -f examples/phase2-bulk-import-shard-worker/main_test.go && test -f examples/phase2-bulk-import-shard-worker/README.md && echo ok`
+Run: `test -f examples/shared-aggregate-split-definitions/main.go && test -f examples/shared-aggregate-split-definitions/main_test.go && test -f examples/shared-aggregate-split-definitions/README.md && test -f examples/parent-lock-over-composite/main.go && test -f examples/parent-lock-over-composite/main_test.go && test -f examples/parent-lock-over-composite/README.md && test -f examples/async-bulk-import-shard/main.go && test -f examples/async-bulk-import-shard/main_test.go && test -f examples/async-bulk-import-shard/README.md && echo ok`
 Expected: `ok`
 
 - [ ] **Step 3: Run all example tests without Redis**
@@ -363,6 +363,6 @@ Expected: PASS
 - [ ] **Step 6: Final commit if verification requires touch-ups**
 
 ```bash
-git add README.md docs/lock-scenarios-and-best-practices.md examples/phase2-shared-aggregate-runtime-worker examples/phase2-parent-over-composite examples/phase2-bulk-import-shard-worker
+git add README.md docs/lock-scenarios-and-best-practices.md examples/shared-aggregate-split-definitions examples/parent-lock-over-composite examples/async-bulk-import-shard
 git commit -m "docs: polish expanded lock scenarios guide"
 ```

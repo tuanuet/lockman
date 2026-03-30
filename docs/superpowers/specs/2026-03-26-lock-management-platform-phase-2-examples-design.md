@@ -34,7 +34,7 @@ The examples should make it easy to answer:
 
 ## Example Set
 
-### `examples/phase2-basic`
+### `examples/async-single-resource`
 
 Purpose:
 
@@ -60,7 +60,7 @@ duplicate outcome: ignored
 shutdown: ok
 ```
 
-### `examples/phase2-composite-sync`
+### `examples/sync-composite-lock`
 
 Purpose:
 
@@ -82,7 +82,7 @@ canonical order: ok
 shutdown: ok
 ```
 
-### `examples/phase2-composite-worker`
+### `examples/async-composite-lock`
 
 Purpose:
 
@@ -105,7 +105,7 @@ composite idempotency after ack: completed
 shutdown: ok
 ```
 
-### `examples/phase2-overlap-reject`
+### `examples/composite-overlap-reject`
 
 Purpose:
 
@@ -147,12 +147,12 @@ Those behaviors already belong in package-level tests.
 
 Add:
 
-- `examples/phase2-composite-sync/main.go`
-- `examples/phase2-composite-sync/main_test.go`
-- `examples/phase2-composite-worker/main.go`
-- `examples/phase2-composite-worker/main_test.go`
-- `examples/phase2-overlap-reject/main.go`
-- `examples/phase2-overlap-reject/main_test.go`
+- `examples/sync-composite-lock/main.go`
+- `examples/sync-composite-lock/main_test.go`
+- `examples/async-composite-lock/main.go`
+- `examples/async-composite-lock/main_test.go`
+- `examples/composite-overlap-reject/main.go`
+- `examples/composite-overlap-reject/main_test.go`
 
 Modify:
 
@@ -160,8 +160,8 @@ Modify:
 
 Keep existing scope:
 
-- `examples/phase2-basic/main.go`
-- `examples/phase2-basic/main_test.go`
+- `examples/async-single-resource/main.go`
+- `examples/async-single-resource/main_test.go`
 
 ## Verification
 
@@ -175,15 +175,15 @@ go test ./...
 When Redis is available, Phase 2 Redis examples should also be runnable directly:
 
 ```bash
-go run ./examples/phase2-basic
-go run ./examples/phase2-composite-worker
+go run ./examples/async-single-resource
+go run ./examples/async-composite-lock
 ```
 
 Memory-backed Phase 2 examples should be runnable without external services:
 
 ```bash
-go run ./examples/phase2-composite-sync
-go run ./examples/phase2-overlap-reject
+go run ./examples/sync-composite-lock
+go run ./examples/composite-overlap-reject
 ```
 
 ## Non-Goals

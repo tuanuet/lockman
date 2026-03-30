@@ -15,8 +15,8 @@
 ### Existing files to extend
 
 - `README.md`: document Phase 2a behavior, migration caveats, and verification commands
-- `examples/phase2-parent-child-runtime/main.go`: refresh example text so it demonstrates enforced parent-child rejection instead of pre-Phase-2a ambiguity
-- `examples/phase2-parent-child-runtime/main_test.go`: keep example assertions aligned with new runtime behavior
+- `examples/parent-child-overlap/main.go`: refresh example text so it demonstrates enforced parent-child rejection instead of pre-Phase-2a ambiguity
+- `examples/parent-child-overlap/main_test.go`: keep example assertions aligned with new runtime behavior
 - `lockkit/definitions/key_builder.go`: expose safe template-backed metadata needed for recursive lineage validation
 - `lockkit/definitions/key_builder_test.go`: cover exported template metadata access and builder invariants
 - `lockkit/drivers/contracts.go`: add lineage-specific driver capability and request/meta types without widening the base `Driver` contract
@@ -1400,8 +1400,8 @@ git commit -m "feat(workers): enforce lineage overlap in worker paths"
 
 **Files:**
 - Modify: `README.md`
-- Modify: `examples/phase2-parent-child-runtime/main.go`
-- Modify: `examples/phase2-parent-child-runtime/main_test.go`
+- Modify: `examples/parent-child-overlap/main.go`
+- Modify: `examples/parent-child-overlap/main_test.go`
 - Modify: `lockkit/drivers/redis/driver_integration_test.go`
 - Modify: `lockkit/runtime/composite_test.go`
 - Modify: `lockkit/runtime/presence_test.go`
@@ -1412,7 +1412,7 @@ git commit -m "feat(workers): enforce lineage overlap in worker paths"
 
 ```go
 func TestPhase2ParentChildRuntimeExampleReportsOverlapRejection(t *testing.T) {
-	output := runExample(t, "./examples/phase2-parent-child-runtime")
+	output := runExample(t, "./examples/parent-child-overlap")
 	if !strings.Contains(output, "overlap rejected") {
 		t.Fatalf("expected overlap rejection output, got %q", output)
 	}
@@ -1535,7 +1535,7 @@ func TestWorkerRenewFailureDoesNotLeavePermanentDescendantBlockers(t *testing.T)
 
 - [ ] **Step 2: Run the docs/example verification to confirm it fails first**
 
-Run: `go test ./examples/phase2-parent-child-runtime -v`
+Run: `go test ./examples/parent-child-overlap -v`
 Expected: FAIL until the example narrative and assertions are updated for Phase 2a
 
 - [ ] **Step 3: Update docs, examples, and any missing verification scenarios**
@@ -1566,6 +1566,6 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md examples/phase2-parent-child-runtime/main.go examples/phase2-parent-child-runtime/main_test.go lockkit/drivers/redis/driver_integration_test.go lockkit/runtime/composite_test.go lockkit/runtime/presence_test.go lockkit/workers/execute_test.go lockkit/workers/execute_composite_test.go
+git add README.md examples/parent-child-overlap/main.go examples/parent-child-overlap/main_test.go lockkit/drivers/redis/driver_integration_test.go lockkit/runtime/composite_test.go lockkit/runtime/presence_test.go lockkit/workers/execute_test.go lockkit/workers/execute_composite_test.go
 git commit -m "docs(readme): document phase 2a lineage enforcement"
 ```

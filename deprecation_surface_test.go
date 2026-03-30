@@ -37,18 +37,18 @@ func TestTTLExampleDoesNotImportLegacyDriversPackage(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Dir(file)
-	example := filepath.Join(root, "examples", "ttl", "main.go")
+	example := filepath.Join(root, "examples", "lease-ttl-expiry", "main.go")
 
 	fset := token.NewFileSet()
 	parsed, err := parser.ParseFile(fset, example, nil, parser.ImportsOnly)
 	if err != nil {
-		t.Fatalf("parse ttl example: %v", err)
+		t.Fatalf("parse lease ttl example: %v", err)
 	}
 
 	for _, imp := range parsed.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
 		if path == "lockman/lockkit/drivers" {
-			t.Fatalf("ttl example still imports legacy package %q", path)
+			t.Fatalf("lease ttl example still imports legacy package %q", path)
 		}
 	}
 }

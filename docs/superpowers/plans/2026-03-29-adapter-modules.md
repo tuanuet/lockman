@@ -34,21 +34,21 @@
 - `docs/quickstart-sync.md`: keep snippet-only adapter imports, no runnable root example dependency
 - `docs/quickstart-async.md`: keep snippet-only adapter imports, no runnable root example dependency
 - `docs/registry-and-usecases.md`: keep adapter guidance aligned with extracted modules
-- `examples/sync-order-approval/main.go`: either retire from root or move into adapter module
-- `examples/sync-order-approval/main_test.go`: retire or move with the example
-- `examples/async-order-processor/main.go`: retire from root or move into adapter module
-- `examples/async-order-processor/main_test.go`: retire or move with the example
-- `examples/composite-transfer/main.go`: retire from root or move into adapter module
-- `examples/composite-transfer/main_test.go`: retire or move with the example
-- `examples/strict-fenced-write/main.go`: retire from root or move into adapter module
-- `examples/strict-fenced-write/main_test.go`: retire or move with the example
-- `examples/phase2-basic/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase2-bulk-import-shard-worker/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase2-composite-worker/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase2-shared-aggregate-runtime-worker/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase2-shared-definition-contention/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase3a-strict-worker/main.go`: retarget import path or explicitly archive as historical
-- `examples/phase3b-guarded-worker/main.go`: retarget to top-level `guard` and `guard/postgres`
+- `examples/sync-approve-order/main.go`: either retire from root or move into adapter module
+- `examples/sync-approve-order/main_test.go`: retire or move with the example
+- `examples/async-process-order/main.go`: retire from root or move into adapter module
+- `examples/async-process-order/main_test.go`: retire or move with the example
+- `examples/sync-transfer-funds/main.go`: retire from root or move into adapter module
+- `examples/sync-transfer-funds/main_test.go`: retire or move with the example
+- `examples/sync-fenced-write/main.go`: retire from root or move into adapter module
+- `examples/sync-fenced-write/main_test.go`: retire or move with the example
+- `examples/async-single-resource/main.go`: retarget import path or explicitly archive as historical
+- `examples/async-bulk-import-shard/main.go`: retarget import path or explicitly archive as historical
+- `examples/async-composite-lock/main.go`: retarget import path or explicitly archive as historical
+- `examples/shared-aggregate-split-definitions/main.go`: retarget import path or explicitly archive as historical
+- `examples/shared-definition-contention/main.go`: retarget import path or explicitly archive as historical
+- `examples/strict-async-fencing/main.go`: retarget import path or explicitly archive as historical
+- `examples/strict-guarded-write/main.go`: retarget to top-level `guard` and `guard/postgres`
 - `lockkit/runtime/manager.go`: import promoted backend contracts
 - `lockkit/runtime/exclusive.go`: import promoted backend contracts and promoted backend errors
 - `lockkit/runtime/composite.go`: import promoted backend contracts
@@ -106,14 +106,14 @@
 
 ### New adapter-module runnable examples
 
-- `redis/examples/sync-order-approval/main.go`
-- `redis/examples/sync-order-approval/main_test.go`
-- `redis/examples/composite-transfer/main.go`
-- `redis/examples/composite-transfer/main_test.go`
-- `redis/examples/strict-fenced-write/main.go`
-- `redis/examples/strict-fenced-write/main_test.go`
-- `idempotency/redis/examples/async-order-processor/main.go`
-- `idempotency/redis/examples/async-order-processor/main_test.go`
+- `redis/examples/sync-approve-order/main.go`
+- `redis/examples/sync-approve-order/main_test.go`
+- `redis/examples/sync-transfer-funds/main.go`
+- `redis/examples/sync-transfer-funds/main_test.go`
+- `redis/examples/sync-fenced-write/main.go`
+- `redis/examples/sync-fenced-write/main_test.go`
+- `idempotency/redis/examples/async-process-order/main.go`
+- `idempotency/redis/examples/async-process-order/main_test.go`
 
 ## Task 1: Promote Stable Backend Contracts
 
@@ -444,7 +444,7 @@ git commit -m "refactor: extract redis idempotency module"
 - Move/modify: `lockkit/guard/postgres/existing_row.go`
 - Move/modify: `lockkit/guard/postgres/existing_row_test.go`
 - Move/modify: `lockkit/guard/postgres/existing_row_integration_test.go`
-- Modify: `examples/phase3b-guarded-worker/main.go`
+- Modify: `examples/strict-guarded-write/main.go`
 
 - [ ] **Step 1: Write the failing Postgres guard module tests**
 
@@ -480,7 +480,7 @@ Expected: no matches in supported Postgres guard adapter code.
 
 - [ ] **Step 6: Update the guarded worker example**
 
-Repoint `examples/phase3b-guarded-worker/main.go` to top-level `guard` and nested-module `guard/postgres`, or archive/move the runnable example if root release behavior must stay `GOWORK=off` clean.
+Repoint `examples/strict-guarded-write/main.go` to top-level `guard` and nested-module `guard/postgres`, or archive/move the runnable example if root release behavior must stay `GOWORK=off` clean.
 
 - [ ] **Step 7: Run focused tests**
 
@@ -498,21 +498,21 @@ Expected: PASS for root plus all adapter modules created so far.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add guard/postgres examples/phase3b-guarded-worker
+git add guard/postgres examples/strict-guarded-write
 git commit -m "refactor: extract postgres guard module"
 ```
 
 ## Task 7: Move Runnable Adapter-Dependent Examples Out Of Root
 
 **Files:**
-- Create: `redis/examples/sync-order-approval/main.go`
-- Create: `redis/examples/sync-order-approval/main_test.go`
-- Create: `redis/examples/composite-transfer/main.go`
-- Create: `redis/examples/composite-transfer/main_test.go`
-- Create: `redis/examples/strict-fenced-write/main.go`
-- Create: `redis/examples/strict-fenced-write/main_test.go`
-- Create: `idempotency/redis/examples/async-order-processor/main.go`
-- Create: `idempotency/redis/examples/async-order-processor/main_test.go`
+- Create: `redis/examples/sync-approve-order/main.go`
+- Create: `redis/examples/sync-approve-order/main_test.go`
+- Create: `redis/examples/sync-transfer-funds/main.go`
+- Create: `redis/examples/sync-transfer-funds/main_test.go`
+- Create: `redis/examples/sync-fenced-write/main.go`
+- Create: `redis/examples/sync-fenced-write/main_test.go`
+- Create: `idempotency/redis/examples/async-process-order/main.go`
+- Create: `idempotency/redis/examples/async-process-order/main_test.go`
 - Modify or retire: root runnable adapter-dependent examples
 - Modify: `README.md`
 - Modify: `docs/quickstart-sync.md`

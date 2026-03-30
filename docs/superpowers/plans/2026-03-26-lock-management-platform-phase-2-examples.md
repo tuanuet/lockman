@@ -15,17 +15,17 @@
 ### Existing files to extend
 
 - `README.md`: list Phase 2 example commands and explain which ones require Redis
-- `examples/phase2-basic/main.go`: keep current single-resource worker example unchanged unless output/docs need alignment
-- `examples/phase2-basic/main_test.go`: keep current output contract test unchanged unless output/docs need alignment
+- `examples/async-single-resource/main.go`: keep current single-resource worker example unchanged unless output/docs need alignment
+- `examples/async-single-resource/main_test.go`: keep current output contract test unchanged unless output/docs need alignment
 
 ### New files to add
 
-- `examples/phase2-composite-sync/main.go`: sync composite example using `runtime.NewManager` and the memory driver
-- `examples/phase2-composite-sync/main_test.go`: output-contract test for the sync composite example
-- `examples/phase2-composite-worker/main.go`: async composite worker example using Redis driver and Redis idempotency store
-- `examples/phase2-composite-worker/main_test.go`: Redis-gated output-contract test for the composite worker example
-- `examples/phase2-overlap-reject/main.go`: overlap rejection example using a parent-child composite on the memory driver
-- `examples/phase2-overlap-reject/main_test.go`: output-contract test proving overlap rejection is surfaced before callback execution
+- `examples/sync-composite-lock/main.go`: sync composite example using `runtime.NewManager` and the memory driver
+- `examples/sync-composite-lock/main_test.go`: output-contract test for the sync composite example
+- `examples/async-composite-lock/main.go`: async composite worker example using Redis driver and Redis idempotency store
+- `examples/async-composite-lock/main_test.go`: Redis-gated output-contract test for the composite worker example
+- `examples/composite-overlap-reject/main.go`: overlap rejection example using a parent-child composite on the memory driver
+- `examples/composite-overlap-reject/main_test.go`: output-contract test proving overlap rejection is surfaced before callback execution
 
 ## Scope
 
@@ -47,8 +47,8 @@ It does **not** change:
 ## Task 1: Add Sync Composite Example
 
 **Files:**
-- Create: `examples/phase2-composite-sync/main.go`
-- Test: `examples/phase2-composite-sync/main_test.go`
+- Create: `examples/sync-composite-lock/main.go`
+- Test: `examples/sync-composite-lock/main_test.go`
 
 - [ ] **Step 1: Write the failing example test**
 
@@ -76,7 +76,7 @@ func TestRunPrintsCompositeSyncFlow(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `go test ./examples/phase2-composite-sync -v`
+Run: `go test ./examples/sync-composite-lock -v`
 Expected: FAIL because `main.go` and `run` do not exist yet
 
 - [ ] **Step 3: Write the minimal sync composite example**
@@ -105,21 +105,21 @@ err = mgr.ExecuteCompositeExclusive(context.Background(), req, func(ctx context.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `go test ./examples/phase2-composite-sync -v`
+Run: `go test ./examples/sync-composite-lock -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/phase2-composite-sync/main.go examples/phase2-composite-sync/main_test.go
+git add examples/sync-composite-lock/main.go examples/sync-composite-lock/main_test.go
 git commit -m "feat(examples): add phase 2 composite sync example"
 ```
 
 ## Task 2: Add Composite Worker Example
 
 **Files:**
-- Create: `examples/phase2-composite-worker/main.go`
-- Test: `examples/phase2-composite-worker/main_test.go`
+- Create: `examples/async-composite-lock/main.go`
+- Test: `examples/async-composite-lock/main_test.go`
 
 - [ ] **Step 1: Write the failing Redis-gated example test**
 
@@ -152,7 +152,7 @@ func TestRunPrintsCompositeWorkerFlow(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `go test ./examples/phase2-composite-worker -v`
+Run: `go test ./examples/async-composite-lock -v`
 Expected: FAIL because `main.go` and `run` do not exist yet, or SKIP when `LOCKMAN_REDIS_URL` is unset
 
 - [ ] **Step 3: Write the minimal composite worker example**
@@ -178,21 +178,21 @@ err = mgr.ExecuteCompositeClaimed(context.Background(), req, func(ctx context.Co
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `go test ./examples/phase2-composite-worker -v`
+Run: `go test ./examples/async-composite-lock -v`
 Expected: PASS when `LOCKMAN_REDIS_URL` is set, otherwise SKIP
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/phase2-composite-worker/main.go examples/phase2-composite-worker/main_test.go
+git add examples/async-composite-lock/main.go examples/async-composite-lock/main_test.go
 git commit -m "feat(examples): add phase 2 composite worker example"
 ```
 
 ## Task 3: Add Overlap Rejection Example
 
 **Files:**
-- Create: `examples/phase2-overlap-reject/main.go`
-- Test: `examples/phase2-overlap-reject/main_test.go`
+- Create: `examples/composite-overlap-reject/main.go`
+- Test: `examples/composite-overlap-reject/main_test.go`
 
 - [ ] **Step 1: Write the failing example test**
 
@@ -219,7 +219,7 @@ func TestRunPrintsOverlapRejectFlow(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `go test ./examples/phase2-overlap-reject -v`
+Run: `go test ./examples/composite-overlap-reject -v`
 Expected: FAIL because `main.go` and `run` do not exist yet
 
 - [ ] **Step 3: Write the minimal overlap rejection example**
@@ -240,13 +240,13 @@ default:
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `go test ./examples/phase2-overlap-reject -v`
+Run: `go test ./examples/composite-overlap-reject -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add examples/phase2-overlap-reject/main.go examples/phase2-overlap-reject/main_test.go
+git add examples/composite-overlap-reject/main.go examples/composite-overlap-reject/main_test.go
 git commit -m "feat(examples): add phase 2 overlap rejection example"
 ```
 
@@ -259,10 +259,10 @@ git commit -m "feat(examples): add phase 2 overlap rejection example"
 
 Add a Phase 2 examples section that lists:
 
-- `go run ./examples/phase2-basic`
-- `go run ./examples/phase2-composite-sync`
-- `go run ./examples/phase2-composite-worker`
-- `go run ./examples/phase2-overlap-reject`
+- `go run ./examples/async-single-resource`
+- `go run ./examples/sync-composite-lock`
+- `go run ./examples/async-composite-lock`
+- `go run ./examples/composite-overlap-reject`
 
 And distinguish Redis-backed examples from memory-backed examples.
 
@@ -278,13 +278,13 @@ Expected: no matches
 
 Redis-backed:
 
-- `go run ./examples/phase2-basic`
-- `go run ./examples/phase2-composite-worker`
+- `go run ./examples/async-single-resource`
+- `go run ./examples/async-composite-lock`
 
 Memory-backed:
 
-- `go run ./examples/phase2-composite-sync`
-- `go run ./examples/phase2-overlap-reject`
+- `go run ./examples/sync-composite-lock`
+- `go run ./examples/composite-overlap-reject`
 ```
 
 - [ ] **Step 4: Run the grep check to verify the new commands are documented**
@@ -302,14 +302,14 @@ git commit -m "docs: add phase 2 example commands"
 ## Task 5: Verify Example Coverage End-To-End
 
 **Files:**
-- Verify: `examples/phase2-basic/main.go`
-- Verify: `examples/phase2-basic/main_test.go`
-- Verify: `examples/phase2-composite-sync/main.go`
-- Verify: `examples/phase2-composite-sync/main_test.go`
-- Verify: `examples/phase2-composite-worker/main.go`
-- Verify: `examples/phase2-composite-worker/main_test.go`
-- Verify: `examples/phase2-overlap-reject/main.go`
-- Verify: `examples/phase2-overlap-reject/main_test.go`
+- Verify: `examples/async-single-resource/main.go`
+- Verify: `examples/async-single-resource/main_test.go`
+- Verify: `examples/sync-composite-lock/main.go`
+- Verify: `examples/sync-composite-lock/main_test.go`
+- Verify: `examples/async-composite-lock/main.go`
+- Verify: `examples/async-composite-lock/main_test.go`
+- Verify: `examples/composite-overlap-reject/main.go`
+- Verify: `examples/composite-overlap-reject/main_test.go`
 - Verify: `README.md`
 
 - [ ] **Step 1: Run all example tests**
@@ -327,8 +327,8 @@ Expected: PASS, with Redis integration tests and Redis-backed examples skipped w
 Run:
 
 ```bash
-go run ./examples/phase2-composite-sync
-go run ./examples/phase2-overlap-reject
+go run ./examples/sync-composite-lock
+go run ./examples/composite-overlap-reject
 ```
 
 Expected: the documented output contracts print successfully
@@ -338,8 +338,8 @@ Expected: the documented output contracts print successfully
 Run:
 
 ```bash
-go run ./examples/phase2-basic
-go run ./examples/phase2-composite-worker
+go run ./examples/async-single-resource
+go run ./examples/async-composite-lock
 ```
 
 Expected: the documented output contracts print successfully when `LOCKMAN_REDIS_URL` points at a reachable Redis instance
@@ -347,6 +347,6 @@ Expected: the documented output contracts print successfully when `LOCKMAN_REDIS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md examples/phase2-basic examples/phase2-composite-sync examples/phase2-composite-worker examples/phase2-overlap-reject
+git add README.md examples/async-single-resource examples/sync-composite-lock examples/async-composite-lock examples/composite-overlap-reject
 git commit -m "test(examples): verify phase 2 example coverage"
 ```

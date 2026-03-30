@@ -11,31 +11,31 @@ import (
 )
 
 var restoredRootExamples = []string{
-	"examples/sync-order-approval/main.go",
-	"examples/async-order-processor/main.go",
-	"examples/composite-transfer/main.go",
-	"examples/strict-fenced-write/main.go",
-	"examples/phase2-basic/main.go",
-	"examples/phase2-bulk-import-shard-worker/main.go",
-	"examples/phase2-composite-worker/main.go",
-	"examples/phase2-shared-aggregate-runtime-worker/main.go",
-	"examples/phase2-shared-definition-contention/main.go",
-	"examples/phase3a-strict-worker/main.go",
-	"examples/phase3b-guarded-worker/main.go",
+	"examples/sync-approve-order/main.go",
+	"examples/async-process-order/main.go",
+	"examples/sync-transfer-funds/main.go",
+	"examples/sync-fenced-write/main.go",
+	"examples/async-single-resource/main.go",
+	"examples/async-bulk-import-shard/main.go",
+	"examples/async-composite-lock/main.go",
+	"examples/shared-aggregate-split-definitions/main.go",
+	"examples/shared-definition-contention/main.go",
+	"examples/strict-async-fencing/main.go",
+	"examples/strict-guarded-write/main.go",
 }
 
 var restoredRootExampleTests = []string{
-	"examples/sync-order-approval/main_test.go",
-	"examples/async-order-processor/main_test.go",
-	"examples/composite-transfer/main_test.go",
-	"examples/strict-fenced-write/main_test.go",
-	"examples/phase2-basic/main_test.go",
-	"examples/phase2-bulk-import-shard-worker/main_test.go",
-	"examples/phase2-composite-worker/main_test.go",
-	"examples/phase2-shared-aggregate-runtime-worker/main_test.go",
-	"examples/phase2-shared-definition-contention/main_test.go",
-	"examples/phase3a-strict-worker/main_test.go",
-	"examples/phase3b-guarded-worker/main_test.go",
+	"examples/sync-approve-order/main_test.go",
+	"examples/async-process-order/main_test.go",
+	"examples/sync-transfer-funds/main_test.go",
+	"examples/sync-fenced-write/main_test.go",
+	"examples/async-single-resource/main_test.go",
+	"examples/async-bulk-import-shard/main_test.go",
+	"examples/async-composite-lock/main_test.go",
+	"examples/shared-aggregate-split-definitions/main_test.go",
+	"examples/shared-definition-contention/main_test.go",
+	"examples/strict-async-fencing/main_test.go",
+	"examples/strict-guarded-write/main_test.go",
 }
 
 func TestRestoredRootExamplesExist(t *testing.T) {

@@ -256,7 +256,7 @@ This scope now includes three new teaching examples.
 ### Example 1: Shared Aggregate Across Runtime And Workers
 
 - Create a new Redis-backed example:
-  [`examples/phase2-shared-aggregate-runtime-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker)
+  [`examples/shared-aggregate-split-definitions`](/Users/mrt/workspaces/boilerplate/lockman/examples/shared-aggregate-split-definitions)
 - The example should show one aggregate touched by a direct human action path and a background worker path.
 - The runnable example should use split sync and async definitions over the same aggregate key boundary as the recommended teaching case.
 - Its README should also explain when a single shared `ExecutionKind=both` definition would be acceptable, but the example body should not try to demonstrate both designs at once.
@@ -266,14 +266,14 @@ This scope now includes three new teaching examples.
 ### Example 2: Parent Over Composite
 
 - Create a new memory-backed example:
-  [`examples/phase2-parent-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite)
+  [`examples/parent-lock-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/parent-lock-over-composite)
 - The example should show that one higher aggregate parent lock can be the right answer even when several sub-resources inside the same business aggregate are involved.
 - It should explicitly teach why composite would be overkill in this case.
 
 ### Example 3: Bulk Import With Shard Ownership
 
 - Create a new Redis-backed worker example:
-  [`examples/phase2-bulk-import-shard-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker)
+  [`examples/async-bulk-import-shard`](/Users/mrt/workspaces/boilerplate/lockman/examples/async-bulk-import-shard)
 - The example should show shard ownership for async bulk import or large partitioned work.
 - It should make the shard-level boundary obvious in both output and README guidance.
 
@@ -341,14 +341,14 @@ Then link readers to:
 
 - [`docs/runtime-vs-workers.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/runtime-vs-workers.md)
 - [`docs/lock-definition-reference.md`](/Users/mrt/workspaces/boilerplate/lockman/docs/lock-definition-reference.md)
-- [`examples/phase2-basic/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-basic/README.md)
-- [`examples/phase2-composite-sync/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-sync/README.md)
-- [`examples/phase2-composite-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-composite-worker/README.md)
-- [`examples/phase2-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-overlap-reject/README.md)
-- [`examples/phase2-parent-child-runtime/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-child-runtime/README.md)
-- [`examples/phase2-shared-aggregate-runtime-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker/README.md)
-- [`examples/phase2-parent-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite/README.md)
-- [`examples/phase2-bulk-import-shard-worker/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker/README.md)
+- [`examples/async-single-resource/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/async-single-resource/README.md)
+- [`examples/sync-composite-lock/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/sync-composite-lock/README.md)
+- [`examples/async-composite-lock/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/async-composite-lock/README.md)
+- [`examples/composite-overlap-reject/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/composite-overlap-reject/README.md)
+- [`examples/parent-child-overlap/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/parent-child-overlap/README.md)
+- [`examples/shared-aggregate-split-definitions/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/shared-aggregate-split-definitions/README.md)
+- [`examples/parent-lock-over-composite/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/parent-lock-over-composite/README.md)
+- [`examples/async-bulk-import-shard/README.md`](/Users/mrt/workspaces/boilerplate/lockman/examples/async-bulk-import-shard/README.md)
 
 ## Tone And Style
 
@@ -400,9 +400,9 @@ The design is satisfied when the implementation:
 - contains a compact decision matrix with scenario type, recommended lock shape, package, why, and next doc/example
 - links to the existing runtime/workers guide, definition reference, and both the old and new examples
 - adds the three new example directories:
-  - [`examples/phase2-shared-aggregate-runtime-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-shared-aggregate-runtime-worker)
-  - [`examples/phase2-parent-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-parent-over-composite)
-  - [`examples/phase2-bulk-import-shard-worker`](/Users/mrt/workspaces/boilerplate/lockman/examples/phase2-bulk-import-shard-worker)
+  - [`examples/shared-aggregate-split-definitions`](/Users/mrt/workspaces/boilerplate/lockman/examples/shared-aggregate-split-definitions)
+  - [`examples/parent-lock-over-composite`](/Users/mrt/workspaces/boilerplate/lockman/examples/parent-lock-over-composite)
+  - [`examples/async-bulk-import-shard`](/Users/mrt/workspaces/boilerplate/lockman/examples/async-bulk-import-shard)
 - gives each new example a `main.go`, `main_test.go`, and `README.md`
 - maps the new examples to the intended backend shape:
   - shared aggregate runtime/worker -> Redis-backed

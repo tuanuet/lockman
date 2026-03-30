@@ -80,10 +80,10 @@ return client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 
 ## Examples
 
-- Sync approval: [`redis/examples/sync-order-approval`](redis/examples/sync-order-approval)
-- Async processor: [`idempotency/redis/examples/async-order-processor`](idempotency/redis/examples/async-order-processor)
-- Composite transfer: [`redis/examples/composite-transfer`](redis/examples/composite-transfer)
-- Strict fenced write: [`redis/examples/strict-fenced-write`](redis/examples/strict-fenced-write)
+- Sync approve order: [`redis/examples/sync-approve-order`](redis/examples/sync-approve-order)
+- Async process order: [`idempotency/redis/examples/async-process-order`](idempotency/redis/examples/async-process-order)
+- Sync transfer funds: [`redis/examples/sync-transfer-funds`](redis/examples/sync-transfer-funds)
+- Sync fenced write: [`redis/examples/sync-fenced-write`](redis/examples/sync-fenced-write)
 
 All new examples read `LOCKMAN_REDIS_URL` and default to `redis://127.0.0.1:6379/0`.
 
@@ -91,16 +91,16 @@ Run adapter-backed examples from the adapter module root, for example:
 
 ```bash
 cd redis
-go run ./examples/sync-order-approval
+go run ./examples/sync-approve-order
 ```
 
 Preserved root example copies still exist in `examples/`. Adapter-backed root copies are gated behind the `lockman_examples` build tag so the root module can still validate cleanly by default:
 
 ```bash
-LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sync-order-approval
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sync-approve-order
 ```
 
-Phase-oriented root examples remain available as advanced workspace examples and intentionally keep their lower-level `registry` or `workers` setup where that better teaches the scenario.
+Advanced root examples remain available as workspace examples and intentionally keep their lower-level `registry` or `workers` setup where that better teaches the scenario.
 
 ## Advanced Cases
 

@@ -538,12 +538,12 @@ git commit -m "feat: add strict fencing to redis driver"
 - Modify: `README.md`
 - Modify: `docs/lock-definition-reference.md`
 - Modify: `docs/runtime-vs-workers.md`
-- Create: `examples/phase3a-strict-runtime/main.go`
-- Create: `examples/phase3a-strict-runtime/main_test.go`
-- Create: `examples/phase3a-strict-runtime/README.md`
-- Create: `examples/phase3a-strict-worker/main.go`
-- Create: `examples/phase3a-strict-worker/main_test.go`
-- Create: `examples/phase3a-strict-worker/README.md`
+- Create: `examples/strict-sync-fencing/main.go`
+- Create: `examples/strict-sync-fencing/main_test.go`
+- Create: `examples/strict-sync-fencing/README.md`
+- Create: `examples/strict-async-fencing/main.go`
+- Create: `examples/strict-async-fencing/main_test.go`
+- Create: `examples/strict-async-fencing/README.md`
 
 - [ ] **Step 1: Write the failing example tests**
 
@@ -575,12 +575,12 @@ expected := []string{
 
 - [ ] **Step 2: Run the example tests to verify they fail**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase3a-strict-runtime ./examples/phase3a-strict-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/strict-sync-fencing ./examples/strict-async-fencing -v`
 Expected: FAIL because the example files do not exist yet
 
 - [ ] **Step 3: Implement the runtime strict example**
 
-Create `examples/phase3a-strict-runtime/main.go` using the memory driver:
+Create `examples/strict-sync-fencing/main.go` using the memory driver:
 
 - register one strict sync definition
 - execute it twice sequentially
@@ -590,7 +590,7 @@ Create `examples/phase3a-strict-runtime/main.go` using the memory driver:
 
 - [ ] **Step 4: Implement the worker strict example**
 
-Create `examples/phase3a-strict-worker/main.go` using Redis:
+Create `examples/strict-async-fencing/main.go` using Redis:
 
 - register one strict async definition
 - execute one claimed worker callback
@@ -607,13 +607,13 @@ Required doc updates:
 
 - [ ] **Step 6: Run the docs/example tests to verify they pass**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/phase3a-strict-runtime ./examples/phase3a-strict-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./examples/strict-sync-fencing ./examples/strict-async-fencing -v`
 Expected: PASS
 
 - [ ] **Step 7: Commit the docs and example batch**
 
 ```bash
-git add README.md docs/lock-definition-reference.md docs/runtime-vs-workers.md examples/phase3a-strict-runtime examples/phase3a-strict-worker
+git add README.md docs/lock-definition-reference.md docs/runtime-vs-workers.md examples/strict-sync-fencing examples/strict-async-fencing
 git commit -m "docs: add strict mode examples and references"
 ```
 
@@ -633,8 +633,8 @@ git commit -m "docs: add strict mode examples and references"
 - Verify: `README.md`
 - Verify: `docs/lock-definition-reference.md`
 - Verify: `docs/runtime-vs-workers.md`
-- Verify: `examples/phase3a-strict-runtime/*`
-- Verify: `examples/phase3a-strict-worker/*`
+- Verify: `examples/strict-sync-fencing/*`
+- Verify: `examples/strict-async-fencing/*`
 
 - [ ] **Step 1: Verify strict-focused packages**
 
@@ -643,7 +643,7 @@ Expected: PASS
 
 - [ ] **Step 2: Verify Redis strict driver and strict examples**
 
-Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./examples/phase3a-strict-worker -v`
+Run: `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go test ./lockkit/drivers/redis ./examples/strict-async-fencing -v`
 Expected: PASS
 
 - [ ] **Step 3: Verify all examples**
@@ -659,6 +659,6 @@ Expected: PASS
 - [ ] **Step 5: Final commit only if touch-ups were needed during verification**
 
 ```bash
-git add README.md docs/lock-definition-reference.md docs/runtime-vs-workers.md lockkit/drivers/contracts.go lockkit/registry/registry.go lockkit/runtime/manager.go lockkit/runtime/exclusive.go lockkit/workers/manager.go lockkit/workers/execute.go lockkit/workers/renewal.go lockkit/testkit/memory_driver.go lockkit/drivers/redis/driver.go lockkit/drivers/redis/scripts.go examples/phase3a-strict-runtime examples/phase3a-strict-worker
+git add README.md docs/lock-definition-reference.md docs/runtime-vs-workers.md lockkit/drivers/contracts.go lockkit/registry/registry.go lockkit/runtime/manager.go lockkit/runtime/exclusive.go lockkit/workers/manager.go lockkit/workers/execute.go lockkit/workers/renewal.go lockkit/testkit/memory_driver.go lockkit/drivers/redis/driver.go lockkit/drivers/redis/scripts.go examples/strict-sync-fencing examples/strict-async-fencing
 git commit -m "test: polish phase 3a strict mode rollout"
 ```
