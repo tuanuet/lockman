@@ -26,7 +26,12 @@ func TestNewBackendCanBeUsedWithRootClientOption(t *testing.T) {
 		t.Fatalf("Register returned error: %v", err)
 	}
 
-	backend := New(goredis.NewClient(&goredis.Options{Addr: redisServer.Addr()}), "")
+	clientConn := goredis.NewClient(&goredis.Options{Addr: redisServer.Addr()})
+	defer func() {
+		_ = clientConn.Close()
+	}()
+
+	backend := New(clientConn, "")
 
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),

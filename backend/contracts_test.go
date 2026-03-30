@@ -21,6 +21,14 @@ func TestSentinelErrorIdentitySurvivesErrorsIs(t *testing.T) {
 	if !errors.Is(joined, backend.ErrLeaseNotFound) {
 		t.Fatalf("expected errors.Is to match backend.ErrLeaseNotFound through errors.Join")
 	}
+
+	overlap := fmt.Errorf("wrapped: %w", backend.ErrOverlapRejected)
+	if !errors.Is(overlap, backend.ErrOverlapRejected) {
+		t.Fatalf("expected errors.Is to match backend.ErrOverlapRejected")
+	}
+	if got, want := backend.ErrOverlapRejected.Error(), "overlap rejected"; got != want {
+		t.Fatalf("ErrOverlapRejected message = %q, want %q", got, want)
+	}
 }
 
 func TestLineageKindTypeIsBackendScoped(t *testing.T) {
