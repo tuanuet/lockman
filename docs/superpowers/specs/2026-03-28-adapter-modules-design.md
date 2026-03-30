@@ -74,7 +74,7 @@ Example shape:
 
 - `adapters/redis` imports `lockman/lockkit/drivers`
 - `adapters/idempotency/redis` imports `lockman/lockkit/idempotency`
-- `adapters/guard/postgres` imports `lockman/lockkit/guard`
+- `adapters/guard/postgres` imports `lockman/guard`
 
 This is the smallest code move.
 

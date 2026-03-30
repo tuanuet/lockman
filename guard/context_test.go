@@ -2,11 +2,11 @@ package guard_test
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
-	"io/fs"
-	"os"
-	"strings"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"lockman/guard"
@@ -39,40 +39,39 @@ func TestOutcomeStringsRemainStable(t *testing.T) {
 	}
 }
 
-func TestGuardDoesNotExportLeaseOrClaimMappingHelpers(t *testing.T) {
-	dir, err := os.Getwd()
+func TestGuardExportsNoFuncs(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("runtime.Caller failed")
+	}
+	dir := filepath.Dir(thisFile)
+
+	// Use go/build so this test tracks the default build surface (build tags, GOOS/GOARCH).
+	buildPkg, err := build.Default.ImportDir(dir, 0)
 	if err != nil {
-		t.Fatalf("getwd: %v", err)
+		t.Fatalf("ImportDir(%s): %v", dir, err)
+	}
+	if len(buildPkg.GoFiles) == 0 {
+		t.Fatalf("expected guard package to have non-test files")
 	}
 
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(info fs.FileInfo) bool {
-		name := info.Name()
-		return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
-	}, 0)
-	if err != nil {
-		t.Fatalf("parse guard dir: %v", err)
-	}
+	for _, name := range buildPkg.GoFiles {
+		path := filepath.Join(dir, name)
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
 
-	pkg := pkgs["guard"]
-	if pkg == nil {
-		t.Fatalf("expected non-test guard package files present")
-	}
-
-	for _, f := range pkg.Files {
 		ast.Inspect(f, func(n ast.Node) bool {
 			decl, ok := n.(*ast.FuncDecl)
 			if !ok || decl.Name == nil {
 				return true
 			}
-
-			switch decl.Name.Name {
-			case "ContextFromLease", "ContextFromClaim":
-				t.Fatalf("guard must not export %s(...)", decl.Name.Name)
-				return false
-			default:
-				return true
+			if decl.Name.IsExported() {
+				t.Fatalf("guard must not export funcs; found %s at %s", decl.Name.Name, fset.Position(decl.Pos()))
 			}
+			return true
 		})
 	}
 }

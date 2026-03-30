@@ -4,6 +4,8 @@
 
 **Goal:** Add Phase 3b guarded-write contracts and a first Postgres-backed persistence proof so strict workers can carry fencing tokens into database writes and stale writers are rejected at the storage boundary.
 
+**Historical note (2026-03-30):** This document references `lockkit/guard` because that was the Phase 3b design at the time. The current stable guarded-write contract lives at the top-level `lockman/guard` package, and engine-to-contract mapping now lives behind a root-internal bridge.
+
 **Architecture:** Keep the public API small and contract-driven. Add a new `lockkit/guard` package for shared context and outcomes, then add a narrow `lockkit/guard/postgres` helper layer that classifies the guarded single-row `UPDATE` query shape described in the Phase 3b spec without turning the SDK into a generic repository framework. Prove the worker-first path with one Redis + Postgres example and keep worker ack/retry policy outside the core lock runtime for this phase.
 
 **Tech Stack:** Go 1.22+, standard library `testing`, `database/sql`, `github.com/jackc/pgx/v5/stdlib`, existing Redis driver and Redis idempotency store, local Docker Compose Redis/Postgres services

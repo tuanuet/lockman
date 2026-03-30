@@ -148,14 +148,7 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 
 	var firstGuard guard.Context
 	if err := mgr.ExecuteClaimed(ctx, firstReq, func(ctx context.Context, claim definitions.ClaimContext) error {
-		firstGuard = guard.Context{
-			LockID:         claim.DefinitionID,
-			ResourceKey:    claim.ResourceKey,
-			FencingToken:   claim.FencingToken,
-			OwnerID:        claim.Ownership.OwnerID,
-			MessageID:      claim.Ownership.MessageID,
-			IdempotencyKey: claim.IdempotencyKey,
-		}
+		firstGuard = guardContextFromClaim(claim)
 		if _, err := fmt.Fprintf(out, "first worker claim token: %d\n", claim.FencingToken); err != nil {
 			return err
 		}
@@ -173,14 +166,7 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 	}
 
 	if err := mgr.ExecuteClaimed(ctx, secondReq, func(ctx context.Context, claim definitions.ClaimContext) error {
-		secondGuard := guard.Context{
-			LockID:         claim.DefinitionID,
-			ResourceKey:    claim.ResourceKey,
-			FencingToken:   claim.FencingToken,
-			OwnerID:        claim.Ownership.OwnerID,
-			MessageID:      claim.Ownership.MessageID,
-			IdempotencyKey: claim.IdempotencyKey,
-		}
+		secondGuard := guardContextFromClaim(claim)
 		if _, err := fmt.Fprintf(out, "second worker claim token: %d\n", claim.FencingToken); err != nil {
 			return err
 		}
@@ -294,6 +280,19 @@ func mapGuardOutcomeForWorker(outcome guard.Outcome) error {
 		return nil
 	default:
 		return fmt.Errorf("%w: unsupported guard outcome %s", lockerrors.ErrInvariantRejected, outcome)
+	}
+}
+
+func guardContextFromClaim(claim definitions.ClaimContext) guard.Context {
+	// Keep this mapping aligned with lockman/internal/guardbridge.FromClaimContext.
+	// Examples should not import root-internal packages.
+	return guard.Context{
+		LockID:         claim.DefinitionID,
+		ResourceKey:    claim.ResourceKey,
+		FencingToken:   claim.FencingToken,
+		OwnerID:        claim.Ownership.OwnerID,
+		MessageID:      claim.Ownership.MessageID,
+		IdempotencyKey: claim.IdempotencyKey,
 	}
 }
 
