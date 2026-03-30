@@ -13,22 +13,21 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/lockkit/drivers"
-	lockerrors "lockman/lockkit/errors"
+	"lockman/backend"
 )
 
-func requireRedisStrictDriver(t *testing.T, driver *Driver) drivers.StrictDriver {
+func requireRedisStrictDriver(t *testing.T, driver *Driver) backend.StrictDriver {
 	t.Helper()
 
-	strict, ok := any(driver).(drivers.StrictDriver)
+	strict, ok := any(driver).(backend.StrictDriver)
 	if !ok {
-		t.Fatal("redis driver must implement drivers.StrictDriver")
+		t.Fatal("redis driver must implement backend.StrictDriver")
 	}
 	return strict
 }
 
-func strictAcquireRequest(ownerID string, ttl time.Duration) drivers.StrictAcquireRequest {
-	return drivers.StrictAcquireRequest{
+func strictAcquireRequest(ownerID string, ttl time.Duration) backend.StrictAcquireRequest {
+	return backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "order:123",
 		OwnerID:      ownerID,
@@ -112,7 +111,7 @@ func TestDriverReleaseStrictRejectsWrongOwner(t *testing.T) {
 	wrongOwnerLease := acquired.Lease
 	wrongOwnerLease.OwnerID = "worker-b"
 	err = strict.ReleaseStrict(ctx, wrongOwnerLease, acquired.FencingToken)
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected owner mismatch for strict release with wrong owner, got %v", err)
 	}
 }
@@ -128,7 +127,7 @@ func TestDriverReleaseStrictRejectsWrongToken(t *testing.T) {
 	}
 
 	err = strict.ReleaseStrict(ctx, acquired.Lease, acquired.FencingToken+1)
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected owner mismatch for strict release with wrong token, got %v", err)
 	}
 }
@@ -138,13 +137,13 @@ func TestDriverAcquireStrictRejectsEmptyResourceKey(t *testing.T) {
 	ctx := context.Background()
 	strict := requireRedisStrictDriver(t, env.driver)
 
-	_, err := strict.AcquireStrict(ctx, drivers.StrictAcquireRequest{
+	_, err := strict.AcquireStrict(ctx, backend.StrictAcquireRequest{
 		DefinitionID: "order.strict",
 		ResourceKey:  "",
 		OwnerID:      "worker-a",
 		LeaseTTL:     2 * time.Second,
 	})
-	if !errors.Is(err, drivers.ErrInvalidRequest) {
+	if !errors.Is(err, backend.ErrInvalidRequest) {
 		t.Fatalf("expected invalid request for empty resource key, got %v", err)
 	}
 }
@@ -153,7 +152,7 @@ func TestDriverReleaseRejectsWrongOwner(t *testing.T) {
 	driver := newRedisDriverForTest(t)
 	ctx := context.Background()
 
-	lease, err := driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -163,13 +162,13 @@ func TestDriverReleaseRejectsWrongOwner(t *testing.T) {
 		t.Fatalf("Acquire returned error: %v", err)
 	}
 
-	err = driver.Release(ctx, drivers.LeaseRecord{
+	err = driver.Release(ctx, backend.LeaseRecord{
 		DefinitionID: lease.DefinitionID,
 		ResourceKeys: lease.ResourceKeys,
 		OwnerID:      "worker-b",
 		LeaseTTL:     lease.LeaseTTL,
 	})
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected owner mismatch, got %v", err)
 	}
 }
@@ -178,7 +177,7 @@ func TestDriverCheckPresenceReturnsOwnerAndExpiry(t *testing.T) {
 	driver := newRedisDriverForTest(t)
 	ctx := context.Background()
 
-	lease, err := driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -188,7 +187,7 @@ func TestDriverCheckPresenceReturnsOwnerAndExpiry(t *testing.T) {
 		t.Fatalf("Acquire returned error: %v", err)
 	}
 
-	record, err := driver.CheckPresence(ctx, drivers.PresenceRequest{
+	record, err := driver.CheckPresence(ctx, backend.PresenceRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 	})
@@ -204,7 +203,7 @@ func TestDriverRenewExtendsTTL(t *testing.T) {
 	env := newRedisTestEnv(t)
 	ctx := context.Background()
 
-	lease, err := env.driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := env.driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -214,7 +213,7 @@ func TestDriverRenewExtendsTTL(t *testing.T) {
 		t.Fatalf("Acquire returned error: %v", err)
 	}
 
-	renewed, err := env.driver.Renew(ctx, drivers.LeaseRecord{
+	renewed, err := env.driver.Renew(ctx, backend.LeaseRecord{
 		DefinitionID: lease.DefinitionID,
 		ResourceKeys: lease.ResourceKeys,
 		OwnerID:      lease.OwnerID,
@@ -236,7 +235,7 @@ func TestDriverRenewRejectsWrongOwner(t *testing.T) {
 	driver := newRedisDriverForTest(t)
 	ctx := context.Background()
 
-	lease, err := driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -246,13 +245,13 @@ func TestDriverRenewRejectsWrongOwner(t *testing.T) {
 		t.Fatalf("Acquire returned error: %v", err)
 	}
 
-	_, err = driver.Renew(ctx, drivers.LeaseRecord{
+	_, err = driver.Renew(ctx, backend.LeaseRecord{
 		DefinitionID: lease.DefinitionID,
 		ResourceKeys: lease.ResourceKeys,
 		OwnerID:      "worker-b",
 		LeaseTTL:     time.Minute,
 	})
-	if !errors.Is(err, drivers.ErrLeaseOwnerMismatch) {
+	if !errors.Is(err, backend.ErrLeaseOwnerMismatch) {
 		t.Fatalf("expected owner mismatch, got %v", err)
 	}
 }
@@ -261,7 +260,7 @@ func TestDriverRenewRejectsNonPositiveTTL(t *testing.T) {
 	env := newRedisTestEnv(t)
 	ctx := context.Background()
 
-	lease, err := env.driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := env.driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -275,13 +274,13 @@ func TestDriverRenewRejectsNonPositiveTTL(t *testing.T) {
 	env.client.AddHook(hook)
 	hook.reset()
 
-	_, err = env.driver.Renew(ctx, drivers.LeaseRecord{
+	_, err = env.driver.Renew(ctx, backend.LeaseRecord{
 		DefinitionID: lease.DefinitionID,
 		ResourceKeys: lease.ResourceKeys,
 		OwnerID:      lease.OwnerID,
 		LeaseTTL:     0,
 	})
-	if !errors.Is(err, drivers.ErrInvalidRequest) {
+	if !errors.Is(err, backend.ErrInvalidRequest) {
 		t.Fatalf("expected invalid request for non-positive renew ttl, got %v", err)
 	}
 	if hook.contains("eval") || hook.contains("evalsha") {
@@ -307,7 +306,7 @@ func TestDriverPingIsConnectivityOnlyAndScriptsStillWork(t *testing.T) {
 		t.Fatalf("expected Ping command to be issued, got commands %v", hook.commandList())
 	}
 
-	lease, err := env.driver.Acquire(ctx, drivers.AcquireRequest{
+	lease, err := env.driver.Acquire(ctx, backend.AcquireRequest{
 		DefinitionID: "order.lock",
 		ResourceKeys: []string{"order:123"},
 		OwnerID:      "worker-a",
@@ -316,7 +315,7 @@ func TestDriverPingIsConnectivityOnlyAndScriptsStillWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire returned error: %v", err)
 	}
-	if _, err := env.driver.Renew(ctx, drivers.LeaseRecord{
+	if _, err := env.driver.Renew(ctx, backend.LeaseRecord{
 		DefinitionID: lease.DefinitionID,
 		ResourceKeys: lease.ResourceKeys,
 		OwnerID:      lease.OwnerID,
@@ -346,7 +345,7 @@ func TestDriverAcquireWithLineageRejectsChildWhileParentHeldAcrossClients(t *tes
 	}()
 
 	_, err = driverB.AcquireWithLineage(context.Background(), newChildAcquireRequest("child-lease", "line-1", 2*time.Second))
-	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+	if !errors.Is(err, backend.ErrOverlapRejected) {
 		t.Fatalf("expected overlap rejection, got %v", err)
 	}
 }
@@ -379,7 +378,7 @@ func TestDriverRenewWithLineageExtendsDescendantMembershipTTL(t *testing.T) {
 	time.Sleep(130 * time.Millisecond)
 
 	_, err = driverB.AcquireWithLineage(context.Background(), newParentAcquireRequest("parent-lease"))
-	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+	if !errors.Is(err, backend.ErrOverlapRejected) {
 		t.Fatalf("expected overlap rejection after renew, got %v", err)
 	}
 }
@@ -407,7 +406,7 @@ func TestDriverReleaseWithLineageRemovesOnlyReleasedMembership(t *testing.T) {
 	}
 
 	_, err = driverB.AcquireWithLineage(context.Background(), newParentAcquireRequest("parent-after-first-release"))
-	if !errors.Is(err, lockerrors.ErrOverlapRejected) {
+	if !errors.Is(err, backend.ErrOverlapRejected) {
 		t.Fatalf("expected parent to stay blocked by child two, got %v", err)
 	}
 
@@ -458,7 +457,7 @@ func TestDriverRenewWithLineageFailsWhenAncestorMembershipMissing(t *testing.T) 
 	}
 
 	_, _, err = env.driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
-	if !errors.Is(err, drivers.ErrLeaseExpired) {
+	if !errors.Is(err, backend.ErrLeaseExpired) {
 		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
 	}
 }
@@ -479,7 +478,7 @@ func TestDriverRenewWithLineageFailureDoesNotExtendExactLeaseTTL(t *testing.T) {
 
 	childLease.LeaseTTL = 900 * time.Millisecond
 	_, _, err = env.driver.RenewWithLineage(context.Background(), childLease, childReq.Lineage)
-	if !errors.Is(err, drivers.ErrLeaseExpired) {
+	if !errors.Is(err, backend.ErrLeaseExpired) {
 		t.Fatalf("expected renew failure when ancestor membership is missing, got %v", err)
 	}
 
@@ -488,24 +487,24 @@ func TestDriverRenewWithLineageFailureDoesNotExtendExactLeaseTTL(t *testing.T) {
 		time.Sleep(wait)
 	}
 
-	reacquired, err := env.driver.AcquireWithLineage(context.Background(), drivers.LineageAcquireRequest{
+	reacquired, err := env.driver.AcquireWithLineage(context.Background(), backend.LineageAcquireRequest{
 		DefinitionID: childReq.DefinitionID,
 		ResourceKey:  childReq.ResourceKey,
 		OwnerID:      "worker-b",
 		LeaseTTL:     250 * time.Millisecond,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID:      "child-lease-reacquired",
 			Kind:         childReq.Lineage.Kind,
-			AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+			AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 		},
 	})
 	if err != nil {
 		t.Fatalf("expected child exact key to expire on original ttl, got %v", err)
 	}
-	if err := env.driver.ReleaseWithLineage(context.Background(), reacquired, drivers.LineageLeaseMeta{
+	if err := env.driver.ReleaseWithLineage(context.Background(), reacquired, backend.LineageLeaseMeta{
 		LeaseID:      "child-lease-reacquired",
 		Kind:         childReq.Lineage.Kind,
-		AncestorKeys: append([]drivers.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
+		AncestorKeys: append([]backend.AncestorKey(nil), childReq.Lineage.AncestorKeys...),
 	}); err != nil {
 		t.Fatalf("release reacquired child failed: %v", err)
 	}
@@ -560,29 +559,29 @@ func newRedisTestPrefix(t *testing.T) string {
 	return fmt.Sprintf("lockman:test:%s:%d", strings.ToLower(strings.ReplaceAll(t.Name(), "/", ":")), time.Now().UnixNano())
 }
 
-func newParentAcquireRequest(leaseID string) drivers.LineageAcquireRequest {
-	return drivers.LineageAcquireRequest{
+func newParentAcquireRequest(leaseID string) backend.LineageAcquireRequest {
+	return backend.LineageAcquireRequest{
 		DefinitionID: "order",
 		ResourceKey:  "order:123",
 		OwnerID:      "runtime-parent",
 		LeaseTTL:     2 * time.Second,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: leaseID,
-			Kind:    drivers.KindParent,
+			Kind:    backend.KindParent,
 		},
 	}
 }
 
-func newChildAcquireRequest(leaseID, itemID string, ttl time.Duration) drivers.LineageAcquireRequest {
-	return drivers.LineageAcquireRequest{
+func newChildAcquireRequest(leaseID, itemID string, ttl time.Duration) backend.LineageAcquireRequest {
+	return backend.LineageAcquireRequest{
 		DefinitionID: "item",
 		ResourceKey:  "order:123:item:" + itemID,
 		OwnerID:      "runtime-child",
 		LeaseTTL:     ttl,
-		Lineage: drivers.LineageLeaseMeta{
+		Lineage: backend.LineageLeaseMeta{
 			LeaseID: leaseID,
-			Kind:    drivers.KindChild,
-			AncestorKeys: []drivers.AncestorKey{
+			Kind:    backend.KindChild,
+			AncestorKeys: []backend.AncestorKey{
 				{DefinitionID: "order", ResourceKey: "order:123"},
 			},
 		},
@@ -635,3 +634,4 @@ func (h *commandCaptureHook) commandList() []string {
 	defer h.mu.Unlock()
 	return append([]string(nil), h.seen...)
 }
+

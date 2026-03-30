@@ -15,6 +15,10 @@ var (
 	// unavailable) for the requested acquire.
 	ErrLeaseAlreadyHeld = errors.New("backend: lease already held")
 
+	// ErrOverlapRejected is returned when a lineage-aware backend rejects an acquire
+	// because the requested resource overlaps an active ancestor or descendant lease.
+	ErrOverlapRejected = errors.New("backend: overlap rejected")
+
 	// ErrLeaseNotFound is returned when the provided lease cannot be located.
 	ErrLeaseNotFound = errors.New("backend: lease not found")
 
