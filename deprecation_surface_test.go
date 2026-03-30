@@ -47,7 +47,7 @@ func TestTTLExampleDoesNotImportLegacyDriversPackage(t *testing.T) {
 
 	for _, imp := range parsed.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		if path == "lockman/lockkit/drivers" {
+		if path == "github.com/tuanuet/lockman/lockkit/drivers" {
 			t.Fatalf("lease ttl example still imports legacy package %q", path)
 		}
 	}

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/observe"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/runtime"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/observe"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/runtime"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func main() {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 func TestResolveAcquirePlanReturnsAncestorKeys(t *testing.T) {

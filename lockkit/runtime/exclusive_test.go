@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/observe"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/observe"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 
-	lockerrors "lockman/lockkit/errors"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 func TestExecuteExclusiveRunsCallbackWhenLockAcquired(t *testing.T) {

@@ -5,10 +5,10 @@ import (
 	stdErrors "errors"
 	"time"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/internal/lineage"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/internal/lineage"
 )
 
 type guardKey struct {

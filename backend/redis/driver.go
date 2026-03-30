@@ -11,7 +11,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 const defaultKeyPrefix = "lockman:lease"

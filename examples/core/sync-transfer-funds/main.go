@@ -12,9 +12,9 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman"
-	"lockman/advanced/composite"
-	lockredis "lockman/backend/redis"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/advanced/composite"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
 )
 
 type transferInput struct {

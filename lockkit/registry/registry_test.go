@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/registry"
 )
 
 func TestRegistryRejectsDuplicateDefinitionIDs(t *testing.T) {

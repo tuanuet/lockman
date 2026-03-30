@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"lockman/backend"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/backend"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 func requireStrictDriver(t *testing.T, driver *MemoryDriver) backend.StrictDriver {

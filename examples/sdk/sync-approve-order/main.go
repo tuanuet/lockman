@@ -10,8 +10,8 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman"
-	lockredis "lockman/backend/redis"
+	"github.com/tuanuet/lockman"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
 )
 
 type approveInput struct {

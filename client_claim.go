@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"lockman/internal/sdk"
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/internal/sdk"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 // Claim executes an asynchronous claim use case through the existing worker manager.

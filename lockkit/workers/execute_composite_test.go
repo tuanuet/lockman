@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/idempotency"
-	"lockman/lockkit/internal/policy"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/internal/policy"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 type compositeWorkerManagerHarness struct {

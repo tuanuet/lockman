@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"lockman/internal/sdk"
+	"github.com/tuanuet/lockman/internal/sdk"
 )
 
 type useCaseKind uint8

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"lockman/backend"
-	"lockman/idempotency"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/internal/lineage"
-	"lockman/lockkit/internal/policy"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/internal/lineage"
+	"github.com/tuanuet/lockman/lockkit/internal/policy"
 )
 
 const (

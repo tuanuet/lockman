@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 type definitionValidation func(definitions.LockDefinition) error

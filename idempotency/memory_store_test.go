@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"lockman"
-	"lockman/backend"
-	"lockman/idempotency"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/workers"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/workers"
 )
 
 func TestStoreContractExists(t *testing.T) {

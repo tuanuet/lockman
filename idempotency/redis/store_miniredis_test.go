@@ -8,7 +8,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/idempotency"
+	"github.com/tuanuet/lockman/idempotency"
 )
 
 func TestMiniRedisStoreBasicSemantics(t *testing.T) {
@@ -94,4 +94,3 @@ func newMiniRedis(t *testing.T) *miniredis.Miniredis {
 	t.Cleanup(s.Close)
 	return s
 }
-

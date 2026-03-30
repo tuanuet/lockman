@@ -1,6 +1,6 @@
 package lockman
 
-import "lockman/internal/sdk"
+import "github.com/tuanuet/lockman/internal/sdk"
 
 type callConfig struct {
 	ownerID    string

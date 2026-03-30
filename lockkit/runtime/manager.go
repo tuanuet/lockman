@@ -6,11 +6,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/observe"
-	"lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/observe"
+	"github.com/tuanuet/lockman/lockkit/registry"
 )
 
 // Manager orchestrates standard exclusive lock execution for Phase 1.

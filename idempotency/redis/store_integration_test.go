@@ -10,7 +10,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/idempotency"
+	"github.com/tuanuet/lockman/idempotency"
 )
 
 func TestStoreBeginRejectsSecondActiveClaim(t *testing.T) {
@@ -205,4 +205,3 @@ func assertKeyPTTLAtMostAndPositive(t *testing.T, store *Store, key string, max 
 		t.Fatalf("expected key pttl <= %s, got %s", max, ttl)
 	}
 }
-

@@ -8,12 +8,12 @@ import (
 	"os"
 	"time"
 
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/observe"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/runtime"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/observe"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/runtime"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func main() {

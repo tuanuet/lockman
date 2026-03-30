@@ -3,8 +3,8 @@ package errors
 import (
 	stdErrors "errors"
 
-	"lockman/backend"
-	"lockman/guard"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/guard"
 )
 
 var (

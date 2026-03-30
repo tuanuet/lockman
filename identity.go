@@ -3,8 +3,8 @@ package lockman
 import (
 	"context"
 
-	"lockman/backend"
-	"lockman/idempotency"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
 )
 
 // Identity identifies the caller for lock ownership and diagnostics.

@@ -3,7 +3,7 @@ package testkit
 import (
 	"testing"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 // AssertSingleResourceLease ensures a lease record matches a single key expectation.

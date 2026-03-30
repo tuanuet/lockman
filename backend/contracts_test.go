@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 func TestSentinelErrorIdentitySurvivesErrorsIs(t *testing.T) {
@@ -38,7 +38,7 @@ func TestLineageKindTypeIsBackendScoped(t *testing.T) {
 		t.Fatal("expected backend.LineageLeaseMeta.Kind field to exist")
 	}
 
-	if got, want := field.Type.PkgPath(), "lockman/backend"; got != want {
+	if got, want := field.Type.PkgPath(), "github.com/tuanuet/lockman/backend"; got != want {
 		t.Fatalf("LineageLeaseMeta.Kind PkgPath = %q, want %q", got, want)
 	}
 	if got, want := field.Type.Name(), "LockKind"; got != want {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 // Reader provides read-only access to registered lock definitions.

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"lockman/backend"
-	"lockman/internal/sdk"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	lockregistry "lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/internal/sdk"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	lockregistry "github.com/tuanuet/lockman/lockkit/registry"
 )
 
 const defaultLeaseTTL = 30 * time.Second

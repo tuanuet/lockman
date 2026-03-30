@@ -2,8 +2,8 @@
 
 This example wires both:
 
-- `lockman/backend/redis` as the backend
-- `lockman/idempotency/redis` as the idempotency store
+- `github.com/tuanuet/lockman/backend/redis` as the backend
+- `github.com/tuanuet/lockman/idempotency/redis` as the idempotency store
 
 ## Run
 

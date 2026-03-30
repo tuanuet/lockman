@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"lockman/internal/sdk"
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/internal/sdk"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 // Run executes a synchronous use case through the existing runtime manager.

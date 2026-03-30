@@ -1,6 +1,6 @@
 package composite
 
-import "lockman"
+import "github.com/tuanuet/lockman"
 
 // Member describes one typed composite member in declaration order.
 type Member[T any] struct {

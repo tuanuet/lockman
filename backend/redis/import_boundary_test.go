@@ -1,9 +1,9 @@
 package redis
 
 import (
-	"io/fs"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -34,7 +34,7 @@ func TestRedisModuleDoesNotImportLockkitPackages(t *testing.T) {
 	for name, file := range pkg.Files {
 		for _, imp := range file.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(path, "lockman/lockkit/") {
+			if strings.HasPrefix(path, "github.com/tuanuet/lockman/lockkit/") {
 				t.Fatalf("%s imports forbidden lockkit package %q", name, path)
 			}
 		}

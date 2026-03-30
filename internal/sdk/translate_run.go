@@ -1,6 +1,6 @@
 package sdk
 
-import "lockman/lockkit/definitions"
+import "github.com/tuanuet/lockman/lockkit/definitions"
 
 func translateRun(req runRequest) definitions.SyncLockRequest {
 	return definitions.SyncLockRequest{

@@ -5,7 +5,7 @@ Use `Claim` when a delivery may be retried or redelivered.
 ```go
 package orderlocks
 
-import "lockman"
+import "github.com/tuanuet/lockman"
 
 type ProcessInput struct {
 	OrderID string

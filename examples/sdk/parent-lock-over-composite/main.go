@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"lockman"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 type shipmentInput struct {

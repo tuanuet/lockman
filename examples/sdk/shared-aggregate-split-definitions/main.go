@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 
-	"lockman"
-	"lockman/idempotency"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 type approvalInput struct {

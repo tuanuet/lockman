@@ -9,7 +9,7 @@ This is the default synchronous path.
 ```go
 package orderlocks
 
-import "lockman"
+import "github.com/tuanuet/lockman"
 
 type ApproveInput struct {
 	OrderID string

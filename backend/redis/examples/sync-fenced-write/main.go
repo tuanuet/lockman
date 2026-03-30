@@ -8,9 +8,9 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman"
-	"lockman/advanced/strict"
-	lockredis "lockman/backend/redis"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/advanced/strict"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
 )
 
 type writeInput struct {

@@ -57,7 +57,7 @@ if err := reg.Register(Approve, Process); err != nil {
 
 ## Advanced Definition Surfaces
 
-The default path is still root `lockman`, but some advanced cases live in explicit packages:
+The default path is still root `github.com/tuanuet/lockman`, but some advanced cases live in explicit packages:
 
 - strict fenced runs: [`docs/advanced/strict.md`](advanced/strict.md)
 - composite sync runs: [`docs/advanced/composite.md`](advanced/composite.md)

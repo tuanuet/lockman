@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lockman/idempotency"
+	"github.com/tuanuet/lockman/idempotency"
 )
 
 type fakeClock struct {

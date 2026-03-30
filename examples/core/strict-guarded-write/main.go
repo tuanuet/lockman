@@ -16,13 +16,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/guard"
-	guardpostgres "lockman/guard/postgres"
-	redisstore "lockman/idempotency/redis"
-	"lockman/lockkit/definitions"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/workers"
-	lockredis "lockman/backend/redis"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
+	"github.com/tuanuet/lockman/guard"
+	guardpostgres "github.com/tuanuet/lockman/guard/postgres"
+	redisstore "github.com/tuanuet/lockman/idempotency/redis"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/workers"
 )
 
 const (

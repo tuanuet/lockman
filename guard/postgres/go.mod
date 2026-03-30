@@ -1,4 +1,4 @@
-module lockman/guard/postgres
+module github.com/tuanuet/lockman/guard/postgres
 
 go 1.22
 

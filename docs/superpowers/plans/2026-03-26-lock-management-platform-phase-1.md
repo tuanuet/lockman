@@ -85,7 +85,7 @@ Expected: FAIL with `pattern ./...: directory prefix . does not contain main mod
 - [ ] **Step 2: Initialize the module and basic workspace files**
 
 ```go
-module lockman
+module github.com/tuanuet/lockman
 
 go 1.22
 ```

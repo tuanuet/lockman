@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"testing"
 
-	"lockman/guard"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/guard"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 func TestContextContractFieldsAreStable(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 // MemberLeasePlan describes one composite member acquire operation after canonical sorting.

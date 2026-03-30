@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 // RejectOverlap enforces Phase 2 overlap rejection between a parent key and one of its children.

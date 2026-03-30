@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"lockman/backend"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/backend"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 // WorkerOutcome normalizes worker callback and runtime errors for queue adapters.

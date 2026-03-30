@@ -5,9 +5,9 @@ import (
 	stdErrors "errors"
 	"time"
 
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/internal/policy"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/internal/policy"
 )
 
 type acquiredCompositeLease struct {

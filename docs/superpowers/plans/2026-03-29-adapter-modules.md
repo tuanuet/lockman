@@ -334,7 +334,7 @@ use (
 
 - [ ] **Step 3: Create `redis/go.mod` and move Redis backend implementation**
 
-Create `redis/go.mod` with `module lockman/backend/redis` (matching the root module path pattern) and move the concrete implementation from `lockkit/drivers/redis` into the `redis` module so `lockman/backend/redis` is the real adapter package.
+Create `redis/go.mod` with `module github.com/tuanuet/lockman/backend/redis` (matching the root module path pattern) and move the concrete implementation from `lockkit/drivers/redis` into the `redis` module so `github.com/tuanuet/lockman/backend/redis` is the real adapter package.
 
 - [ ] **Step 4: Repoint imports to top-level `backend` and promoted shared types**
 
@@ -397,7 +397,7 @@ use (
 )
 ```
 
-Set the module path to `lockman/idempotency/redis`.
+Set the module path to `github.com/tuanuet/lockman/idempotency/redis`.
 
 - [ ] **Step 3: Move the concrete implementation**
 
@@ -463,7 +463,7 @@ use (
 )
 ```
 
-Set the module path to `lockman/guard/postgres`.
+Set the module path to `github.com/tuanuet/lockman/guard/postgres`.
 
 - [ ] **Step 3: Move the implementation**
 

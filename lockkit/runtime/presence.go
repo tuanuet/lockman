@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 // CheckPresence reports advisory lock state for a registered, check-enabled definition.

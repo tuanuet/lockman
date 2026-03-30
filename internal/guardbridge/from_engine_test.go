@@ -3,9 +3,9 @@ package guardbridge_test
 import (
 	"testing"
 
-	"lockman/guard"
-	"lockman/internal/guardbridge"
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/guard"
+	"github.com/tuanuet/lockman/internal/guardbridge"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 func TestFromClaimContextExactFieldMapping(t *testing.T) {

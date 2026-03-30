@@ -3,7 +3,7 @@ package postgres
 import (
 	"fmt"
 
-	"lockman/guard"
+	"github.com/tuanuet/lockman/guard"
 )
 
 type ExistingRowStatus struct {

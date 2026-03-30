@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"lockman/backend"
-	lockerrors "lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/backend"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 )
 
 // MemoryDriver is a naive single-resource driver useful for tests and local builds.

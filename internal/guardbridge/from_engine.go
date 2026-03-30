@@ -1,8 +1,8 @@
 package guardbridge
 
 import (
-	"lockman/guard"
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/guard"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 // FromLeaseContext maps a single-resource lease into a guarded-write context.

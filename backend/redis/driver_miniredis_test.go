@@ -10,7 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 func TestMiniRedisDriverAcquireStrictIssuesPositiveFencingToken(t *testing.T) {

@@ -3,7 +3,7 @@ package redis
 import (
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 // New creates a Redis backend compatible with lockman.WithBackend(...).

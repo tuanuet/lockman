@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"lockman"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestStrictPackageExposesPublicRunUseCaseAuthoring(t *testing.T) {

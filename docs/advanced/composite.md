@@ -1,6 +1,6 @@
 # Advanced: Composite
 
-Use `lockman/advanced/composite` when one synchronous operation must hold multiple resources together.
+Use `github.com/tuanuet/lockman/advanced/composite` when one synchronous operation must hold multiple resources together.
 
 ## When To Use It
 

@@ -12,8 +12,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"lockman/guard"
-	pgguard "lockman/guard/postgres"
+	"github.com/tuanuet/lockman/guard"
+	pgguard "github.com/tuanuet/lockman/guard/postgres"
 )
 
 const integrationTimeout = 5 * time.Second

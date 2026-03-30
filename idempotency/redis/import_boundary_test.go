@@ -34,8 +34,8 @@ func TestRedisIdempotencyModuleDoesNotImportLockkitPackages(t *testing.T) {
 	for name, file := range pkg.Files {
 		for _, imp := range file.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(path, "lockman/") {
-				rest := strings.TrimPrefix(path, "lockman/")
+			if strings.HasPrefix(path, "github.com/tuanuet/lockman/") {
+				rest := strings.TrimPrefix(path, "github.com/tuanuet/lockman/")
 				// Avoid embedding the forbidden prefix as a single literal so
 				// grep-based boundary checks stay clean.
 				if strings.HasPrefix(rest, "lockkit") && (len(rest) == 6 || rest[6] == '/') {

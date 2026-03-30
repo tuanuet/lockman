@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestRunRejectsRequestFromDifferentRegistry(t *testing.T) {

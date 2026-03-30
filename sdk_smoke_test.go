@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"lockman"
+	"github.com/tuanuet/lockman"
 )
 
 func TestErrRegistryRequiredIsStableSentinel(t *testing.T) {

@@ -13,14 +13,14 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	redisstore "lockman/idempotency/redis"
-	"lockman/lockkit/definitions"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/observe"
-	"lockman/lockkit/registry"
-	"lockman/lockkit/runtime"
-	"lockman/lockkit/workers"
-	lockredis "lockman/backend/redis"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
+	redisstore "github.com/tuanuet/lockman/idempotency/redis"
+	"github.com/tuanuet/lockman/lockkit/definitions"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/observe"
+	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/lockkit/runtime"
+	"github.com/tuanuet/lockman/lockkit/workers"
 )
 
 const defaultRedisURL = "redis://localhost:6379/0"

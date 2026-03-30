@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"lockman/backend"
-	"lockman/idempotency"
-	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestNewFailsWithoutRegistry(t *testing.T) {

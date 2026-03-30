@@ -1,4 +1,4 @@
-module lockman/backend/redis
+module github.com/tuanuet/lockman/backend/redis
 
 go 1.22
 

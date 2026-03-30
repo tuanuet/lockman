@@ -1,4 +1,4 @@
-module lockman/idempotency/redis
+module github.com/tuanuet/lockman/idempotency/redis
 
 go 1.22
 

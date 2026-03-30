@@ -9,9 +9,9 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman"
-	idempotencyredis "lockman/idempotency/redis"
-	lockredis "lockman/backend/redis"
+	"github.com/tuanuet/lockman"
+	lockredis "github.com/tuanuet/lockman/backend/redis"
+	idempotencyredis "github.com/tuanuet/lockman/idempotency/redis"
 )
 
 type processInput struct {

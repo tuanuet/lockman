@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync/atomic"
 
-	"lockman/backend"
-	"lockman/idempotency"
-	lockruntime "lockman/lockkit/runtime"
-	"lockman/lockkit/workers"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/idempotency"
+	lockruntime "github.com/tuanuet/lockman/lockkit/runtime"
+	"github.com/tuanuet/lockman/lockkit/workers"
 )
 
 // Client executes registered run and claim use cases against the configured backend.

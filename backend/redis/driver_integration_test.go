@@ -13,7 +13,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"lockman/backend"
+	"github.com/tuanuet/lockman/backend"
 )
 
 func requireRedisStrictDriver(t *testing.T, driver *Driver) backend.StrictDriver {
@@ -634,4 +634,3 @@ func (h *commandCaptureHook) commandList() []string {
 	defer h.mu.Unlock()
 	return append([]string(nil), h.seen...)
 }
-

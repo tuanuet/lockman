@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"lockman/guard"
-	pgguard "lockman/guard/postgres"
+	"github.com/tuanuet/lockman/guard"
+	pgguard "github.com/tuanuet/lockman/guard/postgres"
 )
 
 func TestClassifyExistingRowUpdateReturnsApplied(t *testing.T) {

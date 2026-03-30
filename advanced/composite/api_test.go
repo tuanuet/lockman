@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"lockman"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 type transferInput struct {

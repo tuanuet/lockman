@@ -28,8 +28,8 @@ package orderlocks
 import (
 	"context"
 
-	"lockman"
-	backendredis "lockman/backend/redis"
+	"github.com/tuanuet/lockman"
+	backendredis "github.com/tuanuet/lockman/backend/redis"
 )
 
 type ApproveInput struct {

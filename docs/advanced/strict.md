@@ -1,6 +1,6 @@
 # Advanced: Strict
 
-Use `lockman/advanced/strict` when a synchronous critical section needs fencing tokens.
+Use `github.com/tuanuet/lockman/advanced/strict` when a synchronous critical section needs fencing tokens.
 
 ## When To Use It
 

@@ -1,6 +1,6 @@
 package sdk
 
-import "lockman/lockkit/definitions"
+import "github.com/tuanuet/lockman/lockkit/definitions"
 
 func translateClaim(req claimRequest) definitions.MessageClaimRequest {
 	idempotencyKey := ""

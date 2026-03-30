@@ -112,7 +112,7 @@ func TestSDKWorkspaceExamplesAvoidRemovedShimImports(t *testing.T) {
 		for _, imp := range parsed.Imports {
 			importPath := strings.Trim(imp.Path.Value, `"`)
 			switch importPath {
-			case "lockman/lockkit/drivers", "lockman/lockkit/drivers/redis", "lockman/lockkit/idempotency", "lockman/lockkit/idempotency/redis", "lockman/lockkit/guard/postgres":
+			case "github.com/tuanuet/lockman/lockkit/drivers", "github.com/tuanuet/lockman/lockkit/drivers/redis", "github.com/tuanuet/lockman/lockkit/idempotency", "github.com/tuanuet/lockman/lockkit/idempotency/redis", "github.com/tuanuet/lockman/lockkit/guard/postgres":
 				t.Fatalf("%s still imports removed legacy path %q", rel, importPath)
 			}
 		}

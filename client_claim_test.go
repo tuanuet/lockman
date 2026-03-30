@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"lockman/idempotency"
-	"lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestClaimRejectsRequestFromDifferentRegistry(t *testing.T) {

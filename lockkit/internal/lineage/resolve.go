@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"lockman/backend"
-	"lockman/lockkit/definitions"
+	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 var (
