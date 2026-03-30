@@ -12,8 +12,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"lockman/guard"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/guard"
 	"lockman/lockkit/guard/postgres"
 )
 

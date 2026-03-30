@@ -3,8 +3,8 @@ package postgres
 import (
 	"fmt"
 
+	"lockman/guard"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/guard"
 )
 
 type ExistingRowStatus struct {

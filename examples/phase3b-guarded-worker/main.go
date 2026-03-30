@@ -14,12 +14,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	goredis "github.com/redis/go-redis/v9"
 
+	"lockman/guard"
+	redisstore "lockman/idempotency/redis"
 	"lockman/lockkit/definitions"
 	redisdriver "lockman/lockkit/drivers/redis"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/guard"
 	guardpostgres "lockman/lockkit/guard/postgres"
-	redisstore "lockman/idempotency/redis"
 	"lockman/lockkit/registry"
 	"lockman/lockkit/workers"
 )
@@ -148,7 +148,14 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 
 	var firstGuard guard.Context
 	if err := mgr.ExecuteClaimed(ctx, firstReq, func(ctx context.Context, claim definitions.ClaimContext) error {
-		firstGuard = guard.ContextFromClaim(claim)
+		firstGuard = guard.Context{
+			LockID:         claim.DefinitionID,
+			ResourceKey:    claim.ResourceKey,
+			FencingToken:   claim.FencingToken,
+			OwnerID:        claim.Ownership.OwnerID,
+			MessageID:      claim.Ownership.MessageID,
+			IdempotencyKey: claim.IdempotencyKey,
+		}
 		if _, err := fmt.Fprintf(out, "first worker claim token: %d\n", claim.FencingToken); err != nil {
 			return err
 		}
@@ -166,7 +173,14 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 	}
 
 	if err := mgr.ExecuteClaimed(ctx, secondReq, func(ctx context.Context, claim definitions.ClaimContext) error {
-		secondGuard := guard.ContextFromClaim(claim)
+		secondGuard := guard.Context{
+			LockID:         claim.DefinitionID,
+			ResourceKey:    claim.ResourceKey,
+			FencingToken:   claim.FencingToken,
+			OwnerID:        claim.Ownership.OwnerID,
+			MessageID:      claim.Ownership.MessageID,
+			IdempotencyKey: claim.IdempotencyKey,
+		}
 		if _, err := fmt.Fprintf(out, "second worker claim token: %d\n", claim.FencingToken); err != nil {
 			return err
 		}

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"lockman/guard"
 	lockerrors "lockman/lockkit/errors"
-	"lockman/lockkit/guard"
 	"lockman/lockkit/guard/postgres"
 )
 
