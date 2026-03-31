@@ -5,35 +5,24 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
-	"github.com/tuanuet/lockman/lockkit/observe"
+	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/observe"
 )
-
-// RuntimeEvent carries the fields for a runtime lifecycle event emitted via Bridge.
-type RuntimeEvent struct {
-	DefinitionID string
-	ResourceID   string
-	OwnerID      string
-	RequestID    string
-	Wait         time.Duration
-	Held         time.Duration
-	Contention   int
-}
 
 // Bridge receives runtime lifecycle events from the manager.
 type Bridge interface {
-	PublishRuntimeAcquireStarted(re RuntimeEvent)
-	PublishRuntimeAcquireSucceeded(re RuntimeEvent)
-	PublishRuntimeAcquireFailed(re RuntimeEvent, err error)
-	PublishRuntimeContention(re RuntimeEvent)
-	PublishRuntimeOverlapRejected(re RuntimeEvent)
-	PublishRuntimeReleased(re RuntimeEvent)
-	PublishRuntimePresenceChecked(re RuntimeEvent)
+	PublishRuntimeAcquireStarted(re observe.Event)
+	PublishRuntimeAcquireSucceeded(re observe.Event)
+	PublishRuntimeAcquireFailed(re observe.Event, err error)
+	PublishRuntimeContention(re observe.Event)
+	PublishRuntimeOverlapRejected(re observe.Event)
+	PublishRuntimeReleased(re observe.Event)
+	PublishRuntimePresenceChecked(re observe.Event)
 	PublishRuntimeShutdownStarted()
 	PublishRuntimeShutdownCompleted()
 }
@@ -56,7 +45,7 @@ func WithBridge(b Bridge) Option {
 type Manager struct {
 	registry      registry.Reader
 	driver        backend.Driver
-	recorder      observe.Recorder
+	recorder      lockobserve.Recorder
 	bridge        Bridge
 	active        sync.Map
 	shuttingDown  atomic.Bool
@@ -67,7 +56,7 @@ type Manager struct {
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
-func NewManager(reg registry.Reader, driver backend.Driver, recorder observe.Recorder, opts ...Option) (*Manager, error) {
+func NewManager(reg registry.Reader, driver backend.Driver, recorder lockobserve.Recorder, opts ...Option) (*Manager, error) {
 	var cfg managerConfig
 	for _, opt := range opts {
 		opt(&cfg)
@@ -94,7 +83,7 @@ func NewManager(reg registry.Reader, driver backend.Driver, recorder observe.Rec
 		}
 	}
 	if recorder == nil {
-		recorder = observe.NewNoopRecorder()
+		recorder = lockobserve.NewNoopRecorder()
 	}
 	return &Manager{
 		registry: reg,

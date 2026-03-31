@@ -3,6 +3,7 @@ package observebridge
 import (
 	"context"
 
+	"github.com/tuanuet/lockman/lockkit/runtime"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -23,15 +24,9 @@ type Bridge struct {
 	dispatcher observe.Dispatcher
 }
 
-// New constructs a Bridge from the given Config. Both Store and Dispatcher must
-// be non-nil.
+// New constructs a Bridge from the given Config. Either Store or Dispatcher
+// (or both) may be nil; the bridge skips nil targets.
 func New(cfg Config) *Bridge {
-	if cfg.Store == nil {
-		panic("observebridge: store must not be nil")
-	}
-	if cfg.Dispatcher == nil {
-		panic("observebridge: dispatcher must not be nil")
-	}
 	return &Bridge{
 		store:      cfg.Store,
 		dispatcher: cfg.Dispatcher,
@@ -39,14 +34,26 @@ func New(cfg Config) *Bridge {
 }
 
 // Shutdown delegates to the dispatcher's Shutdown, respecting the caller's
-// context deadline without extending it.
+// context deadline without extending it. If the dispatcher is nil, Shutdown is
+// a no-op.
 func (b *Bridge) Shutdown(ctx context.Context) error {
+	if b.dispatcher == nil {
+		return nil
+	}
 	return b.dispatcher.Shutdown(ctx)
 }
 
 // publish applies the event to the local store first, then publishes one async
-// copy to the dispatcher.
+// copy to the dispatcher. Nil targets are silently skipped.
 func (b *Bridge) publish(event observe.Event) {
-	_ = b.store.Consume(context.Background(), event)
-	b.dispatcher.Publish(event)
+	if b.store != nil {
+		if err := b.store.Consume(context.Background(), event); err != nil {
+			// Best-effort: store errors are not propagated.
+		}
+	}
+	if b.dispatcher != nil {
+		b.dispatcher.Publish(event)
+	}
 }
+
+var _ runtime.Bridge = (*Bridge)(nil)

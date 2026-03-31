@@ -9,6 +9,7 @@ import (
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/lineage"
+	"github.com/tuanuet/lockman/observe"
 )
 
 type guardKey struct {
@@ -92,7 +93,8 @@ func (m *Manager) ExecuteExclusive(
 			held := time.Since(lease.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, def.ID, held)
 			if m.bridge != nil {
-				m.bridge.PublishRuntimeReleased(RuntimeEvent{
+				m.bridge.PublishRuntimeReleased(observe.Event{
+					Kind:         observe.EventReleased,
 					DefinitionID: def.ID,
 					ResourceID:   resourceKey,
 					OwnerID:      req.Ownership.OwnerID,
@@ -115,7 +117,8 @@ func (m *Manager) ExecuteExclusive(
 	}()
 
 	start := time.Now()
-	re := RuntimeEvent{
+	re := observe.Event{
+		Kind:         observe.EventAcquireStarted,
 		DefinitionID: def.ID,
 		ResourceID:   resourceKey,
 		OwnerID:      req.Ownership.OwnerID,
@@ -171,7 +174,7 @@ func recordAcquireFailure(m *Manager, ctx context.Context, definitionID string, 
 	}
 }
 
-func recordBridgeAcquireFailure(m *Manager, re RuntimeEvent, err error) {
+func recordBridgeAcquireFailure(m *Manager, re observe.Event, err error) {
 	if stdErrors.Is(err, backend.ErrLeaseAlreadyHeld) {
 		m.bridge.PublishRuntimeContention(re)
 	}

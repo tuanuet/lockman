@@ -8,6 +8,7 @@ import (
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
+	"github.com/tuanuet/lockman/observe"
 )
 
 type acquiredCompositeLease struct {
@@ -110,7 +111,8 @@ func (m *Manager) ExecuteCompositeExclusive(
 			held := time.Since(member.held.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, member.member.Definition.ID, held)
 			if m.bridge != nil {
-				m.bridge.PublishRuntimeReleased(RuntimeEvent{
+				m.bridge.PublishRuntimeReleased(observe.Event{
+					Kind:         observe.EventReleased,
 					DefinitionID: member.member.Definition.ID,
 					ResourceID:   member.member.ResourceKey,
 					OwnerID:      req.Ownership.OwnerID,
@@ -135,7 +137,8 @@ func (m *Manager) ExecuteCompositeExclusive(
 		}
 
 		acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfigs[i])
-		re := RuntimeEvent{
+		re := observe.Event{
+			Kind:         observe.EventAcquireStarted,
 			DefinitionID: member.Definition.ID,
 			ResourceID:   member.ResourceKey,
 			OwnerID:      req.Ownership.OwnerID,

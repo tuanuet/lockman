@@ -263,30 +263,48 @@ func TestBridgeShutdownHelperUsesDispatcherDeadline(t *testing.T) {
 	}
 }
 
-func TestBridgeNilStorePanicsGracefully(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic when store is nil")
-		}
-	}()
-
-	observebridge.New(observebridge.Config{
+func TestBridgeAllowsNilStore(t *testing.T) {
+	b := observebridge.New(observebridge.Config{
 		Store:      nil,
 		Dispatcher: &stubDispatcher{},
 	})
+	if b == nil {
+		t.Fatal("expected non-nil bridge with nil store")
+	}
+	// publish should not panic when store is nil
+	b.PublishRuntimeAcquireStarted(observe.Event{Kind: observe.EventAcquireStarted})
 }
 
-func TestBridgeNilDispatcherPanicsGracefully(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic when dispatcher is nil")
-		}
-	}()
+func TestBridgeAllowsNilDispatcher(t *testing.T) {
+	var consumeCount int
+	b := observebridge.New(observebridge.Config{
+		Store: &stubStore{
+			consumeFn: func(_ context.Context, _ observe.Event) error {
+				consumeCount++
+				return nil
+			},
+		},
+		Dispatcher: nil,
+	})
+	if b == nil {
+		t.Fatal("expected non-nil bridge with nil dispatcher")
+	}
+	// publish should not panic when dispatcher is nil
+	b.PublishRuntimeAcquireStarted(observe.Event{Kind: observe.EventAcquireStarted})
+	if consumeCount != 1 {
+		t.Fatalf("expected store to be called once, got %d", consumeCount)
+	}
+}
 
-	observebridge.New(observebridge.Config{
+func TestBridgeShutdownWithNilDispatcher(t *testing.T) {
+	b := observebridge.New(observebridge.Config{
 		Store:      &stubStore{},
 		Dispatcher: nil,
 	})
+	err := b.Shutdown(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error with nil dispatcher, got %v", err)
+	}
 }
 
 func TestBridgePublishesCorrectEventKind(t *testing.T) {

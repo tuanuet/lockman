@@ -10,7 +10,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
-	"github.com/tuanuet/lockman/lockkit/observe"
+	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/testkit"
 )
@@ -31,7 +31,7 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestCheckPresenceRejectsDefinitionWithoutCheckOnlyAllowed(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCheckPresenceReturnsPresenceUnknownWhenDriverHealthUnavailable(t *testi
 	mgr, err := NewManager(reg, pingFailDriver{
 		inner: testkit.NewMemoryDriver(),
 		err:   sentinelErr,
-	}, observe.NewNoopRecorder())
+	}, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 		t.Fatalf("register child failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestCheckPresenceEmitsBridgeEvent(t *testing.T) {
 
 	driver := testkit.NewMemoryDriver()
 	bridge := &bridgeStub{}
-	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder(), WithBridge(bridge))
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+	"github.com/tuanuet/lockman/observe"
 )
 
 // CheckPresence reports advisory lock state for a registered, check-enabled definition.
@@ -23,7 +24,8 @@ func (m *Manager) CheckPresence(
 	defer func() {
 		m.recordPresenceCheck(ctx, def.ID, start)
 		if m.bridge != nil {
-			m.bridge.PublishRuntimePresenceChecked(RuntimeEvent{
+			m.bridge.PublishRuntimePresenceChecked(observe.Event{
+				Kind:         observe.EventPresenceChecked,
 				DefinitionID: def.ID,
 				OwnerID:      req.Ownership.OwnerID,
 				RequestID:    req.Ownership.RequestID,

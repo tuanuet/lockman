@@ -20,6 +20,8 @@ const (
 	EventShutdownStarted
 	EventShutdownCompleted
 	EventClientStarted
+	EventOverlapRejected
+	EventPresenceChecked
 )
 
 func (k EventKind) String() string {
@@ -48,13 +50,17 @@ func (k EventKind) String() string {
 		return "shutdown_completed"
 	case EventClientStarted:
 		return "client_started"
+	case EventOverlapRejected:
+		return "overlap_rejected"
+	case EventPresenceChecked:
+		return "presence_checked"
 	default:
 		return ""
 	}
 }
 
 func (k EventKind) IsValid() bool {
-	return k >= EventAcquireStarted && k <= EventClientStarted
+	return k >= EventAcquireStarted && k <= EventPresenceChecked
 }
 
 type Event struct {

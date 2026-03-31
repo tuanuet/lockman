@@ -24,7 +24,8 @@ func TestClientCompilesAgainstPromotedIdempotency(t *testing.T) {
 
 func TestWorkerCompilesAgainstPromotedIdempotency(t *testing.T) {
 	// Pin the worker manager constructor signature to the promoted contract.
-	var _ func(reg registry.Reader, driver backend.Driver, store idempotency.Store) (*workers.Manager, error) = workers.NewManager
+	// Variadic opts are additive; existing 3-arg calls still compile.
+	var _ func(reg registry.Reader, driver backend.Driver, store idempotency.Store, opts ...workers.Option) (*workers.Manager, error) = workers.NewManager
 }
 
 type fakeClock struct {
