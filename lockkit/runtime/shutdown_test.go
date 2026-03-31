@@ -386,3 +386,37 @@ func TestShutdownNotBlockedByReentrantAdmissionFailure(t *testing.T) {
 		t.Fatalf("Shutdown should not block on released reentrant admission, got %v", err)
 	}
 }
+
+func TestShutdownEmitsBridgeLifecycleEvents(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	if err := mgr.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.shutdownStarted != 1 {
+		t.Fatalf("expected 1 shutdown started event, got %d", bridge.shutdownStarted)
+	}
+	if bridge.shutdownDone != 1 {
+		t.Fatalf("expected 1 shutdown completed event, got %d", bridge.shutdownDone)
+	}
+}

@@ -20,7 +20,16 @@ func (m *Manager) CheckPresence(
 	if err != nil {
 		return definitions.PresenceStatus{State: definitions.PresenceUnknown}, err
 	}
-	defer m.recordPresenceCheck(ctx, def.ID, start)
+	defer func() {
+		m.recordPresenceCheck(ctx, def.ID, start)
+		if m.bridge != nil {
+			m.bridge.PublishRuntimePresenceChecked(RuntimeEvent{
+				DefinitionID: def.ID,
+				OwnerID:      req.Ownership.OwnerID,
+				RequestID:    req.Ownership.RequestID,
+			})
+		}
+	}()
 
 	status := definitions.PresenceStatus{
 		State: definitions.PresenceUnknown,

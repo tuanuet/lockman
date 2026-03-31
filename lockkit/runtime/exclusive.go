@@ -91,6 +91,15 @@ func (m *Manager) ExecuteExclusive(
 		if leaseAcquired {
 			held := time.Since(lease.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, def.ID, held)
+			if m.bridge != nil {
+				m.bridge.PublishRuntimeReleased(RuntimeEvent{
+					DefinitionID: def.ID,
+					ResourceID:   resourceKey,
+					OwnerID:      req.Ownership.OwnerID,
+					RequestID:    req.Ownership.RequestID,
+					Held:         held,
+				})
+			}
 			if releaseErr := m.releaseLease(context.Background(), lease); releaseErr != nil {
 				if retErr == nil {
 					retErr = releaseErr
@@ -106,13 +115,31 @@ func (m *Manager) ExecuteExclusive(
 	}()
 
 	start := time.Now()
+	re := RuntimeEvent{
+		DefinitionID: def.ID,
+		ResourceID:   resourceKey,
+		OwnerID:      req.Ownership.OwnerID,
+		RequestID:    req.Ownership.RequestID,
+	}
+	if m.bridge != nil {
+		m.bridge.PublishRuntimeAcquireStarted(re)
+	}
 	lease, err = m.acquireLease(acquireCtx, def, acquirePlan, req.Ownership.OwnerID)
 	waitDuration := time.Since(start)
+	re.Wait = waitDuration
 	m.recorder.RecordAcquire(ctx, def.ID, waitDuration, err == nil)
 
 	if err != nil {
 		recordAcquireFailure(m, ctx, def.ID, err)
+		if m.bridge != nil {
+			m.bridge.PublishRuntimeAcquireFailed(re, err)
+			recordBridgeAcquireFailure(m, re, err)
+		}
 		return mapAcquireError(err)
+	}
+
+	if m.bridge != nil {
+		m.bridge.PublishRuntimeAcquireSucceeded(re)
 	}
 
 	leaseAcquired = true
@@ -141,6 +168,15 @@ func recordAcquireFailure(m *Manager, ctx context.Context, definitionID string, 
 	}
 	if stdErrors.Is(err, backend.ErrLeaseAlreadyHeld) {
 		m.recorder.RecordContention(ctx, definitionID)
+	}
+}
+
+func recordBridgeAcquireFailure(m *Manager, re RuntimeEvent, err error) {
+	if stdErrors.Is(err, backend.ErrLeaseAlreadyHeld) {
+		m.bridge.PublishRuntimeContention(re)
+	}
+	if stdErrors.Is(err, lockerrors.ErrOverlapRejected) {
+		m.bridge.PublishRuntimeOverlapRejected(re)
 	}
 }
 

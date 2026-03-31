@@ -1024,3 +1024,258 @@ func (c *countingRecorder) activeCounts() []int {
 	defer c.mu.Unlock()
 	return append([]int(nil), c.counts...)
 }
+
+type bridgeStub struct {
+	mu               sync.Mutex
+	acquireStarted   int
+	acquireSucceeded int
+	acquireFailed    int
+	contention       int
+	overlapRejected  int
+	released         int
+	presenceChecked  int
+	shutdownStarted  int
+	shutdownDone     int
+	lastEvent        RuntimeEvent
+	lastErr          error
+}
+
+func (b *bridgeStub) PublishRuntimeAcquireStarted(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.acquireStarted++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimeAcquireSucceeded(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.acquireSucceeded++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimeAcquireFailed(re RuntimeEvent, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.acquireFailed++
+	b.lastEvent = re
+	b.lastErr = err
+}
+
+func (b *bridgeStub) PublishRuntimeContention(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.contention++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimeOverlapRejected(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.overlapRejected++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimeReleased(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.released++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimePresenceChecked(re RuntimeEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.presenceChecked++
+	b.lastEvent = re
+}
+
+func (b *bridgeStub) PublishRuntimeShutdownStarted() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.shutdownStarted++
+}
+
+func (b *bridgeStub) PublishRuntimeShutdownCompleted() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.shutdownDone++
+}
+
+func TestNewManagerAcceptsOptionalObservabilityOptions(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+
+	// Without options still works.
+	mgr2, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager without options returned error: %v", err)
+	}
+	if mgr2 == nil {
+		t.Fatal("expected non-nil manager without options")
+	}
+}
+
+func TestExecuteExclusiveEmitsBridgeAcquireAndRelease(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput:     map[string]string{"order_id": "123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.acquireStarted != 1 {
+		t.Fatalf("expected 1 acquire started event, got %d", bridge.acquireStarted)
+	}
+	if bridge.acquireSucceeded != 1 {
+		t.Fatalf("expected 1 acquire succeeded event, got %d", bridge.acquireSucceeded)
+	}
+	if bridge.released != 1 {
+		t.Fatalf("expected 1 released event, got %d", bridge.released)
+	}
+	if bridge.acquireFailed != 0 {
+		t.Fatalf("expected 0 acquire failed events, got %d", bridge.acquireFailed)
+	}
+}
+
+func TestExecuteExclusiveEmitsBridgeContentionOnDriverContention(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	bridge := &bridgeStub{}
+	driver := testkit.NewMemoryDriver()
+	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	req := definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput:     map[string]string{"order_id": "123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), req, func(ctx context.Context, lease definitions.LeaseContext) error {
+		other := definitions.SyncLockRequest{
+			DefinitionID: "OrderLock",
+			KeyInput:     map[string]string{"order_id": "123"},
+			Ownership:    definitions.OwnershipMeta{OwnerID: "svc:two"},
+		}
+		innerErr := mgr.ExecuteExclusive(ctx, other, func(ctx context.Context, nested definitions.LeaseContext) error {
+			return nil
+		})
+		if !errors.Is(innerErr, lockerrors.ErrLockBusy) {
+			t.Fatalf("expected lock busy error, got %v", innerErr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+	_ = driver // keep import
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.contention < 1 {
+		t.Fatalf("expected at least 1 contention event, got %d", bridge.contention)
+	}
+	if bridge.acquireFailed < 1 {
+		t.Fatalf("expected at least 1 acquire failed event, got %d", bridge.acquireFailed)
+	}
+}
+
+func TestExecuteExclusiveEmitsBridgeActiveStateChanges(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		KeyInput:     map[string]string{"order_id": "123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:one"},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+
+	// Verify the bridge received a succeeded event with the correct definition and resource.
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.lastEvent.DefinitionID != "OrderLock" {
+		t.Fatalf("expected last event DefinitionID=OrderLock, got %q", bridge.lastEvent.DefinitionID)
+	}
+	if bridge.lastEvent.ResourceID != "order:123" {
+		t.Fatalf("expected last event ResourceID=order:123, got %q", bridge.lastEvent.ResourceID)
+	}
+}

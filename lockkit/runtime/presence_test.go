@@ -350,3 +350,44 @@ func (p *presenceMetricRecorder) presenceDefinitionIDs() []string {
 	defer p.mu.Unlock()
 	return append([]string(nil), p.ids...)
 }
+
+func TestCheckPresenceEmitsBridgeEvent(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "OrderLock",
+		Kind:             definitions.KindParent,
+		Resource:         "order",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		CheckOnlyAllowed: true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	driver := testkit.NewMemoryDriver()
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	_, err = mgr.CheckPresence(context.Background(), definitions.PresenceCheckRequest{
+		DefinitionID: "OrderLock",
+		KeyInput:     map[string]string{"order_id": "123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:one"},
+	})
+	if err != nil {
+		t.Fatalf("CheckPresence returned error: %v", err)
+	}
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.presenceChecked != 1 {
+		t.Fatalf("expected 1 presence checked event, got %d", bridge.presenceChecked)
+	}
+	if bridge.lastEvent.DefinitionID != "OrderLock" {
+		t.Fatalf("expected DefinitionID=OrderLock, got %q", bridge.lastEvent.DefinitionID)
+	}
+}

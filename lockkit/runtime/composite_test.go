@@ -679,3 +679,37 @@ func (d *failingCompositeDriver) releasedKeys() []string {
 	defer d.mu.Unlock()
 	return append([]string(nil), d.released...)
 }
+
+func TestExecuteCompositeExclusiveEmitsBridgeEvents(t *testing.T) {
+	reg := newCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, driver, nil, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeExclusive(context.Background(), compositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	// Two members: acquire started + succeeded for each.
+	if bridge.acquireStarted != 2 {
+		t.Fatalf("expected 2 acquire started events, got %d", bridge.acquireStarted)
+	}
+	if bridge.acquireSucceeded != 2 {
+		t.Fatalf("expected 2 acquire succeeded events, got %d", bridge.acquireSucceeded)
+	}
+	// Two members released in reverse order.
+	if bridge.released != 2 {
+		t.Fatalf("expected 2 released events, got %d", bridge.released)
+	}
+	if bridge.acquireFailed != 0 {
+		t.Fatalf("expected 0 acquire failed events, got %d", bridge.acquireFailed)
+	}
+}

@@ -109,6 +109,15 @@ func (m *Manager) ExecuteCompositeExclusive(
 			member := acquired[i]
 			held := time.Since(member.held.lease.AcquiredAt)
 			m.recorder.RecordRelease(ctx, member.member.Definition.ID, held)
+			if m.bridge != nil {
+				m.bridge.PublishRuntimeReleased(RuntimeEvent{
+					DefinitionID: member.member.Definition.ID,
+					ResourceID:   member.member.ResourceKey,
+					OwnerID:      req.Ownership.OwnerID,
+					RequestID:    req.Ownership.RequestID,
+					Held:         held,
+				})
+			}
 			if releaseErr := m.releaseLease(context.Background(), member.held); releaseErr != nil {
 				if retErr == nil {
 					retErr = releaseErr
@@ -126,15 +135,33 @@ func (m *Manager) ExecuteCompositeExclusive(
 		}
 
 		acquireCtx, cancel := contextWithAcquireTimeout(ctx, waitConfigs[i])
+		re := RuntimeEvent{
+			DefinitionID: member.Definition.ID,
+			ResourceID:   member.ResourceKey,
+			OwnerID:      req.Ownership.OwnerID,
+			RequestID:    req.Ownership.RequestID,
+		}
+		if m.bridge != nil {
+			m.bridge.PublishRuntimeAcquireStarted(re)
+		}
 		start := time.Now()
 		lease, acquireErr := m.acquireLease(acquireCtx, member.Definition, acquirePlan, req.Ownership.OwnerID)
 		waitDuration := time.Since(start)
 		cancel()
 
+		re.Wait = waitDuration
 		m.recorder.RecordAcquire(ctx, member.Definition.ID, waitDuration, acquireErr == nil)
 		if acquireErr != nil {
 			recordAcquireFailure(m, ctx, member.Definition.ID, acquireErr)
+			if m.bridge != nil {
+				m.bridge.PublishRuntimeAcquireFailed(re, acquireErr)
+				recordBridgeAcquireFailure(m, re, acquireErr)
+			}
 			return mapAcquireError(acquireErr)
+		}
+
+		if m.bridge != nil {
+			m.bridge.PublishRuntimeAcquireSucceeded(re)
 		}
 
 		acquired = append(acquired, acquiredCompositeLease{
