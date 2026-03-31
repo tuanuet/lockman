@@ -12,6 +12,7 @@ import (
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/lineage"
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
+	"github.com/tuanuet/lockman/observe"
 )
 
 const (
@@ -94,17 +95,27 @@ func (m *Manager) ExecuteClaimed(
 	acquireCtx, acquireCancel := contextWithAcquireTimeout(ctx, waitCfg)
 	defer acquireCancel()
 
+	m.publishWorkerAcquireStarted(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
+
 	lease, err := m.acquireClaimLease(acquireCtx, def, acquirePlan, req.Ownership.OwnerID)
 	if err != nil {
-		return mapAcquireError(err)
+		mappedErr := mapAcquireError(err)
+		m.publishWorkerAcquireFailed(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey, mappedErr)
+		return mappedErr
 	}
+	m.publishWorkerAcquireSucceeded(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
+
+	released := false
 	defer func() {
-		_ = m.releaseClaimLease(context.Background(), lease)
+		if !released {
+			_ = m.releaseClaimLease(context.Background(), lease)
+			m.publishWorkerReleased(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
+		}
 	}()
 
 	callbackCtx, callbackCancel := context.WithCancel(ctx)
 	defer callbackCancel()
-	renewal := m.startLeaseRenewal(lease, callbackCancel)
+	renewal := m.startLeaseRenewalWithMeta(lease, callbackCancel, def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
 	renewalStopped := false
 	defer func() {
 		if !renewalStopped {
@@ -126,6 +137,7 @@ func (m *Manager) ExecuteClaimed(
 	renewalStopped = true
 
 	if renewErr := renewal.failure(); renewErr != nil {
+		m.publishWorkerLeaseLost(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
 		callbackErr = renewErr
 	}
 
@@ -137,6 +149,10 @@ func (m *Manager) ExecuteClaimed(
 			callbackErr = stdErrors.Join(callbackErr, err)
 		}
 	}
+
+	_ = m.releaseClaimLease(context.Background(), lease)
+	released = true
+	m.publishWorkerReleased(def.ID, resourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
 
 	return callbackErr
 }
@@ -491,4 +507,56 @@ func cloneWorkerLineageMeta(meta backend.LineageLeaseMeta) backend.LineageLeaseM
 		out.AncestorKeys = append([]backend.AncestorKey(nil), meta.AncestorKeys...)
 	}
 	return out
+}
+
+func (m *Manager) publishWorkerAcquireStarted(defID, resourceID, ownerID, requestID string) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerAcquireStarted(workerEvent(defID, resourceID, ownerID, requestID))
+}
+
+func (m *Manager) publishWorkerAcquireSucceeded(defID, resourceID, ownerID, requestID string) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerAcquireSucceeded(workerEvent(defID, resourceID, ownerID, requestID))
+}
+
+func (m *Manager) publishWorkerAcquireFailed(defID, resourceID, ownerID, requestID string, err error) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerAcquireFailed(workerEvent(defID, resourceID, ownerID, requestID), err)
+}
+
+func (m *Manager) publishWorkerReleased(defID, resourceID, ownerID, requestID string) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerReleased(workerEvent(defID, resourceID, ownerID, requestID))
+}
+
+func (m *Manager) publishWorkerLeaseLost(defID, resourceID, ownerID, requestID string) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerLeaseLost(workerEvent(defID, resourceID, ownerID, requestID))
+}
+
+func (m *Manager) publishWorkerRenewalSucceeded(defID, resourceID, ownerID, requestID string) {
+	if m.bridge == nil {
+		return
+	}
+	m.bridge.PublishWorkerRenewalSucceeded(workerEvent(defID, resourceID, ownerID, requestID))
+}
+
+func workerEvent(defID, resourceID, ownerID, requestID string) observe.Event {
+	return observe.Event{
+		Kind:         observe.EventAcquireStarted,
+		DefinitionID: defID,
+		ResourceID:   resourceID,
+		OwnerID:      ownerID,
+		RequestID:    requestID,
+	}
 }

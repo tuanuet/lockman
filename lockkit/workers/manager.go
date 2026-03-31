@@ -11,6 +11,7 @@ import (
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/observe"
 )
 
 type reentryKey struct {
@@ -22,11 +23,39 @@ type definitionSnapshotReader interface {
 	Definitions() []definitions.LockDefinition
 }
 
+// Bridge receives worker lifecycle events from the manager.
+type Bridge interface {
+	PublishWorkerAcquireStarted(e observe.Event)
+	PublishWorkerAcquireSucceeded(e observe.Event)
+	PublishWorkerAcquireFailed(e observe.Event, err error)
+	PublishWorkerReleased(e observe.Event)
+	PublishWorkerOverlap(e observe.Event)
+	PublishWorkerRenewalSucceeded(e observe.Event)
+	PublishWorkerLeaseLost(e observe.Event)
+	PublishWorkerShutdownStarted()
+	PublishWorkerShutdownCompleted()
+}
+
+// Option configures the worker manager.
+type Option func(*managerConfig)
+
+type managerConfig struct {
+	bridge Bridge
+}
+
+// WithBridge attaches an observability bridge to the worker manager.
+func WithBridge(b Bridge) Option {
+	return func(cfg *managerConfig) {
+		cfg.bridge = b
+	}
+}
+
 // Manager orchestrates single-resource worker claim execution for Phase 2.
 type Manager struct {
 	registry    registry.Reader
 	driver      backend.Driver
 	idempotency idempotency.Store
+	bridge      Bridge
 
 	active sync.Map
 
@@ -42,7 +71,12 @@ type Manager struct {
 }
 
 // NewManager validates dependencies and returns a configured worker manager.
-func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.Store) (*Manager, error) {
+func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.Store, opts ...Option) (*Manager, error) {
+	var cfg managerConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	if reg == nil {
 		return nil, lockerrors.ErrRegistryViolation
 	}
@@ -79,6 +113,7 @@ func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.St
 		registry:      reg,
 		driver:        driver,
 		idempotency:   store,
+		bridge:        cfg.bridge,
 		inFlightDrain: drain,
 		renewals:      make(map[uint64]context.CancelFunc),
 	}, nil

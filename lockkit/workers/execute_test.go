@@ -14,6 +14,7 @@ import (
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/observe"
 )
 
 type workerManagerHarness struct {
@@ -898,4 +899,167 @@ func (d strictAcquireFailDriver) RenewStrict(ctx context.Context, lease backend.
 
 func (d strictAcquireFailDriver) ReleaseStrict(ctx context.Context, lease backend.LeaseRecord, fencingToken uint64) error {
 	return d.base.ReleaseStrict(ctx, lease, fencingToken)
+}
+
+type acquireFailDriver struct {
+	base *testkit.MemoryDriver
+	err  error
+}
+
+func (d *acquireFailDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, d.err
+}
+
+func (d *acquireFailDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
+	return d.base.Renew(ctx, lease)
+}
+
+func (d *acquireFailDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
+	return d.base.Release(ctx, lease)
+}
+
+func (d *acquireFailDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return d.base.CheckPresence(ctx, req)
+}
+
+func (d *acquireFailDriver) Ping(ctx context.Context) error {
+	return d.base.Ping(ctx)
+}
+
+func TestExecuteClaimedEmitsAcquireLifecycleEvents(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+	store := idempotency.NewMemoryStore()
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+
+	if !hasEventKind(events, observe.EventAcquireStarted) {
+		t.Fatal("expected acquire_started event")
+	}
+	if !hasEventKind(events, observe.EventAcquireSucceeded) {
+		t.Fatal("expected acquire_succeeded event")
+	}
+	if !hasEventKind(events, observe.EventReleased) {
+		t.Fatal("expected released event")
+	}
+}
+
+func TestExecuteClaimedEmitsIdempotencyBeginCompletedEvents(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, true)
+	store := idempotency.NewMemoryStore()
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+
+	if !hasEventKind(events, observe.EventAcquireStarted) {
+		t.Fatal("expected acquire_started event for idempotency begin")
+	}
+	if !hasEventKind(events, observe.EventAcquireSucceeded) {
+		t.Fatal("expected acquire_succeeded event for idempotency completed")
+	}
+}
+
+func TestExecuteClaimedEmitsLeaseLostWhenRenewalFails(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, true)
+	store := idempotency.NewMemoryStore()
+	driver := &renewFailDriver{
+		base:     testkit.NewMemoryDriver(),
+		renewErr: backend.ErrLeaseExpired,
+	}
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, driver, store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if !errors.Is(err, lockerrors.ErrLeaseLost) {
+		t.Fatalf("expected lease lost error, got %v", err)
+	}
+	if !hasEventKind(events, observe.EventLeaseLost) {
+		t.Fatal("expected lease_lost event")
+	}
+}
+
+func TestExecuteClaimedEmitsRenewalSucceededOnRenewal(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, true)
+	store := idempotency.NewMemoryStore()
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		time.Sleep(150 * time.Millisecond)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteClaimed returned error: %v", err)
+	}
+
+	if !hasEventKind(events, observe.EventRenewalSucceeded) {
+		t.Fatal("expected renewal_succeeded event")
+	}
+}
+
+func TestExecuteClaimedEmitsAcquireFailedOnError(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+	store := idempotency.NewMemoryStore()
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	driver := &acquireFailDriver{
+		base: testkit.NewMemoryDriver(),
+		err:  errors.New("acquire failed"),
+	}
+	mgr, err := NewManager(reg, driver, store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteClaimed(context.Background(), messageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected ExecuteClaimed to return error")
+	}
+
+	if !hasEventKind(events, observe.EventAcquireFailed) {
+		t.Fatal("expected acquire_failed event")
+	}
 }

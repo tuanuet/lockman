@@ -145,7 +145,9 @@ func (m *Manager) ExecuteCompositeClaimed(
 	acquired := make([]acquiredCompositeClaim, 0, len(plan))
 	defer func() {
 		for i := len(acquired) - 1; i >= 0; i-- {
-			_ = m.releaseClaimLease(context.Background(), acquired[i].lease)
+			member := acquired[i]
+			_ = m.releaseClaimLease(context.Background(), member.lease)
+			m.publishWorkerReleased(member.member.Definition.ID, member.member.ResourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
 		}
 	}()
 
@@ -155,12 +157,17 @@ func (m *Manager) ExecuteCompositeClaimed(
 			return lockerrors.ErrPolicyViolation
 		}
 
+		m.publishWorkerAcquireStarted(member.Definition.ID, member.ResourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
+
 		acquireCtx, acquireCancel := contextWithAcquireTimeout(ctx, waitCfgs[i])
 		lease, acquireErr := m.acquireClaimLease(acquireCtx, member.Definition, acquirePlan, req.Ownership.OwnerID)
 		acquireCancel()
 		if acquireErr != nil {
-			return mapAcquireError(acquireErr)
+			mappedErr := mapAcquireError(acquireErr)
+			m.publishWorkerAcquireFailed(member.Definition.ID, member.ResourceKey, req.Ownership.OwnerID, req.IdempotencyKey, mappedErr)
+			return mappedErr
 		}
+		m.publishWorkerAcquireSucceeded(member.Definition.ID, member.ResourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
 
 		acquired = append(acquired, acquiredCompositeClaim{
 			member: member,
@@ -170,7 +177,7 @@ func (m *Manager) ExecuteCompositeClaimed(
 
 	callbackCtx, callbackCancel := context.WithCancel(ctx)
 	defer callbackCancel()
-	renewal := startCompositeLeaseRenewal(m, acquired, callbackCancel)
+	renewal := startCompositeLeaseRenewal(m, acquired, callbackCancel, req.Ownership.OwnerID, req.IdempotencyKey)
 	renewalStopped := false
 	defer func() {
 		if !renewalStopped {
@@ -184,6 +191,9 @@ func (m *Manager) ExecuteCompositeClaimed(
 	renewalStopped = true
 
 	if renewErr := renewal.failure(); renewErr != nil {
+		for _, member := range acquired {
+			m.publishWorkerLeaseLost(member.member.Definition.ID, member.member.ResourceKey, req.Ownership.OwnerID, req.IdempotencyKey)
+		}
 		callbackErr = renewErr
 	}
 
@@ -207,10 +217,11 @@ func startCompositeLeaseRenewal(
 	m *Manager,
 	acquired []acquiredCompositeClaim,
 	onFailureCancel context.CancelFunc,
+	ownerID, requestID string,
 ) *compositeRenewalSession {
 	sessions := make([]*renewalSession, 0, len(acquired))
 	for _, member := range acquired {
-		sessions = append(sessions, m.startLeaseRenewal(member.lease, onFailureCancel))
+		sessions = append(sessions, m.startLeaseRenewalWithMeta(member.lease, onFailureCancel, member.member.Definition.ID, member.member.ResourceKey, ownerID, requestID))
 	}
 	return &compositeRenewalSession{sessions: sessions}
 }

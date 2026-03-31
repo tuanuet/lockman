@@ -22,6 +22,11 @@ type renewalSession struct {
 
 	errMu sync.Mutex
 	err   error
+
+	defID   string
+	ownerID string
+	lease   renewableLease
+	bridge  Bridge
 }
 
 func (s *renewalSession) stopAndWait() {
@@ -60,10 +65,22 @@ func (m *Manager) startLeaseRenewal(
 	lease renewableLease,
 	onFailureCancel context.CancelFunc,
 ) *renewalSession {
+	return m.startLeaseRenewalWithMeta(lease, onFailureCancel, "", "", "", "")
+}
+
+func (m *Manager) startLeaseRenewalWithMeta(
+	lease renewableLease,
+	onFailureCancel context.CancelFunc,
+	defID, resourceID, ownerID, requestID string,
+) *renewalSession {
 	interval := renewalInterval(lease.lease.LeaseTTL)
 	renewCtx, renewCancel := context.WithCancel(context.Background())
 	session := &renewalSession{
-		done: make(chan struct{}),
+		done:    make(chan struct{}),
+		defID:   defID,
+		ownerID: ownerID,
+		lease:   lease,
+		bridge:  m.bridge,
 	}
 	registrationID := m.registerRenewalCancel(renewCancel)
 	session.stop = func() {
@@ -98,6 +115,7 @@ func (m *Manager) startLeaseRenewal(
 				return
 			}
 			current = updated
+			m.publishWorkerRenewalSucceeded(defID, resourceID, ownerID, requestID)
 		}
 	}()
 
