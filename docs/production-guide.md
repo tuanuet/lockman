@@ -20,7 +20,7 @@ Quickstarts:
 ## Minimum Production Wiring
 
 - `Run` requires a backend such as `github.com/tuanuet/lockman/backend/redis`.
-- `Claim` requires both a backend and idempotency wiring such as `github.com/tuanuet/lockman/idempotency/redis`.
+- `Claim` always requires a backend, and `Claim` can use idempotency wiring such as `github.com/tuanuet/lockman/idempotency/redis` when the use case declares `lockman.Idempotent()`.
 - Register all use cases at startup and fail fast on capability mismatches.
 
 Minimal wiring pattern:
@@ -95,7 +95,7 @@ Details: [`advanced/composite.md`](advanced/composite.md)
 ## Common Mistakes
 
 - Defining use cases inline at call time instead of at package scope.
-- Forgetting `Claim` requires idempotency wiring — it will panic or fail at registration without it.
+- Forgetting `lockman.Idempotent()` claim use cases require idempotency wiring — client startup will fail before the worker begins serving traffic.
 - Using `Run` for queue consumers that receive retries or redeliveries.
 - Raising TTL instead of restructuring slow callbacks.
 - Sharing a single registry across unrelated boundaries — use separate registries for separate concerns.
@@ -108,5 +108,6 @@ Details: [`advanced/composite.md`](advanced/composite.md)
 | Async queue consumer with idempotency | [`examples/sdk/async-process-order`](../examples/sdk/async-process-order) |
 | Multi-resource transfer | [`examples/sdk/sync-transfer-funds`](../examples/sdk/sync-transfer-funds) |
 | Strict fenced write | [`examples/sdk/sync-fenced-write`](../examples/sdk/sync-fenced-write) |
+| Shared aggregate across sync and async flows | [`examples/sdk/shared-aggregate-split-definitions`](../examples/sdk/shared-aggregate-split-definitions) |
 | Redis backend adapter example | [`backend/redis/examples/sync-approve-order`](../backend/redis/examples/sync-approve-order) |
 | Redis idempotency adapter example | [`idempotency/redis/examples/async-process-order`](../idempotency/redis/examples/async-process-order) |

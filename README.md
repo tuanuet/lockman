@@ -76,8 +76,8 @@ If you want the smallest runnable version of that flow, start with [`examples/sd
 - [`examples/sdk/async-process-order`](examples/sdk/async-process-order): the shortest async delivery flow with idempotency
 - [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds): one operation holding multiple resources together
 - [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write): strict fenced execution on the SDK path
+- [`examples/sdk/shared-aggregate-split-definitions`](examples/sdk/shared-aggregate-split-definitions): compare sync and async flows on one aggregate boundary
 - [`examples/core/strict-guarded-write`](examples/core/strict-guarded-write): strict fencing carried all the way into a guarded database write
-- [`examples/core/shared-aggregate-split-definitions`](examples/core/shared-aggregate-split-definitions): compare sync and async flows on one aggregate boundary
 - [`examples/core/parent-lock-over-composite`](examples/core/parent-lock-over-composite): when one aggregate lock is enough and composite locking is overkill
 
 Published adapter-backed copies also live here:
@@ -99,6 +99,7 @@ More detail:
 - [`docs/quickstart-sync.md`](docs/quickstart-sync.md)
 - [`docs/quickstart-async.md`](docs/quickstart-async.md)
 - [`docs/runtime-vs-workers.md`](docs/runtime-vs-workers.md)
+- [`docs/errors.md`](docs/errors.md)
 
 ## When You Need More
 

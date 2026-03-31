@@ -60,6 +60,23 @@ func TestNewFailsWhenClaimUseCaseNeedsIdempotencyButStoreMissing(t *testing.T) {
 	}
 }
 
+func TestNewAllowsNonIdempotentClaimUseCaseWithoutIdempotencyStore(t *testing.T) {
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testClaimUseCase("order.process", false))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "worker-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("expected non-idempotent claim use case to start without idempotency store, got %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
 func TestNewFailsWhenStrictUseCaseNeedsStrictBackendSupport(t *testing.T) {
 	reg := NewRegistry()
 	uc := testRunUseCase("order.strict")
