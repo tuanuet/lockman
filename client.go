@@ -6,6 +6,7 @@ import (
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/internal/observebridge"
 	lockruntime "github.com/tuanuet/lockman/lockkit/runtime"
 	"github.com/tuanuet/lockman/lockkit/workers"
 )
@@ -19,6 +20,7 @@ type Client struct {
 	identityProvider func(context.Context) Identity
 	runtime          *lockruntime.Manager
 	worker           *workers.Manager
+	bridge           *observebridge.Bridge
 	shuttingDown     atomic.Bool
 }
 
@@ -42,6 +44,13 @@ func New(opts ...ClientOption) (*Client, error) {
 		idempotency:      cfg.idempotency,
 		identity:         cfg.identity,
 		identityProvider: cfg.identityProvider,
+	}
+
+	if cfg.observer != nil && cfg.inspectStore != nil {
+		client.bridge = observebridge.New(observebridge.Config{
+			Store:      cfg.inspectStore,
+			Dispatcher: cfg.observer,
+		})
 	}
 
 	if plan.hasRunUseCases {

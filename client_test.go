@@ -8,8 +8,10 @@ import (
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/inspect"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/observe"
 )
 
 func TestNewFailsWithoutRegistry(t *testing.T) {
@@ -242,4 +244,134 @@ func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req backend.Pres
 
 func (d exactOnlyDriverStub) Ping(ctx context.Context) error {
 	return d.inner.Ping(ctx)
+}
+
+func TestWithObserverPopulatesClientConfig(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+
+	cfg := &clientConfig{}
+	opt := WithObserver(d)
+	opt(cfg)
+
+	if cfg.observer == nil {
+		t.Fatal("expected observer to be set")
+	}
+}
+
+func TestWithInspectStorePopulatesClientConfig(t *testing.T) {
+	store := inspect.NewStore()
+
+	cfg := &clientConfig{}
+	opt := WithInspectStore(store)
+	opt(cfg)
+
+	if cfg.inspectStore == nil {
+		t.Fatal("expected inspectStore to be set")
+	}
+}
+
+func TestWithObservabilityPopulatesClientConfig(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	obs := Observability{
+		Dispatcher: d,
+		Store:      store,
+	}
+
+	cfg := &clientConfig{}
+	opt := WithObservability(obs)
+	opt(cfg)
+
+	if cfg.observer == nil {
+		t.Fatal("expected observer to be set by WithObservability")
+	}
+	if cfg.inspectStore == nil {
+		t.Fatal("expected inspectStore to be set by WithObservability")
+	}
+}
+
+func TestNewWithObserverCreatesClientWithoutError(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObserver(d),
+	)
+	if err != nil {
+		t.Fatalf("New with observer returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithInspectStoreCreatesClientWithoutError(t *testing.T) {
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithInspectStore(store),
+	)
+	if err != nil {
+		t.Fatalf("New with inspect store returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithObservabilityCreatesClientWithoutError(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New with observability returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithObservabilityDoesNotRequireUseCases(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New with observability (no use cases) returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
 }
