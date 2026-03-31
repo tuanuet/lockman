@@ -59,13 +59,13 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GOWORK: off
           GOPROXY: https://proxy.golang.org,direct
+        shell: bash
         run: |
+          set -e
+          
           case "$GITHUB_REF_NAME" in
             v*)
-              module_path="github.com/tuanuet/lockman"
-              module_version="$GITHUB_REF_NAME"
-              root_version="$module_version"
-              cat > smoke_test.go <<'EOF'
+              cat > smoke_test.go << 'SMOKETEST'
               package lockmanreleaseconsumer
 
               import (
@@ -78,13 +78,13 @@ jobs:
               	var _ lockman.Identity
               	var _ = lockman.NewRegistry
               }
-              EOF
+              SMOKETEST
+              module_path="github.com/tuanuet/lockman"
+              module_version="$GITHUB_REF_NAME"
+              root_version="$module_version"
               ;;
             backend/redis/v*)
-              module_path="github.com/tuanuet/lockman/backend/redis"
-              module_version="${GITHUB_REF_NAME#backend/redis/}"
-              root_version="$module_version"
-              cat > smoke_test.go <<'EOF'
+              cat > smoke_test.go << 'SMOKETEST'
               package lockmanreleaseconsumer
 
               import (
@@ -98,13 +98,13 @@ jobs:
               	var _ lockman.Identity
               	var _ = backendredis.New
               }
-              EOF
+              SMOKETEST
+              module_path="github.com/tuanuet/lockman/backend/redis"
+              module_version="${GITHUB_REF_NAME#backend/redis/}"
+              root_version="$module_version"
               ;;
             idempotency/redis/v*)
-              module_path="github.com/tuanuet/lockman/idempotency/redis"
-              module_version="${GITHUB_REF_NAME#idempotency/redis/}"
-              root_version="$module_version"
-              cat > smoke_test.go <<'EOF'
+              cat > smoke_test.go << 'SMOKETEST'
               package lockmanreleaseconsumer
 
               import (
@@ -118,13 +118,13 @@ jobs:
               	var _ lockman.Identity
               	var _ = idempotencyredis.New
               }
-              EOF
+              SMOKETEST
+              module_path="github.com/tuanuet/lockman/idempotency/redis"
+              module_version="${GITHUB_REF_NAME#idempotency/redis/}"
+              root_version="$module_version"
               ;;
             guard/postgres/v*)
-              module_path="github.com/tuanuet/lockman/guard/postgres"
-              module_version="${GITHUB_REF_NAME#guard/postgres/}"
-              root_version="$module_version"
-              cat > smoke_test.go <<'EOF'
+              cat > smoke_test.go << 'SMOKETEST'
               package lockmanreleaseconsumer
 
               import (
@@ -138,7 +138,10 @@ jobs:
               	var _ lockman.Identity
               	var _ guardpostgres.ExistingRowStatus
               }
-              EOF
+              SMOKETEST
+              module_path="github.com/tuanuet/lockman/guard/postgres"
+              module_version="${GITHUB_REF_NAME#guard/postgres/}"
+              root_version="$module_version"
               ;;
             *)
               echo "unsupported tag: $GITHUB_REF_NAME" >&2
