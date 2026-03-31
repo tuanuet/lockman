@@ -2,8 +2,6 @@ go 1.22
 
 use (
 	.
-	./advanced/composite
-	./advanced/strict
 	./backend/redis
 	./benchmarks
 	./examples

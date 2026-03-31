@@ -6,8 +6,6 @@ require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/redis/go-redis/v9 v9.5.1
 	github.com/tuanuet/lockman v0.0.0
-	github.com/tuanuet/lockman/advanced/composite v0.0.0
-	github.com/tuanuet/lockman/advanced/strict v0.0.0
 	github.com/tuanuet/lockman/backend/redis v1.0.0
 	github.com/tuanuet/lockman/idempotency/redis v1.0.0
 )
@@ -19,7 +17,5 @@ require (
 )
 
 replace github.com/tuanuet/lockman => ../
-replace github.com/tuanuet/lockman/advanced/composite => ../advanced/composite
-replace github.com/tuanuet/lockman/advanced/strict => ../advanced/strict
 replace github.com/tuanuet/lockman/backend/redis => ../backend/redis
 replace github.com/tuanuet/lockman/idempotency/redis => ../idempotency/redis
