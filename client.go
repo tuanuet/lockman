@@ -77,12 +77,27 @@ func (c *Client) Shutdown(ctx context.Context) error {
 
 	c.shuttingDown.Store(true)
 
+	if c.bridge != nil {
+		c.bridge.PublishClientShutdownStarted()
+	}
+
 	var err error
 	if c.runtime != nil {
 		err = c.runtime.Shutdown(ctx)
 	}
 	if c.worker != nil {
 		if shutdownErr := c.worker.Shutdown(ctx); shutdownErr != nil {
+			if err == nil {
+				err = shutdownErr
+			} else {
+				err = joinErrors(err, shutdownErr)
+			}
+		}
+	}
+
+	if c.bridge != nil {
+		c.bridge.PublishClientShutdownCompleted()
+		if shutdownErr := c.bridge.Shutdown(ctx); shutdownErr != nil {
 			if err == nil {
 				err = shutdownErr
 			} else {

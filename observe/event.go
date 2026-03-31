@@ -19,6 +19,7 @@ const (
 	EventRenewalFailed
 	EventShutdownStarted
 	EventShutdownCompleted
+	EventClientStarted
 )
 
 func (k EventKind) String() string {
@@ -45,13 +46,15 @@ func (k EventKind) String() string {
 		return "shutdown_started"
 	case EventShutdownCompleted:
 		return "shutdown_completed"
+	case EventClientStarted:
+		return "client_started"
 	default:
 		return ""
 	}
 }
 
 func (k EventKind) IsValid() bool {
-	return k >= EventAcquireStarted && k <= EventShutdownCompleted
+	return k >= EventAcquireStarted && k <= EventClientStarted
 }
 
 type Event struct {
