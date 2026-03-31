@@ -8,7 +8,7 @@ import (
 
 func TestAdapterBenchmarkContract(t *testing.T) {
 	root := repoRoot(t)
-	src := mustReadFile(t, filepath.Join(root, "benchmark_adoption_adapter_test.go"))
+	src := mustReadFile(t, filepath.Join(root, "benchmarks", "benchmark_adoption_adapter_test.go"))
 
 	for _, want := range []string{
 		"package lockman_test",
@@ -29,7 +29,7 @@ func TestAdapterBenchmarkContract(t *testing.T) {
 
 func TestBaselineBenchmarkContract(t *testing.T) {
 	root := repoRoot(t)
-	src := mustReadFile(t, filepath.Join(root, "benchmark_adoption_baseline_test.go"))
+	src := mustReadFile(t, filepath.Join(root, "benchmarks", "benchmark_adoption_baseline_test.go"))
 
 	for _, want := range []string{
 		"package lockman_test",

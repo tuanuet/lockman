@@ -24,6 +24,8 @@ func TestExamplesTreeIsPartitionedIntoCoreAndSDK(t *testing.T) {
 		"README.md": true,
 		"core":      true,
 		"sdk":       true,
+		"go.mod":    true,
+		"go.sum":    true,
 	}
 	for _, entry := range entries {
 		if !allowed[entry.Name()] {
