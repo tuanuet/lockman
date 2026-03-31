@@ -95,6 +95,7 @@ Published adapter-backed copies also live here:
 More detail:
 
 - [`docs/production-guide.md`](docs/production-guide.md) — production checklist, wiring patterns, and which example to copy
+- [`docs/benchmarks.md`](docs/benchmarks.md) — benchmark tracks for calibrating SDK and adapter overhead
 - [`docs/quickstart-sync.md`](docs/quickstart-sync.md)
 - [`docs/quickstart-async.md`](docs/quickstart-async.md)
 - [`docs/runtime-vs-workers.md`](docs/runtime-vs-workers.md)

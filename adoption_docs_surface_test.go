@@ -42,9 +42,31 @@ func TestREADMELinksAdoptionDocs(t *testing.T) {
 
 	for _, want := range []string{
 		"docs/production-guide.md",
+		"docs/benchmarks.md",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("expected README to contain %q", want)
+		}
+	}
+}
+
+func TestBenchmarkGuideForApplicationTeams(t *testing.T) {
+	root := repoRoot(t)
+	src := mustReadFile(t, filepath.Join(root, "docs", "benchmarks.md"))
+
+	for _, want := range []string{
+		"# Benchmarks",
+		"## What Was Measured",
+		"## How To Run",
+		"## Environment Notes",
+		"## How To Read The Results",
+		"go test -run '^$' -bench '^BenchmarkAdoption' -benchmem .",
+		"memory-backed baseline",
+		"Redis-adapter-backed",
+		"relative overhead",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("expected benchmark guide to contain %q", want)
 		}
 	}
 }
