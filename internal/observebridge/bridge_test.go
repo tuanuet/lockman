@@ -57,7 +57,7 @@ func TestBridgeWritesOnceToStoreAndOnceToDispatcher(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -98,7 +98,7 @@ func TestBridgeAppliesLocalStateBeforePublish(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -118,7 +118,7 @@ func TestBridgeRuntimeLifecycleEvents(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	re := observebridge.RuntimeEvent{
+	re := observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -150,7 +150,7 @@ func TestBridgeWorkerLifecycleEvents(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	we := observebridge.WorkerEvent{
+	we := observe.Event{
 		DefinitionID: "order.process",
 		ResourceID:   "order:42",
 		OwnerID:      "worker-1",
@@ -179,8 +179,8 @@ func TestBridgeShutdownEvents(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishShutdownStarted()
-	bridge.PublishShutdownCompleted()
+	bridge.PublishRuntimeShutdownStarted()
+	bridge.PublishRuntimeShutdownCompleted()
 
 	if got := store.calls.Load(); got != 2 {
 		t.Fatalf("store calls = %d, want 2", got)
@@ -200,7 +200,7 @@ func TestBridgeRequestIDIsOptional(t *testing.T) {
 	})
 
 	// Publish without RequestID should succeed.
-	bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -227,7 +227,7 @@ func TestBridgeRequestIDPropagatedWhenSet(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -312,7 +312,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "acquire_started",
 			fn: func() {
-				bridge.PublishRuntimeAcquireStarted(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeAcquireStarted(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
@@ -321,7 +321,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "acquire_succeeded",
 			fn: func() {
-				bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
@@ -330,7 +330,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "acquire_failed",
 			fn: func() {
-				bridge.PublishRuntimeAcquireFailed(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeAcquireFailed(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				}, assert.AnError)
 			},
@@ -339,7 +339,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "released",
 			fn: func() {
-				bridge.PublishRuntimeReleased(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeReleased(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
@@ -348,7 +348,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "renewal_succeeded",
 			fn: func() {
-				bridge.PublishRuntimeRenewalSucceeded(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeRenewalSucceeded(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
@@ -357,7 +357,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "renewal_failed",
 			fn: func() {
-				bridge.PublishRuntimeRenewalFailed(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeRenewalFailed(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				}, assert.AnError)
 			},
@@ -366,7 +366,7 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "lease_lost",
 			fn: func() {
-				bridge.PublishRuntimeLeaseLost(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeLeaseLost(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
@@ -375,20 +375,38 @@ func TestBridgePublishesCorrectEventKind(t *testing.T) {
 		{
 			name: "contention",
 			fn: func() {
-				bridge.PublishRuntimeContention(observebridge.RuntimeEvent{
+				bridge.PublishRuntimeContention(observe.Event{
 					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
 				})
 			},
 			want: observe.EventContention,
 		},
 		{
+			name: "overlap_rejected",
+			fn: func() {
+				bridge.PublishRuntimeOverlapRejected(observe.Event{
+					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
+				})
+			},
+			want: observe.EventOverlapRejected,
+		},
+		{
+			name: "presence_checked",
+			fn: func() {
+				bridge.PublishRuntimePresenceChecked(observe.Event{
+					DefinitionID: "d", ResourceID: "r", OwnerID: "o",
+				})
+			},
+			want: observe.EventPresenceChecked,
+		},
+		{
 			name: "shutdown_started",
-			fn:   func() { bridge.PublishShutdownStarted() },
+			fn:   func() { bridge.PublishRuntimeShutdownStarted() },
 			want: observe.EventShutdownStarted,
 		},
 		{
 			name: "shutdown_completed",
-			fn:   func() { bridge.PublishShutdownCompleted() },
+			fn:   func() { bridge.PublishRuntimeShutdownCompleted() },
 			want: observe.EventShutdownCompleted,
 		},
 	}
@@ -412,7 +430,7 @@ func TestBridgeWithRealInspectStore(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishRuntimeAcquireSucceeded(observebridge.RuntimeEvent{
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
 		DefinitionID: "order.approve",
 		ResourceID:   "order:42",
 		OwnerID:      "owner-1",
@@ -449,7 +467,7 @@ func TestBridgeWorkerOverlapEvent(t *testing.T) {
 		Dispatcher: dispatcher,
 	})
 
-	bridge.PublishWorkerOverlap(observebridge.WorkerEvent{
+	bridge.PublishWorkerOverlap(observe.Event{
 		DefinitionID: "order.process",
 		ResourceID:   "order:42",
 		OwnerID:      "worker-1",
