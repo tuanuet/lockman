@@ -14,6 +14,9 @@ type dispatcher struct {
 	dropPolicy  DropPolicy
 	workerCount int
 
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	droppedCount         atomic.Int64
 	sinkFailureCount     atomic.Int64
 	exporterFailureCount atomic.Int64
@@ -26,12 +29,16 @@ type dispatcher struct {
 func NewDispatcher(opts ...Option) *dispatcher {
 	cfg := buildConfig(opts)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	d := &dispatcher{
 		eventCh:     make(chan Event, cfg.bufferSize),
 		sinks:       cfg.sinks,
 		exporters:   cfg.exporters,
 		dropPolicy:  cfg.dropPolicy,
 		workerCount: cfg.workerCount,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	for i := 0; i < d.workerCount; i++ {
@@ -76,9 +83,17 @@ func (d *dispatcher) handleDrop(event Event) {
 func (d *dispatcher) worker() {
 	defer d.wg.Done()
 
-	for event := range d.eventCh {
-		d.deliverToSinks(event)
-		d.deliverToExporters(event)
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case event, ok := <-d.eventCh:
+			if !ok {
+				return
+			}
+			d.deliverToSinks(event)
+			d.deliverToExporters(event)
+		}
 	}
 }
 
@@ -89,7 +104,7 @@ func (d *dispatcher) deliverToSinks(event Event) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := sink.Consume(context.Background(), event); err != nil {
+			if err := sink.Consume(d.ctx, event); err != nil {
 				d.sinkFailureCount.Add(1)
 			}
 		}()
@@ -104,7 +119,7 @@ func (d *dispatcher) deliverToExporters(event Event) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := exp.Export(context.Background(), event); err != nil {
+			if err := exp.Export(d.ctx, event); err != nil {
 				d.exporterFailureCount.Add(1)
 			}
 		}()
@@ -119,6 +134,7 @@ func (d *dispatcher) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	d.closed = true
+	d.cancel()
 	close(d.eventCh)
 	d.mu.Unlock()
 
