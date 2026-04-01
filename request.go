@@ -38,3 +38,22 @@ type ClaimRequest struct {
 	registryLink    sdk.RegistryLink
 	boundToRegistry bool
 }
+
+// HoldRequest is an opaque request produced by HoldUseCase.With.
+type HoldRequest struct {
+	useCaseName     string
+	resourceKey     string
+	ownerID         string
+	useCaseCore     *useCaseCore
+	registryLink    sdk.RegistryLink
+	boundToRegistry bool
+}
+
+// ForfeitRequest is an opaque request produced by HoldUseCase.ForfeitWith.
+type ForfeitRequest struct {
+	useCaseName     string
+	token           string
+	useCaseCore     *useCaseCore
+	registryLink    sdk.RegistryLink
+	boundToRegistry bool
+}
