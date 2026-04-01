@@ -832,6 +832,73 @@ func TestRegistryValidateRejectsStandardChildWithStrictParentRegression(t *testi
 	}
 }
 
+func TestGetReturnsDefinitionWithoutClone(t *testing.T) {
+	reg := registry.New()
+	tags := map[string]string{"env": "prod"}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+		Tags:          tags,
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := reg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	def, ok := reg.Get("OrderLock")
+	if !ok {
+		t.Fatal("expected Get to return true")
+	}
+	if def.ID != "OrderLock" {
+		t.Fatalf("expected ID OrderLock, got %s", def.ID)
+	}
+
+	_, ok = reg.Get("nonexistent")
+	if ok {
+		t.Fatal("expected Get to return false for unknown ID")
+	}
+}
+
+func TestGetCompositeReturnsDefinitionWithoutClone(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "alpha",
+		Kind:          definitions.KindParent,
+		Resource:      "alpha",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("alpha:{id}", []string{"id"}),
+	}); err != nil {
+		t.Fatalf("register member: %v", err)
+	}
+	if err := reg.RegisterComposite(definitions.CompositeDefinition{
+		ID:      "transfer",
+		Members: []string{"alpha"},
+	}); err != nil {
+		t.Fatalf("register composite: %v", err)
+	}
+
+	def, ok := reg.GetComposite("transfer")
+	if !ok {
+		t.Fatal("expected GetComposite to return true")
+	}
+	if def.ID != "transfer" {
+		t.Fatalf("expected ID transfer, got %s", def.ID)
+	}
+
+	_, ok = reg.GetComposite("nonexistent")
+	if ok {
+		t.Fatal("expected GetComposite to return false for unknown ID")
+	}
+}
+
 func TestRequiresStrictRuntimeDriverIgnoresAsyncOnlyStrictDefinitions(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{

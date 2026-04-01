@@ -12,6 +12,8 @@ import (
 type Reader interface {
 	MustGet(id string) definitions.LockDefinition
 	MustGetComposite(id string) definitions.CompositeDefinition
+	Get(id string) (definitions.LockDefinition, bool)
+	GetComposite(id string) (definitions.CompositeDefinition, bool)
 	Definitions() []definitions.LockDefinition
 }
 
@@ -180,6 +182,22 @@ func (r *Registry) MustGetComposite(id string) definitions.CompositeDefinition {
 		panic(fmt.Sprintf("composite definition %q not found", id))
 	}
 	return cloneCompositeDefinition(def)
+}
+
+// Get returns the stored definition without cloning. Safe after Validate().
+func (r *Registry) Get(id string) (definitions.LockDefinition, bool) {
+	r.mu.RLock()
+	def, exists := r.definitions[id]
+	r.mu.RUnlock()
+	return def, exists
+}
+
+// GetComposite returns the stored composite definition without cloning. Safe after Validate().
+func (r *Registry) GetComposite(id string) (definitions.CompositeDefinition, bool) {
+	r.mu.RLock()
+	def, exists := r.composites[id]
+	r.mu.RUnlock()
+	return def, exists
 }
 
 // Definitions returns a cloned snapshot of registered lock definitions.
