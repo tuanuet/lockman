@@ -10,6 +10,7 @@ type useCaseKind uint8
 const (
 	useCaseKindRun useCaseKind = iota + 1
 	useCaseKindClaim
+	useCaseKindHold
 )
 
 type useCaseID string
@@ -26,6 +27,7 @@ type UseCaseKind uint8
 const (
 	UseCaseKindRun   UseCaseKind = UseCaseKind(useCaseKindRun)
 	UseCaseKindClaim UseCaseKind = UseCaseKind(useCaseKindClaim)
+	UseCaseKindHold  UseCaseKind = UseCaseKind(useCaseKindHold)
 )
 
 // CapabilityRequirements describes backend prerequisites for a use case.
@@ -98,6 +100,8 @@ func nameDelimiter(kind useCaseKind) byte {
 		return 'r'
 	case useCaseKindClaim:
 		return 'c'
+	case useCaseKindHold:
+		return 'h'
 	default:
 		return 'u'
 	}

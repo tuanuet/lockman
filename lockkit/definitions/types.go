@@ -108,3 +108,17 @@ type LockDefinition struct {
 	KeyBuilder           KeyBuilder
 	Tags                 map[string]string // Tags must remain immutable once the definition is registered.
 }
+
+// DetachedAcquireRequest requests acquisition for resources identified outside scheduler message flow.
+type DetachedAcquireRequest struct {
+	DefinitionID string
+	ResourceKeys []string
+	OwnerID      string
+}
+
+// DetachedReleaseRequest requests release for resources identified outside scheduler message flow.
+type DetachedReleaseRequest struct {
+	DefinitionID string
+	ResourceKeys []string
+	OwnerID      string
+}
