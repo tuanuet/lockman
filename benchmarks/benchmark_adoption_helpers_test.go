@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/idempotency"
@@ -18,6 +19,13 @@ func registerBenchmarkRunUseCase(b *testing.B, reg *lockman.Registry, uc lockman
 }
 
 func registerBenchmarkClaimUseCase(b *testing.B, reg *lockman.Registry, uc lockman.ClaimUseCase[string]) {
+	b.Helper()
+	if err := reg.Register(uc); err != nil {
+		b.Fatalf("Register returned error: %v", err)
+	}
+}
+
+func registerBenchmarkHoldUseCase(b *testing.B, reg *lockman.Registry, uc lockman.HoldUseCase[string]) {
 	b.Helper()
 	if err := reg.Register(uc); err != nil {
 		b.Fatalf("Register returned error: %v", err)
@@ -40,6 +48,14 @@ func benchmarkClaimUseCase(name string, idempotent bool) lockman.ClaimUseCase[st
 		name,
 		lockman.BindResourceID("order", func(v string) string { return v }),
 		opts...,
+	)
+}
+
+func benchmarkHoldUseCase(name string) lockman.HoldUseCase[string] {
+	return lockman.DefineHold[string](
+		name,
+		lockman.BindResourceID("order", func(v string) string { return v }),
+		lockman.TTL(15*time.Minute),
 	)
 }
 
@@ -71,6 +87,21 @@ func newBenchmarkClaimClient(b *testing.B, uc lockman.ClaimUseCase[string]) *loc
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-worker"}),
 		lockman.WithBackend(testkit.NewMemoryDriver()),
 		lockman.WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err != nil {
+		b.Fatalf("New returned error: %v", err)
+	}
+	return client
+}
+
+func newBenchmarkHoldClient(b *testing.B, uc lockman.HoldUseCase[string]) *lockman.Client {
+	b.Helper()
+	reg := lockman.NewRegistry()
+	registerBenchmarkHoldUseCase(b, reg, uc)
+	client, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-holder"}),
+		lockman.WithBackend(testkit.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New returned error: %v", err)
