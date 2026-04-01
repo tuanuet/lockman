@@ -99,6 +99,11 @@ func (m *Manager) ExecuteCompositeExclusive(
 			return
 		}
 		for _, key := range guardKeys {
+			if v, ok := m.active.Load(key); ok {
+				if entry, entryOk := v.(guardEntry); entryOk && entry.state == guardHeld {
+					m.activeCounter(key.definitionID).Add(-1)
+				}
+			}
 			m.active.Delete(key)
 			m.recordActiveLocks(ctx, key.definitionID)
 		}
@@ -172,6 +177,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 			held:   lease,
 		})
 		m.active.Store(guardKeys[i], guardEntry{state: guardHeld})
+		m.activeCounter(member.Definition.ID).Add(1)
 		m.recordActiveLocks(ctx, member.Definition.ID)
 	}
 

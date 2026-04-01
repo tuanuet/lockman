@@ -111,6 +111,11 @@ func (m *Manager) ExecuteExclusive(
 			}
 		}
 		if guardInstalled {
+			if v, ok := m.active.Load(key); ok {
+				if entry, entryOk := v.(guardEntry); entryOk && entry.state == guardHeld {
+					m.activeCounter(key.definitionID).Add(-1)
+				}
+			}
 			m.active.Delete(key)
 			m.recordActiveLocks(ctx, def.ID)
 		}
@@ -148,6 +153,7 @@ func (m *Manager) ExecuteExclusive(
 	leaseAcquired = true
 
 	m.active.Store(key, guardEntry{state: guardHeld})
+	m.activeCounter(def.ID).Add(1)
 	m.recordActiveLocks(ctx, def.ID)
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
@@ -244,24 +250,8 @@ func contextWithAcquireTimeout(ctx context.Context, cfg waitConfig) (context.Con
 }
 
 func (m *Manager) recordActiveLocks(ctx context.Context, definitionID string) {
-	count := m.activeCount(definitionID)
+	count := int(m.activeCounter(definitionID).Load())
 	m.recorder.RecordActiveLocks(ctx, definitionID, count)
-}
-
-func (m *Manager) activeCount(definitionID string) int {
-	count := 0
-	m.active.Range(func(key, value interface{}) bool {
-		gk, ok := key.(guardKey)
-		if !ok || gk.definitionID != definitionID {
-			return true
-		}
-		entry, ok := value.(guardEntry)
-		if ok && entry.state == guardHeld {
-			count++
-		}
-		return true
-	})
-	return count
 }
 
 func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {

@@ -48,6 +48,7 @@ type Manager struct {
 	recorder      lockobserve.Recorder
 	bridge        Bridge
 	active        sync.Map
+	activeByDef   sync.Map // definitionID → *atomic.Int64
 	shuttingDown  atomic.Bool
 	shutdownStart sync.Once
 	lifecycleMu   sync.Mutex
@@ -169,4 +170,13 @@ func (m *Manager) getCompositeDefinition(id string) (def definitions.CompositeDe
 	}()
 	def = m.registry.MustGetComposite(id)
 	return def, err
+}
+
+func (m *Manager) activeCounter(definitionID string) *atomic.Int64 {
+	if v, ok := m.activeByDef.Load(definitionID); ok {
+		return v.(*atomic.Int64)
+	}
+	counter := &atomic.Int64{}
+	actual, _ := m.activeByDef.LoadOrStore(definitionID, counter)
+	return actual.(*atomic.Int64)
 }
