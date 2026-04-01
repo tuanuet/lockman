@@ -265,8 +265,7 @@ func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err 
 }
 
 func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[string]string) (runtimeAcquirePlan, error) {
-	definitionsByID := m.definitionsByID()
-	if !runtimeDefinitionUsesLineage(def, childrenByParent(definitionsByID)) {
+	if !m.lineageDefs[def.ID] {
 		resourceKey, err := def.KeyBuilder.Build(input)
 		if err != nil {
 			return runtimeAcquirePlan{}, err
@@ -274,7 +273,7 @@ func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[str
 		return runtimeAcquirePlan{resourceKey: resourceKey}, nil
 	}
 
-	plan, err := lineage.ResolveAcquirePlan(def, definitionsByID, input)
+	plan, err := lineage.ResolveAcquirePlan(def, m.cachedDefsByID, input)
 	if err != nil {
 		return runtimeAcquirePlan{}, err
 	}
@@ -371,30 +370,6 @@ func (m *Manager) releaseLease(ctx context.Context, held heldLease) error {
 		return lockerrors.ErrPolicyViolation
 	}
 	return lineageDriver.ReleaseWithLineage(ctx, held.lease, cloneLineageMeta(*held.lineage))
-}
-
-func (m *Manager) definitionsByID() map[string]definitions.LockDefinition {
-	defs := m.registry.Definitions()
-	out := make(map[string]definitions.LockDefinition, len(defs))
-	for _, def := range defs {
-		out[def.ID] = def
-	}
-	return out
-}
-
-func childrenByParent(definitionsByID map[string]definitions.LockDefinition) map[string][]string {
-	out := make(map[string][]string, len(definitionsByID))
-	for _, def := range definitionsByID {
-		if def.ParentRef == "" {
-			continue
-		}
-		out[def.ParentRef] = append(out[def.ParentRef], def.ID)
-	}
-	return out
-}
-
-func runtimeDefinitionUsesLineage(def definitions.LockDefinition, children map[string][]string) bool {
-	return def.ParentRef != "" || len(children[def.ID]) > 0
 }
 
 func cloneLineageMeta(meta backend.LineageLeaseMeta) backend.LineageLeaseMeta {

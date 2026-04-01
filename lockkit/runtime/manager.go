@@ -54,6 +54,9 @@ type Manager struct {
 	lifecycleMu   sync.Mutex
 	inFlight      int
 	inFlightDrain chan struct{}
+
+	lineageDefs    map[string]bool
+	cachedDefsByID map[string]definitions.LockDefinition
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
@@ -86,6 +89,24 @@ func NewManager(reg registry.Reader, driver backend.Driver, recorder lockobserve
 	if recorder == nil {
 		recorder = lockobserve.NewNoopRecorder()
 	}
+
+	defs := reg.Definitions()
+	defsByID := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		defsByID[def.ID] = def
+	}
+	childrenByParent := make(map[string][]string, len(defs))
+	for _, def := range defs {
+		if def.ParentRef == "" {
+			continue
+		}
+		childrenByParent[def.ParentRef] = append(childrenByParent[def.ParentRef], def.ID)
+	}
+	lineageDefs := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		lineageDefs[def.ID] = def.ParentRef != "" || len(childrenByParent[def.ID]) > 0
+	}
+
 	return &Manager{
 		registry: reg,
 		driver:   driver,
@@ -96,6 +117,8 @@ func NewManager(reg registry.Reader, driver backend.Driver, recorder lockobserve
 			close(ch)
 			return ch
 		}(),
+		lineageDefs:    lineageDefs,
+		cachedDefsByID: defsByID,
 	}, nil
 }
 

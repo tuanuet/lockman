@@ -68,6 +68,9 @@ type Manager struct {
 	renewalsMu  sync.Mutex
 	renewals    map[uint64]context.CancelFunc
 	nextRenewal uint64
+
+	lineageDefs    map[string]bool
+	cachedDefsByID map[string]definitions.LockDefinition
 }
 
 // NewManager validates dependencies and returns a configured worker manager.
@@ -109,13 +112,33 @@ func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.St
 
 	drain := make(chan struct{})
 	close(drain)
+
+	defs := reg.Definitions()
+	defsByID := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		defsByID[def.ID] = def
+	}
+	childrenByParent := make(map[string][]string, len(defs))
+	for _, def := range defs {
+		if def.ParentRef == "" {
+			continue
+		}
+		childrenByParent[def.ParentRef] = append(childrenByParent[def.ParentRef], def.ID)
+	}
+	lineageDefs := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		lineageDefs[def.ID] = def.ParentRef != "" || len(childrenByParent[def.ID]) > 0
+	}
+
 	return &Manager{
-		registry:      reg,
-		driver:        driver,
-		idempotency:   store,
-		bridge:        cfg.bridge,
-		inFlightDrain: drain,
-		renewals:      make(map[uint64]context.CancelFunc),
+		registry:       reg,
+		driver:         driver,
+		idempotency:    store,
+		bridge:         cfg.bridge,
+		inFlightDrain:  drain,
+		renewals:       make(map[uint64]context.CancelFunc),
+		lineageDefs:    lineageDefs,
+		cachedDefsByID: defsByID,
 	}, nil
 }
 
