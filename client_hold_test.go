@@ -190,3 +190,31 @@ func TestForfeitRejectsUnregisteredUseCase(t *testing.T) {
 		t.Fatalf("expected ErrUseCaseNotFound, got %v", err)
 	}
 }
+
+func TestHoldEncodeFailureDoesNotLeakLease(t *testing.T) {
+	reg := NewRegistry()
+	uc := testHoldUseCaseHelper("order.hold")
+	mustRegisterUseCases(t, reg, uc)
+	client := mustNewHoldClient(t, reg)
+
+	tooLongOwnerID := strings.Repeat("a", 1<<16)
+
+	req, err := uc.With("123", OwnerID(tooLongOwnerID))
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	_, err = client.Hold(context.Background(), req)
+	if !errors.Is(err, ErrHoldTokenInvalid) {
+		t.Fatalf("expected ErrHoldTokenInvalid, got %v", err)
+	}
+
+	retryReq, err := uc.With("123", OwnerID("holder-2"))
+	if err != nil {
+		t.Fatalf("retry With returned error: %v", err)
+	}
+
+	if _, err := client.Hold(context.Background(), retryReq); err != nil {
+		t.Fatalf("expected retry Hold to succeed after encode failure, got %v", err)
+	}
+}

@@ -29,6 +29,11 @@ func (c *Client) Hold(ctx context.Context, req HoldRequest) (HoldHandle, error) 
 	}
 
 	definitionID := normalizeUseCase(req.useCaseCore, map[string]int{}, req.registryLink).DefinitionID()
+	token, err := sdk.EncodeHoldToken([]string{req.resourceKey}, identity.OwnerID)
+	if err != nil {
+		return HoldHandle{}, fmt.Errorf("lockman: encode hold token: %w", ErrHoldTokenInvalid)
+	}
+
 	_, err = c.holds.Acquire(ctx, definitions.DetachedAcquireRequest{
 		DefinitionID: definitionID,
 		ResourceKeys: []string{req.resourceKey},
@@ -36,11 +41,6 @@ func (c *Client) Hold(ctx context.Context, req HoldRequest) (HoldHandle, error) 
 	})
 	if err != nil {
 		return HoldHandle{}, mapHoldAcquireError(err, c.shuttingDown.Load())
-	}
-
-	token, err := sdk.EncodeHoldToken([]string{req.resourceKey}, identity.OwnerID)
-	if err != nil {
-		return HoldHandle{}, fmt.Errorf("lockman: encode hold token: %w", ErrHoldTokenInvalid)
 	}
 
 	return HoldHandle{token: token}, nil
