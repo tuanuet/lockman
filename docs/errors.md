@@ -29,3 +29,7 @@ Public SDK errors are meant to tell you what to do next.
 - `lockman.ErrInvariantRejected`: a runtime invariant rejected the execution
 
 If you are seeing lower-level internal engine errors in application code, you are below the default SDK surface. Public-interface workspace examples live under `examples/sdk/`, lower-level scenario examples live under `examples/core/`, and published adapter-backed runnable copies still live in the adapter modules.
+
+## Observability And Export Errors
+
+Observability and inspection failures are not surfaced as lock lifecycle errors. The `observe.Dispatcher` operates on a best-effort basis. Sink and exporter failures do not fail the lock acquisition or release.
