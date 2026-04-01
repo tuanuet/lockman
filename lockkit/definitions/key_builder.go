@@ -29,8 +29,9 @@ func TemplateMetadata(builder KeyBuilder) (TemplateBuilderMetadata, bool) {
 }
 
 type templateKeyBuilder struct {
-	template string
-	fields   []string
+	template     string
+	fields       []string
+	placeholders []string // pre-computed: "{field_name}"
 }
 
 // NewTemplateKeyBuilder returns a KeyBuilder that fills placeholders from the provided template.
@@ -63,9 +64,14 @@ func NewTemplateKeyBuilder(template string, fields []string) (KeyBuilder, error)
 
 	fieldsCopy := make([]string, len(ordered))
 	copy(fieldsCopy, ordered)
+	placeholders := make([]string, len(ordered))
+	for i, field := range ordered {
+		placeholders[i] = "{" + field + "}"
+	}
 	return &templateKeyBuilder{
-		template: template,
-		fields:   fieldsCopy,
+		template:     template,
+		fields:       fieldsCopy,
+		placeholders: placeholders,
 	}, nil
 }
 
@@ -89,15 +95,24 @@ func (t *templateKeyBuilder) Build(input map[string]string) (string, error) {
 		return "", fmt.Errorf("input map must not be nil")
 	}
 
+	// Fast path: single field — use strings.Replace directly
+	if len(t.fields) == 1 {
+		value, ok := input[t.fields[0]]
+		if !ok {
+			return "", fmt.Errorf("missing required field: %s", t.fields[0])
+		}
+		return strings.Replace(t.template, t.placeholders[0], value, 1), nil
+	}
+
+	// Multi-field: build replacer from pre-computed placeholders
 	replacements := make([]string, 0, len(t.fields)*2)
-	for _, field := range t.fields {
+	for i, field := range t.fields {
 		value, ok := input[field]
 		if !ok {
 			return "", fmt.Errorf("missing required field: %s", field)
 		}
-		replacements = append(replacements, "{"+field+"}", value)
+		replacements = append(replacements, t.placeholders[i], value)
 	}
-
 	return strings.NewReplacer(replacements...).Replace(t.template), nil
 }
 

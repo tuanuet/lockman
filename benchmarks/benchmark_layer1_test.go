@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
@@ -49,5 +50,31 @@ func BenchmarkActiveCountParallel(b *testing.B) {
 				}
 			})
 		})
+	}
+}
+
+func BenchmarkKeyBuilderBuildSingle(b *testing.B) {
+	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
+	input := map[string]string{"order_id": "12345"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := builder.Build(input)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkKeyBuilderBuildMulti(b *testing.B) {
+	builder := definitions.MustTemplateKeyBuilder("order:{order_id}:item:{item_id}", []string{"order_id", "item_id"})
+	input := map[string]string{"order_id": "12345", "item_id": "789"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := builder.Build(input)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
