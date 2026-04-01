@@ -47,6 +47,14 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 
 	childCounts := make(map[string]int, len(useCases))
 	for _, useCase := range useCases {
+		if useCase.kind == useCaseKindHold {
+			if useCase.config.strict {
+				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support strict mode", useCase.name)
+			}
+			if len(useCase.config.composite) > 0 {
+				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support composite mode", useCase.name)
+			}
+		}
 		if len(useCase.config.composite) > 0 && useCase.config.strict {
 			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
 		}
