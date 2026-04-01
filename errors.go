@@ -15,6 +15,8 @@ var (
 	ErrRegistryRequired          = errors.New("lockman: registry is required")
 	ErrIdentityRequired          = errors.New("lockman: owner identity is required")
 	ErrBackendRequired           = errors.New("lockman: backend is required")
+	ErrHoldTokenInvalid          = errors.New("lockman: hold token is malformed or unrecognized")
+	ErrHoldExpired               = errors.New("lockman: hold lease has expired")
 	ErrBackendCapabilityRequired = errors.New("lockman: backend lacks required capability")
 	ErrIdempotencyRequired       = errors.New("lockman: idempotency backend is required for this claim use case")
 )
