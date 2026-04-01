@@ -2,6 +2,7 @@ package idempotency_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -275,4 +276,22 @@ func TestMemoryStoreRejectsNonPositiveTTL(t *testing.T) {
 	}); err == nil {
 		t.Fatal("expected Fail with negative ttl to return error")
 	}
+}
+
+func BenchmarkMemoryStoreBeginParallel(b *testing.B) {
+	store := idempotency.NewMemoryStore()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := fmt.Sprintf("msg-%d", i)
+			i++
+			_, _ = store.Begin(context.Background(), key, idempotency.BeginInput{
+				OwnerID:       "worker",
+				MessageID:     key,
+				ConsumerGroup: "group",
+				Attempt:       1,
+				TTL:           time.Minute,
+			})
+		}
+	})
 }
