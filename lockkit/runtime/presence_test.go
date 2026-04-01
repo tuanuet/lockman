@@ -315,10 +315,7 @@ func (a aliasRegistry) MustGetComposite(id string) definitions.CompositeDefiniti
 }
 
 func (a aliasRegistry) Get(id string) (definitions.LockDefinition, bool) {
-	if a.definition.ID == id {
-		return a.definition, true
-	}
-	return definitions.LockDefinition{}, false
+	return a.definition, true
 }
 
 func (a aliasRegistry) GetComposite(id string) (definitions.CompositeDefinition, bool) {

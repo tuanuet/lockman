@@ -50,9 +50,9 @@ func (m *Manager) ExecuteExclusive(
 		return lockerrors.ErrPolicyViolation
 	}
 
-	def, err := m.getDefinition(req.DefinitionID)
-	if err != nil {
-		return err
+	def, ok := m.getDefinition(req.DefinitionID)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
 	}
 
 	acquirePlan, err := m.buildAcquirePlan(def, req.KeyInput)
@@ -254,14 +254,8 @@ func (m *Manager) recordActiveLocks(ctx context.Context, definitionID string) {
 	m.recorder.RecordActiveLocks(ctx, definitionID, count)
 }
 
-func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGet(id)
-	return def, err
+func (m *Manager) getDefinition(id string) (definitions.LockDefinition, bool) {
+	return m.registry.Get(id)
 }
 
 func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[string]string) (runtimeAcquirePlan, error) {

@@ -185,14 +185,8 @@ func (m *Manager) inFlightDrainChannel() <-chan struct{} {
 	return m.inFlightDrain
 }
 
-func (m *Manager) getCompositeDefinition(id string) (def definitions.CompositeDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGetComposite(id)
-	return def, err
+func (m *Manager) getCompositeDefinition(id string) (definitions.CompositeDefinition, bool) {
+	return m.registry.GetComposite(id)
 }
 
 func (m *Manager) activeCounter(definitionID string) *atomic.Int64 {

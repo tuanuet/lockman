@@ -26,9 +26,9 @@ func (m *Manager) ExecuteCompositeExclusive(
 		return lockerrors.ErrPolicyViolation
 	}
 
-	compositeDef, err := m.getCompositeDefinition(req.DefinitionID)
-	if err != nil {
-		return err
+	compositeDef, ok := m.getCompositeDefinition(req.DefinitionID)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
 	}
 	if len(req.MemberInputs) != len(compositeDef.Members) {
 		return lockerrors.ErrPolicyViolation
@@ -38,9 +38,9 @@ func (m *Manager) ExecuteCompositeExclusive(
 	memberKeys := make([]string, len(compositeDef.Members))
 	memberPlans := make(map[compositePlanKey][]runtimeAcquirePlan, len(compositeDef.Members))
 	for i, memberID := range compositeDef.Members {
-		memberDef, memberErr := m.getDefinition(memberID)
-		if memberErr != nil {
-			return memberErr
+		memberDef, memberOk := m.getDefinition(memberID)
+		if !memberOk {
+			return lockerrors.ErrPolicyViolation
 		}
 
 		acquirePlan, memberErr := m.buildAcquirePlan(memberDef, req.MemberInputs[i])

@@ -230,12 +230,6 @@ func (m *Manager) cancelAllRenewals() {
 	}
 }
 
-func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGet(id)
-	return def, err
+func (m *Manager) getDefinition(id string) (definitions.LockDefinition, bool) {
+	return m.registry.Get(id)
 }

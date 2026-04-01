@@ -32,9 +32,9 @@ func (m *Manager) ExecuteCompositeClaimed(
 		return err
 	}
 
-	compositeDef, err := m.getCompositeDefinition(req.DefinitionID)
-	if err != nil {
-		return err
+	compositeDef, ok := m.getCompositeDefinition(req.DefinitionID)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
 	}
 	if len(req.MemberInputs) != len(compositeDef.Members) {
 		return lockerrors.ErrPolicyViolation
@@ -46,9 +46,9 @@ func (m *Manager) ExecuteCompositeClaimed(
 	idempotencyRequired := false
 	idempotencyLeaseTTLBasis := time.Duration(0)
 	for i, memberID := range compositeDef.Members {
-		memberDef, memberErr := m.getDefinition(memberID)
-		if memberErr != nil {
-			return memberErr
+		memberDef, memberOk := m.getDefinition(memberID)
+		if !memberOk {
+			return lockerrors.ErrPolicyViolation
 		}
 		if memberDef.Mode != definitions.ModeStandard {
 			return lockerrors.ErrPolicyViolation
@@ -299,14 +299,8 @@ func rejectCompositeOverlap(plan []policy.MemberLeasePlan) error {
 	return nil
 }
 
-func (m *Manager) getCompositeDefinition(id string) (def definitions.CompositeDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGetComposite(id)
-	return def, err
+func (m *Manager) getCompositeDefinition(id string) (definitions.CompositeDefinition, bool) {
+	return m.registry.GetComposite(id)
 }
 
 func validateCompositeClaimRequest(req definitions.CompositeClaimRequest) error {

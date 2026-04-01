@@ -45,9 +45,9 @@ func (m *Manager) ExecuteClaimed(
 		return lockerrors.ErrWorkerShuttingDown
 	}
 
-	def, err := m.getDefinition(req.DefinitionID)
-	if err != nil {
-		return err
+	def, ok := m.getDefinition(req.DefinitionID)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
 	}
 	if err := validateClaimRequest(def, req); err != nil {
 		return err
