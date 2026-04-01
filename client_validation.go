@@ -20,6 +20,7 @@ type clientPlan struct {
 	engineRegistry   *lockregistry.Registry
 	hasRunUseCases   bool
 	hasClaimUseCases bool
+	hasHoldUseCases  bool
 }
 
 func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
@@ -46,6 +47,14 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 
 	childCounts := make(map[string]int, len(useCases))
 	for _, useCase := range useCases {
+		if useCase.kind == useCaseKindHold {
+			if useCase.config.strict {
+				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support strict mode", useCase.name)
+			}
+			if len(useCase.config.composite) > 0 {
+				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support composite mode", useCase.name)
+			}
+		}
 		if len(useCase.config.composite) > 0 && useCase.config.strict {
 			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
 		}
@@ -84,6 +93,9 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 		}
 		if useCase.kind == useCaseKindClaim {
 			plan.hasClaimUseCases = true
+		}
+		if useCase.kind == useCaseKindHold {
+			plan.hasHoldUseCases = true
 		}
 	}
 
@@ -241,6 +253,9 @@ func toSDKUseCaseKind(kind useCaseKind) sdk.UseCaseKind {
 	if kind == useCaseKindClaim {
 		return sdk.UseCaseKindClaim
 	}
+	if kind == useCaseKindHold {
+		return sdk.UseCaseKindHold
+	}
 	return sdk.UseCaseKindRun
 }
 
@@ -389,6 +404,39 @@ func (c *Client) validateClaimRequest(ctx context.Context, req ClaimRequest) (sd
 			Attempt:       req.delivery.Attempt,
 		},
 	), identity, nil
+}
+
+func (c *Client) validateHoldRequest(ctx context.Context, req HoldRequest) (Identity, error) {
+	if req.useCaseCore == nil {
+		return Identity{}, ErrUseCaseNotFound
+	}
+	if !req.boundToRegistry {
+		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", req.useCaseName, ErrUseCaseNotFound)
+	}
+	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, req.registryLink) {
+		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", req.useCaseName, ErrRegistryMismatch)
+	}
+
+	identity, err := c.resolveIdentity(ctx, req.ownerID)
+	if err != nil {
+		return Identity{}, err
+	}
+
+	return identity, nil
+}
+
+func (c *Client) validateForfeitRequest(req ForfeitRequest) error {
+	if req.useCaseCore == nil {
+		return ErrUseCaseNotFound
+	}
+	if !req.boundToRegistry {
+		return fmt.Errorf("lockman: use case %q is not registered: %w", req.useCaseName, ErrUseCaseNotFound)
+	}
+	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, req.registryLink) {
+		return fmt.Errorf("lockman: use case %q belongs to a different registry: %w", req.useCaseName, ErrRegistryMismatch)
+	}
+
+	return nil
 }
 
 func mapEngineError(err error, shuttingDown bool) error {

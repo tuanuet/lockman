@@ -118,6 +118,55 @@ func TestNewFailsWhenLineageUseCaseNeedsLineageBackendSupport(t *testing.T) {
 	}
 }
 
+func TestNewFailsWhenHoldUseCaseUsesStrictMode(t *testing.T) {
+	reg := NewRegistry()
+	uc := DefineHold[string](
+		"order.hold",
+		BindResourceID("order", func(v string) string { return v }),
+		Strict(),
+	)
+	mustRegisterUseCases(t, reg, uc)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err == nil {
+		t.Fatal("expected strict hold use case startup failure")
+	}
+	if !strings.Contains(err.Error(), "hold use case") || !strings.Contains(err.Error(), "strict") {
+		t.Fatalf("expected unsupported strict hold error, got %v", err)
+	}
+}
+
+func TestNewFailsWhenHoldUseCaseUsesCompositeMode(t *testing.T) {
+	reg := NewRegistry()
+	uc := DefineHold[string](
+		"order.hold",
+		BindResourceID("order", func(v string) string { return v }),
+		Composite(
+			DefineCompositeMember(
+				"order.primary",
+				BindResourceID("order", func(v string) string { return v }),
+			),
+		),
+	)
+	mustRegisterUseCases(t, reg, uc)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err == nil {
+		t.Fatal("expected composite hold use case startup failure")
+	}
+	if !strings.Contains(err.Error(), "hold use case") || !strings.Contains(err.Error(), "composite") {
+		t.Fatalf("expected unsupported composite hold error, got %v", err)
+	}
+}
+
 func TestNewCreatesOnlyNeededManagers(t *testing.T) {
 	t.Run("run only", func(t *testing.T) {
 		reg := NewRegistry()

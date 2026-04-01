@@ -13,6 +13,7 @@ type useCaseKind uint8
 const (
 	useCaseKindRun useCaseKind = iota + 1
 	useCaseKindClaim
+	useCaseKindHold
 )
 
 type useCaseCore struct {

@@ -7,6 +7,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/internal/observebridge"
+	"github.com/tuanuet/lockman/lockkit/holds"
 	lockruntime "github.com/tuanuet/lockman/lockkit/runtime"
 	"github.com/tuanuet/lockman/lockkit/workers"
 	"github.com/tuanuet/lockman/observe"
@@ -21,6 +22,7 @@ type Client struct {
 	identityProvider func(context.Context) Identity
 	runtime          *lockruntime.Manager
 	worker           *workers.Manager
+	holds            *holds.Manager
 	bridge           *observebridge.Bridge
 	shuttingDown     atomic.Bool
 }
@@ -78,6 +80,12 @@ func New(opts ...ClientOption) (*Client, error) {
 			return nil, wrapStartupManagerError("worker", err)
 		}
 	}
+	if plan.hasHoldUseCases {
+		client.holds, err = holds.NewManager(plan.engineRegistry, cfg.backend)
+		if err != nil {
+			return nil, wrapStartupManagerError("holds", err)
+		}
+	}
 
 	return client, nil
 }
@@ -106,6 +114,9 @@ func (c *Client) Shutdown(ctx context.Context) error {
 				err = joinErrors(err, shutdownErr)
 			}
 		}
+	}
+	if c.holds != nil {
+		c.holds.Shutdown()
 	}
 
 	if c.bridge != nil {
