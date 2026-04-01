@@ -1,4 +1,4 @@
-package inspect
+package inspect_test
 
 import (
 	"context"
@@ -8,194 +8,253 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/inspect"
 	"github.com/tuanuet/lockman/observe"
 )
 
-func TestHTTPHandlerLocksInspect(t *testing.T) {
-	store := NewStore()
+func seedEvents(store *inspect.Store, count int) {
+	for i := 0; i < count; i++ {
+		_ = store.Consume(context.Background(), observe.Event{
+			Kind:         observe.EventAcquireSucceeded,
+			DefinitionID: "order.approve",
+			ResourceID:   "order:1",
+			OwnerID:      "api",
+			Timestamp:    time.Now().Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /locks/inspect
+// ---------------------------------------------------------------------------
+
+func TestHandlerSnapshotEndpointReturnsJSON(t *testing.T) {
+	store := inspect.NewStore()
+	seedEvents(store, 3)
+	store.UpdatePipelineState(inspect.PipelineState{BufferSize: 256})
+
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/locks/inspect")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var snap inspect.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if snap.Pipeline.BufferSize != 256 {
+		t.Fatalf("expected BufferSize=256, got %d", snap.Pipeline.BufferSize)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /locks/inspect/active
+// ---------------------------------------------------------------------------
+
+func TestHandlerActiveEndpointReturnsRuntimeLocks(t *testing.T) {
+	store := inspect.NewStore()
 	_ = store.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventAcquireSucceeded,
-		DefinitionID: "lock1",
-		ResourceID:   "res:1",
-		OwnerID:      "owner1",
+		DefinitionID: "order.approve",
+		ResourceID:   "order:1",
+		OwnerID:      "api",
 		Timestamp:    time.Now(),
 	})
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect", nil)
-	w := httptest.NewRecorder()
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	handler.ServeHTTP(w, req)
+	resp, err := http.Get(srv.URL + "/locks/inspect/active")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect/active: %v", err)
+	}
+	defer resp.Body.Close()
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var snap Snapshot
-	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	var locks []inspect.RuntimeLockInfo
+	if err := json.NewDecoder(resp.Body).Decode(&locks); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if len(snap.RuntimeLocks) != 1 {
-		t.Fatalf("expected 1 runtime lock, got %d", len(snap.RuntimeLocks))
+	if len(locks) != 1 {
+		t.Fatalf("expected 1 active lock, got %d", len(locks))
 	}
 }
 
-func TestHTTPHandlerActiveLocks(t *testing.T) {
-	store := NewStore()
-	_ = store.Consume(nil, observe.Event{
-		Kind:         observe.EventAcquireSucceeded,
-		DefinitionID: "lock1",
-		ResourceID:   "res:1",
-		OwnerID:      "owner1",
-		Timestamp:    time.Now(),
-	})
+// ---------------------------------------------------------------------------
+// GET /locks/inspect/events
+// ---------------------------------------------------------------------------
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect/active", nil)
-	w := httptest.NewRecorder()
+func TestHandlerEventsEndpointReturnsRecentEvents(t *testing.T) {
+	store := inspect.NewStore()
+	seedEvents(store, 5)
 
-	handler.ServeHTTP(w, req)
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
+	resp, err := http.Get(srv.URL + "/locks/inspect/events")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect/events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var resp map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	var events []observe.Event
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode events: %v", err)
 	}
-	if resp["runtime_locks"] == nil {
-		t.Fatal("expected runtime_locks key")
+	if len(events) != 5 {
+		t.Fatalf("expected 5 events, got %d", len(events))
 	}
 }
 
-func TestHTTPHandlerEvents(t *testing.T) {
-	store := NewStore()
-	_ = store.Consume(nil, observe.Event{
+func TestHandlerEventsEndpointAcceptsLimitQuery(t *testing.T) {
+	store := inspect.NewStore()
+	seedEvents(store, 10)
+
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/locks/inspect/events?limit=3")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect/events?limit=3: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var events []observe.Event
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+}
+
+func TestHandlerEventsEndpointAcceptsDefinitionIDFilter(t *testing.T) {
+	store := inspect.NewStore()
+
+	_ = store.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventAcquireSucceeded,
-		DefinitionID: "lock1",
-		ResourceID:   "res:1",
+		DefinitionID: "order.approve",
+		ResourceID:   "order:1",
+		OwnerID:      "api",
+		Timestamp:    time.Now(),
+	})
+	_ = store.Consume(context.Background(), observe.Event{
+		Kind:         observe.EventAcquireSucceeded,
+		DefinitionID: "payment.process",
+		ResourceID:   "pay:1",
+		OwnerID:      "worker",
 		Timestamp:    time.Now(),
 	})
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect/events", nil)
-	w := httptest.NewRecorder()
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
+	resp, err := http.Get(srv.URL + "/locks/inspect/events?definition_id=order.approve")
+	if err != nil {
+		t.Fatalf("GET events with filter: %v", err)
 	}
+	defer resp.Body.Close()
 
-	var events []Event
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	var events []observe.Event
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
 }
 
-func TestHTTPHandlerHealth(t *testing.T) {
-	store := NewStore()
-	store.UpdatePipelineState(PipelineState{
-		Status:     "healthy",
-		QueueDepth: 10,
-		Errors:     0,
-	})
+// ---------------------------------------------------------------------------
+// GET /locks/inspect/health
+// ---------------------------------------------------------------------------
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect/health", nil)
-	w := httptest.NewRecorder()
+func TestHandlerHealthEndpointReturnsOK(t *testing.T) {
+	store := inspect.NewStore()
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	handler.ServeHTTP(w, req)
+	resp, err := http.Get(srv.URL + "/locks/inspect/health")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect/health: %v", err)
+	}
+	defer resp.Body.Close()
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var health map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &health); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if health["status"] != "healthy" {
-		t.Fatalf("expected healthy status, got %v", health["status"])
-	}
-}
-
-func TestHTTPHandlerStream(t *testing.T) {
-	store := NewStore()
-
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect/stream", nil)
-	w := httptest.NewRecorder()
-
-	done := make(chan struct{})
-	go func() {
-		handler.ServeHTTP(w, req)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("handler timed out")
-	}
-
-	contentType := w.Header().Get("Content-Type")
-	if contentType != "text/event-stream" {
-		t.Fatalf("expected text/event-stream, got %s", contentType)
+	if body["status"] != "ok" {
+		t.Fatalf("expected status=ok, got %s", body["status"])
 	}
 }
 
-func TestHTTPHandlerEventsWithFilters(t *testing.T) {
-	store := NewStore()
-	now := time.Now()
-	_ = store.Consume(nil, observe.Event{
-		Kind:         observe.EventAcquireSucceeded,
-		DefinitionID: "lock1",
-		ResourceID:   "res:1",
-		OwnerID:      "owner1",
-		Timestamp:    now,
-	})
-	_ = store.Consume(nil, observe.Event{
-		Kind:         observe.EventReleased,
-		DefinitionID: "lock1",
-		ResourceID:   "res:1",
-		OwnerID:      "owner1",
-		Timestamp:    now,
-	})
+// ---------------------------------------------------------------------------
+// GET /locks/inspect/stream (SSE)
+// ---------------------------------------------------------------------------
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/locks/inspect/events?kind=acquire_succeeded", nil)
-	w := httptest.NewRecorder()
+func TestHandlerStreamEndpointSetsSSEHeaders(t *testing.T) {
+	store := inspect.NewStore()
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", w.Code)
+	resp, err := http.Get(srv.URL + "/locks/inspect/stream")
+	if err != nil {
+		t.Fatalf("GET /locks/inspect/stream: %v", err)
 	}
+	defer resp.Body.Close()
 
-	var events []Event
-	if err := json.Unmarshal(w.Body.Bytes(), &events); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 filtered event, got %d", len(events))
+	ct := resp.Header.Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Fatalf("expected Content-Type=text/event-stream, got %s", ct)
 	}
 }
 
-func TestHTTPHandler404(t *testing.T) {
-	store := NewStore()
+// ---------------------------------------------------------------------------
+// 404 for unknown paths
+// ---------------------------------------------------------------------------
 
-	handler := NewHandler(store)
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
-	w := httptest.NewRecorder()
+func TestHandlerReturns404ForUnknownPath(t *testing.T) {
+	store := inspect.NewStore()
+	h := inspect.NewHandler(store)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
-	handler.ServeHTTP(w, req)
+	resp, err := http.Get(srv.URL + "/locks/inspect/nonexistent")
+	if err != nil {
+		t.Fatalf("GET unknown: %v", err)
+	}
+	defer resp.Body.Close()
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected status 404, got %d", w.Code)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }

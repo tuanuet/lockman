@@ -2,262 +2,250 @@ package inspect
 
 import (
 	"context"
-	"time"
+	"sync"
 
 	"github.com/tuanuet/lockman/observe"
 )
 
-type RuntimeLock struct {
-	DefinitionID string
-	ResourceID   string
-	OwnerID      string
-	AcquiredAt   time.Time
-}
+const defaultHistoryLimit = 500
 
-type WorkerClaim struct {
-	DefinitionID string
-	ResourceID   string
-	WorkerID     string
-	ClaimedAt    time.Time
-}
+// Store is an in-memory hot-path inspect store. It implements observe.Sink.
+type Store struct {
+	mu sync.RWMutex
 
-type Renewal struct {
-	DefinitionID  string
-	ResourceID    string
-	OwnerID       string
-	RenewedAt     time.Time
-	NewExpiration time.Time
-}
-
-type Shutdown struct {
-	DefinitionID string
-	OwnerID      string
-	StartedAt    time.Time
-	CompletedAt  *time.Time
-}
-
-type PipelineState struct {
-	Status     string
-	QueueDepth int
-	Errors     int
-}
-
-type Snapshot struct {
-	RuntimeLocks []RuntimeLock
-	WorkerClaims []WorkerClaim
-	Renewals     []Renewal
-	Shutdowns    []Shutdown
-	Pipeline     PipelineState
-}
-
-type Event struct {
-	Kind         observe.EventKind
-	DefinitionID string
-	ResourceID   string
-	OwnerID      string
-	Timestamp    time.Time
-}
-
-type QueryFilter struct {
-	LockID      string
-	ResourceKey string
-	OwnerID     string
-	Kind        observe.EventKind
-	Since       time.Time
-	Until       time.Time
-}
-
-type StoreOption func(*store)
-
-func WithHistoryLimit(limit int) StoreOption {
-	return func(s *store) {
-		s.historyLimit = limit
-	}
-}
-
-type store struct {
-	runtimeLocks map[string]RuntimeLock
-	workerClaims map[string]WorkerClaim
-	renewals     []Renewal
-	shutdowns    []Shutdown
+	// Runtime state materialised from events.
+	runtimeLocks map[string]RuntimeLockInfo // key: definitionID:resourceID:ownerID
+	workerClaims map[string]WorkerClaimInfo
+	renewals     map[string]RenewalInfo
+	shutdown     ShutdownInfo
 	pipeline     PipelineState
-	history      []Event
-	historyLimit int
-	subscribers  []chan Event
+
+	// Ring buffer for recent events.
+	history     []observe.Event
+	historyCap  int
+	historyHead int // next write position
+	historyLen  int // number of valid entries
+
+	// Subscribers.
+	subMu sync.RWMutex
+	subs  map[chan<- observe.Event]struct{}
 }
 
-func NewStore(opts ...StoreOption) *store {
-	s := &store{
-		runtimeLocks: make(map[string]RuntimeLock),
-		workerClaims: make(map[string]WorkerClaim),
-		historyLimit: 100,
+// Option configures a Store.
+type Option func(*Store)
+
+// WithHistoryLimit sets the ring buffer capacity.
+func WithHistoryLimit(n int) Option {
+	return func(s *Store) {
+		if n > 0 {
+			s.historyCap = n
+			s.history = make([]observe.Event, n)
+		}
 	}
-	for _, opt := range opts {
-		opt(s)
+}
+
+// NewStore returns a ready-to-use Store.
+func NewStore(opts ...Option) *Store {
+	s := &Store{
+		runtimeLocks: make(map[string]RuntimeLockInfo),
+		workerClaims: make(map[string]WorkerClaimInfo),
+		renewals:     make(map[string]RenewalInfo),
+		historyCap:   defaultHistoryLimit,
+		history:      make([]observe.Event, defaultHistoryLimit),
+		subs:         make(map[chan<- observe.Event]struct{}),
+	}
+	for _, o := range opts {
+		o(s)
 	}
 	return s
 }
 
-func (s *store) Consume(ctx context.Context, event observe.Event) error {
-	e := Event{
-		Kind:         event.Kind,
-		DefinitionID: event.DefinitionID,
-		ResourceID:   event.ResourceID,
-		OwnerID:      event.OwnerID,
-		Timestamp:    event.Timestamp,
-	}
-	if e.Timestamp.IsZero() {
-		e.Timestamp = time.Now()
-	}
+// Consume implements observe.Sink. It materialises runtime state and appends to the ring buffer.
+func (s *Store) Consume(_ context.Context, event observe.Event) error {
+	s.mu.Lock()
+	s.applyEventLocked(event)
+	s.appendToRingLocked(event)
+	s.mu.Unlock()
 
-	s.addToHistory(e)
-	s.applyEvent(e)
-	s.notifySubscribers(e)
-
+	s.notifySubscribers(event)
 	return nil
 }
 
-func (s *store) addToHistory(e Event) {
-	s.history = append(s.history, e)
-	if s.historyLimit > 0 && len(s.history) > s.historyLimit {
-		s.history = s.history[len(s.history)-s.historyLimit:]
-	}
-}
-
-func (s *store) applyEvent(e Event) {
-	key := e.ResourceID + ":" + e.DefinitionID
+// applyEventLocked updates runtime state. Caller must hold s.mu.
+func (s *Store) applyEventLocked(e observe.Event) {
+	key := lockKey(e.DefinitionID, e.ResourceID, e.OwnerID)
 
 	switch e.Kind {
 	case observe.EventAcquireSucceeded:
-		s.runtimeLocks[key] = RuntimeLock{
+		s.runtimeLocks[key] = RuntimeLockInfo{
 			DefinitionID: e.DefinitionID,
 			ResourceID:   e.ResourceID,
 			OwnerID:      e.OwnerID,
 			AcquiredAt:   e.Timestamp,
 		}
-		s.workerClaims[key] = WorkerClaim{
+	case observe.EventAcquireStarted:
+		s.workerClaims[key] = WorkerClaimInfo{
 			DefinitionID: e.DefinitionID,
 			ResourceID:   e.ResourceID,
-			WorkerID:     e.OwnerID,
+			OwnerID:      e.OwnerID,
 			ClaimedAt:    e.Timestamp,
 		}
-
-	case observe.EventReleased:
+	case observe.EventReleased, observe.EventLeaseLost:
 		delete(s.runtimeLocks, key)
-
 	case observe.EventRenewalSucceeded:
-		s.renewals = append(s.renewals, Renewal{
-			DefinitionID:  e.DefinitionID,
-			ResourceID:    e.ResourceID,
-			OwnerID:       e.OwnerID,
-			RenewedAt:     e.Timestamp,
-			NewExpiration: e.Timestamp.Add(30 * time.Second),
-		})
-
+		s.renewals[key] = RenewalInfo{
+			DefinitionID: e.DefinitionID,
+			ResourceID:   e.ResourceID,
+			OwnerID:      e.OwnerID,
+			LastRenewed:  e.Timestamp,
+		}
 	case observe.EventShutdownStarted:
-		s.shutdowns = append(s.shutdowns, Shutdown{
-			DefinitionID: e.DefinitionID,
-			OwnerID:      e.OwnerID,
-			StartedAt:    e.Timestamp,
-		})
-
+		s.shutdown.Started = true
 	case observe.EventShutdownCompleted:
-		s.shutdowns = append(s.shutdowns, Shutdown{
-			DefinitionID: e.DefinitionID,
-			OwnerID:      e.OwnerID,
-			StartedAt:    time.Time{},
-			CompletedAt:  &e.Timestamp,
-		})
+		s.shutdown.Completed = true
 	}
 }
 
-func (s *store) notifySubscribers(e Event) {
-	for _, sub := range s.subscribers {
+// appendToRingLocked writes an event into the ring buffer. Caller must hold s.mu.
+func (s *Store) appendToRingLocked(e observe.Event) {
+	s.history[s.historyHead] = e
+	s.historyHead = (s.historyHead + 1) % s.historyCap
+	if s.historyLen < s.historyCap {
+		s.historyLen++
+	}
+}
+
+// notifySubscribers sends the event to all subscribers (non-blocking).
+func (s *Store) notifySubscribers(e observe.Event) {
+	s.subMu.RLock()
+	defer s.subMu.RUnlock()
+	for ch := range s.subs {
 		select {
-		case sub <- e:
+		case ch <- e:
 		default:
+			// slow subscriber – drop to avoid blocking the hot path
 		}
 	}
 }
 
-func (s *store) Snapshot() Snapshot {
-	locks := make([]RuntimeLock, 0, len(s.runtimeLocks))
-	for _, l := range s.runtimeLocks {
-		locks = append(locks, l)
+// Snapshot returns a point-in-time view of the store.
+func (s *Store) Snapshot() Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	locks := make([]RuntimeLockInfo, 0, len(s.runtimeLocks))
+	for _, v := range s.runtimeLocks {
+		locks = append(locks, v)
 	}
 
-	claims := make([]WorkerClaim, 0, len(s.workerClaims))
-	for _, c := range s.workerClaims {
-		claims = append(claims, c)
+	claims := make([]WorkerClaimInfo, 0, len(s.workerClaims))
+	for _, v := range s.workerClaims {
+		claims = append(claims, v)
+	}
+
+	renewals := make([]RenewalInfo, 0, len(s.renewals))
+	for _, v := range s.renewals {
+		renewals = append(renewals, v)
 	}
 
 	return Snapshot{
 		RuntimeLocks: locks,
 		WorkerClaims: claims,
-		Renewals:     s.renewals,
-		Shutdowns:    s.shutdowns,
+		Renewals:     renewals,
+		Shutdown:     s.shutdown,
 		Pipeline:     s.pipeline,
 	}
 }
 
-func (s *store) RecentEvents() []Event {
-	result := make([]Event, len(s.history))
-	copy(result, s.history)
-	return result
-}
+// RecentEvents returns up to limit events in chronological order.
+func (s *Store) RecentEvents(limit int) []observe.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-func (s *store) Query(filter QueryFilter) []Event {
-	var result []Event
-	for _, e := range s.history {
-		if filter.LockID != "" && e.DefinitionID != filter.LockID {
-			continue
-		}
-		if filter.ResourceKey != "" && e.ResourceID != filter.ResourceKey {
-			continue
-		}
-		if filter.OwnerID != "" && e.OwnerID != filter.OwnerID {
-			continue
-		}
-		if filter.Kind != 0 && e.Kind != filter.Kind {
-			continue
-		}
-		if !filter.Since.IsZero() && e.Timestamp.Before(filter.Since) {
-			continue
-		}
-		if !filter.Until.IsZero() && e.Timestamp.After(filter.Until) {
-			continue
-		}
-		result = append(result, e)
+	if limit <= 0 || limit > s.historyLen {
+		limit = s.historyLen
 	}
-	return result
-}
 
-func (s *store) Subscribe(fn func(observe.Event) error) {
-	ch := make(chan Event, 10)
-	s.subscribers = append(s.subscribers, ch)
+	out := make([]observe.Event, 0, limit)
 
-	go func() {
-		for e := range ch {
-			fn(observe.Event{
-				Kind:         e.Kind,
-				DefinitionID: e.DefinitionID,
-				ResourceID:   e.ResourceID,
-				OwnerID:      e.OwnerID,
-				Timestamp:    e.Timestamp,
-			})
-		}
-	}()
-}
-
-func (s *store) UpdatePipelineState(state PipelineState) {
-	s.pipeline = state
-}
-
-func (s *store) Events() <-chan Event {
-	ch := make(chan Event, len(s.history))
-	for _, e := range s.history {
-		ch <- e
+	// Find the oldest entry in the ring.
+	start := 0
+	if s.historyLen == s.historyCap {
+		start = s.historyHead
 	}
-	close(ch)
-	return ch
+	for i := 0; i < limit; i++ {
+		idx := (start + i) % s.historyCap
+		out = append(out, s.history[idx])
+	}
+	return out
+}
+
+// Query filters the stored event history by the given options.
+func (s *Store) Query(opts QueryOptions) []observe.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := s.ringEventsLocked()
+
+	var out []observe.Event
+	for _, e := range all {
+		if opts.DefinitionID != "" && e.DefinitionID != opts.DefinitionID {
+			continue
+		}
+		if opts.ResourceID != "" && e.ResourceID != opts.ResourceID {
+			continue
+		}
+		if opts.OwnerID != "" && e.OwnerID != opts.OwnerID {
+			continue
+		}
+		if opts.Kind != 0 && e.Kind != opts.Kind {
+			continue
+		}
+		if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
+			continue
+		}
+		if !opts.Until.IsZero() && e.Timestamp.After(opts.Until) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// ringEventsLocked returns all valid events from the ring buffer in chronological order. Caller must hold s.mu.
+func (s *Store) ringEventsLocked() []observe.Event {
+	out := make([]observe.Event, 0, s.historyLen)
+	start := 0
+	if s.historyLen == s.historyCap {
+		start = s.historyHead
+	}
+	for i := 0; i < s.historyLen; i++ {
+		idx := (start + i) % s.historyCap
+		out = append(out, s.history[idx])
+	}
+	return out
+}
+
+// Subscribe registers ch for real-time event delivery. Returns an unsubscribe function.
+func (s *Store) Subscribe(ch chan<- observe.Event) func() {
+	s.subMu.Lock()
+	s.subs[ch] = struct{}{}
+	s.subMu.Unlock()
+
+	return func() {
+		s.subMu.Lock()
+		delete(s.subs, ch)
+		s.subMu.Unlock()
+	}
+}
+
+// UpdatePipelineState sets dispatcher-level counters on the store.
+func (s *Store) UpdatePipelineState(ps PipelineState) {
+	s.mu.Lock()
+	s.pipeline = ps
+	s.mu.Unlock()
+}
+
+func lockKey(definitionID, resourceID, ownerID string) string {
+	return definitionID + ":" + resourceID + ":" + ownerID
 }

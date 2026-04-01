@@ -14,6 +14,7 @@ import (
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/observe"
 )
 
 type compositeWorkerManagerHarness struct {
@@ -644,4 +645,74 @@ func (d *multiMemberRenewFailDriver) CheckPresence(ctx context.Context, req back
 
 func (d *multiMemberRenewFailDriver) Ping(ctx context.Context) error {
 	return d.base.Ping(ctx)
+}
+
+func TestExecuteCompositeClaimedEmitsMemberAcquireEvents(t *testing.T) {
+	reg := newCompositeWorkerRegistryForTest(t)
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), idempotency.NewMemoryStore(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeClaimed(context.Background(), compositeClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeClaimed returned error: %v", err)
+	}
+
+	acquireStarted := 0
+	acquireSucceeded := 0
+	released := 0
+	for _, e := range events {
+		switch e.Kind {
+		case observe.EventAcquireStarted:
+			acquireStarted++
+		case observe.EventAcquireSucceeded:
+			acquireSucceeded++
+		case observe.EventReleased:
+			released++
+		}
+	}
+	if acquireStarted < 2 {
+		t.Fatalf("expected at least 2 acquire_started events for composite members, got %d", acquireStarted)
+	}
+	if acquireSucceeded < 2 {
+		t.Fatalf("expected at least 2 acquire_succeeded events for composite members, got %d", acquireSucceeded)
+	}
+	if released < 2 {
+		t.Fatalf("expected at least 2 released events for composite members, got %d", released)
+	}
+}
+
+func TestExecuteCompositeClaimedEmitsLeaseLostOnMemberRenewalFailure(t *testing.T) {
+	reg := newCompositeWorkerRegistryForTest(t)
+	store := idempotency.NewMemoryStore()
+	driver := &multiMemberRenewFailDriver{
+		base:            testkit.NewMemoryDriver(),
+		failResourceKey: "ledger:ledger-456",
+	}
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, driver, store, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeClaimed(context.Background(), compositeClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if !errors.Is(err, lockerrors.ErrLeaseLost) {
+		t.Fatalf("expected lease lost error, got %v", err)
+	}
+	if !hasEventKind(events, observe.EventLeaseLost) {
+		t.Fatal("expected lease_lost event for composite member renewal failure")
+	}
 }

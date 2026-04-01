@@ -72,3 +72,9 @@ Typical examples:
 - Async: [`docs/quickstart-async.md`](quickstart-async.md)
 - Composite sync: [`docs/advanced/composite.md`](advanced/composite.md)
 - Strict sync: [`docs/advanced/strict.md`](advanced/strict.md)
+- Observability SDK: [`examples/sdk/observability-basic`](../examples/sdk/observability-basic)
+- Observability core: [`examples/core/observability-runtime`](../examples/core/observability-runtime)
+
+## Observability Applies To Both Paths
+
+The `observe` and `inspect` packages work with both `Run` and `Claim` paths. Whether you use the root SDK or direct engine wiring, observability events are emitted for acquire, release, renewal, and shutdown lifecycle.

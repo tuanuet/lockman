@@ -91,6 +91,54 @@ Details: [`advanced/composite.md`](advanced/composite.md)
 5. `Claim` paths have idempotency wiring and deliver `Delivery` metadata.
 6. TTLs match your actual callback durations with headroom.
 7. Logs include resource IDs and owner IDs for debugging contention.
+8. Observability wiring is configured for monitoring and inspection.
+
+## Observability And Inspection
+
+`lockman` provides optional observability and inspection through the `observe` and `inspect` packages.
+
+### Wiring Observability
+
+```go
+import (
+    "github.com/tuanuet/lockman"
+    "github.com/tuanuet/lockman/inspect"
+    "github.com/tuanuet/lockman/observe"
+)
+
+// Create a dispatcher for async event export.
+dispatcher := observe.NewDispatcher()
+defer dispatcher.Shutdown(ctx)
+
+// Create an inspect store for process-local state.
+store := inspect.NewStore()
+
+// Wire both via the convenience option.
+client, err := lockman.New(
+    lockman.WithRegistry(reg),
+    lockman.WithIdentity(lockman.Identity{OwnerID: "orders-api"}),
+    lockman.WithBackend(backend),
+    lockman.WithObservability(lockman.Observability{
+        Dispatcher: dispatcher,
+        Store:      store,
+    }),
+)
+```
+
+### Mounting Inspection Endpoints
+
+The inspect store provides HTTP handlers for admin inspection:
+
+```go
+mux := http.NewServeMux()
+mux.Handle("/locks/", inspect.NewHandler(store))
+```
+
+**Important:** Inspection data is process-local telemetry, not cluster truth. It reflects the state of the current process only.
+
+### Export Failure Semantics
+
+Observability export failures do not fail the lock lifecycle. The `observe.Dispatcher` operates on a best-effort basis. If a sink or exporter fails, the lock acquisition or release continues normally.
 
 ## Common Mistakes
 

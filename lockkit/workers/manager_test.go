@@ -13,6 +13,7 @@ import (
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/observe"
 )
 
 func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
@@ -365,4 +366,100 @@ func strictWorkerRegistryForTest(t *testing.T, kind definitions.ExecutionKind) *
 		t.Fatalf("register strict definition failed: %v", err)
 	}
 	return reg
+}
+
+func TestNewManagerStillCompilesWithExistingThreeParamShape(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
+	if err != nil {
+		t.Fatalf("NewManager with three params returned error: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+}
+
+func TestNewManagerAcceptsVariadicBridgeOption(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager with bridge option returned error: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+}
+
+func TestShutdownEmitsObservabilityEvents(t *testing.T) {
+	reg := newWorkerRegistryForTest(t, false)
+	var events []observe.Event
+	bridge := workerTestBridge(func(event observe.Event) {
+		events = append(events, event)
+	})
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil, WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	if err := mgr.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+
+	if !hasEventKind(events, observe.EventShutdownStarted) {
+		t.Fatal("expected shutdown_started event")
+	}
+	if !hasEventKind(events, observe.EventShutdownCompleted) {
+		t.Fatal("expected shutdown_completed event")
+	}
+}
+
+func hasEventKind(events []observe.Event, kind observe.EventKind) bool {
+	for _, e := range events {
+		if e.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+type workerTestBridge func(observe.Event)
+
+func (f workerTestBridge) PublishWorkerAcquireStarted(e observe.Event) {
+	e.Kind = observe.EventAcquireStarted
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerAcquireSucceeded(e observe.Event) {
+	e.Kind = observe.EventAcquireSucceeded
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerAcquireFailed(e observe.Event, err error) {
+	e.Kind = observe.EventAcquireFailed
+	e.Error = err
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerReleased(e observe.Event) {
+	e.Kind = observe.EventReleased
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerOverlap(e observe.Event) {
+	e.Kind = observe.EventOverlap
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerRenewalSucceeded(e observe.Event) {
+	e.Kind = observe.EventRenewalSucceeded
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerLeaseLost(e observe.Event) {
+	e.Kind = observe.EventLeaseLost
+	f(e)
+}
+func (f workerTestBridge) PublishWorkerShutdownStarted() {
+	f(observe.Event{Kind: observe.EventShutdownStarted})
+}
+func (f workerTestBridge) PublishWorkerShutdownCompleted() {
+	f(observe.Event{Kind: observe.EventShutdownCompleted})
 }

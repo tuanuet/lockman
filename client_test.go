@@ -8,8 +8,10 @@ import (
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
+	"github.com/tuanuet/lockman/inspect"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/observe"
 )
 
 func TestNewFailsWithoutRegistry(t *testing.T) {
@@ -242,4 +244,374 @@ func (d exactOnlyDriverStub) CheckPresence(ctx context.Context, req backend.Pres
 
 func (d exactOnlyDriverStub) Ping(ctx context.Context) error {
 	return d.inner.Ping(ctx)
+}
+
+func TestWithObserverPopulatesClientConfig(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+
+	cfg := &clientConfig{}
+	opt := WithObserver(d)
+	opt(cfg)
+
+	if cfg.observer == nil {
+		t.Fatal("expected observer to be set")
+	}
+}
+
+func TestWithInspectStorePopulatesClientConfig(t *testing.T) {
+	store := inspect.NewStore()
+
+	cfg := &clientConfig{}
+	opt := WithInspectStore(store)
+	opt(cfg)
+
+	if cfg.inspectStore == nil {
+		t.Fatal("expected inspectStore to be set")
+	}
+}
+
+func TestWithObservabilityPopulatesClientConfig(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	obs := Observability{
+		Dispatcher: d,
+		Store:      store,
+	}
+
+	cfg := &clientConfig{}
+	opt := WithObservability(obs)
+	opt(cfg)
+
+	if cfg.observer == nil {
+		t.Fatal("expected observer to be set by WithObservability")
+	}
+	if cfg.inspectStore == nil {
+		t.Fatal("expected inspectStore to be set by WithObservability")
+	}
+}
+
+func TestNewWithObserverCreatesClientWithoutError(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObserver(d),
+	)
+	if err != nil {
+		t.Fatalf("New with observer returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithInspectStoreCreatesClientWithoutError(t *testing.T) {
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithInspectStore(store),
+	)
+	if err != nil {
+		t.Fatalf("New with inspect store returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithObservabilityCreatesClientWithoutError(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	mustRegisterUseCases(t, reg, testRunUseCase("order.approve"))
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New with observability returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestNewWithObservabilityDoesNotRequireUseCases(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New with observability (no use cases) returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+}
+
+func TestClientWithInspectStoreUpdatesLocalStateWithoutDispatcher(t *testing.T) {
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	uc := testRunUseCase("order.approve")
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithInspectStore(store),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	// Verify the inspect store captured events (acquire succeeded + released).
+	events := store.RecentEvents(10)
+	if len(events) < 2 {
+		t.Fatalf("expected inspect store to capture at least 2 events, got %d", len(events))
+	}
+}
+
+func TestWithObserverPublishesAsyncExportWithoutInspectStore(t *testing.T) {
+	var publishCount int
+	d := observe.NewDispatcher(
+		observe.WithExporter(observe.ExporterFunc(func(_ context.Context, _ observe.Event) error {
+			publishCount++
+			return nil
+		})),
+	)
+	defer func() { _ = d.Shutdown(context.Background()) }()
+
+	reg := NewRegistry()
+	uc := testRunUseCase("order.approve")
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObserver(d),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+}
+
+func TestWithObservabilityWiresBothOnce(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	uc := testRunUseCase("order.approve")
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	// Verify the inspect store captured events (acquire succeeded + released).
+	events := store.RecentEvents(10)
+	if len(events) < 2 {
+		t.Fatalf("expected inspect store to capture at least 2 events, got %d", len(events))
+	}
+}
+
+func TestRunWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	uc := testRunUseCase("order.approve")
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1", Service: "orders", Instance: "api-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	// Verify the events captured by the store have correct normalized fields.
+	events := store.RecentEvents(10)
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events, got %d", len(events))
+	}
+	// Find the acquire_succeeded event.
+	var found bool
+	for _, e := range events {
+		if e.Kind == observe.EventAcquireSucceeded {
+			if e.OwnerID != "owner-1" {
+				t.Fatalf("expected owner %q, got %q", "owner-1", e.OwnerID)
+			}
+			if e.ResourceID != "order:123" {
+				t.Fatalf("expected resource %q, got %q", "order:123", e.ResourceID)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected acquire_succeeded event in captured events")
+	}
+}
+
+func TestClaimWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
+	d := observe.NewDispatcher()
+	defer func() { _ = d.Shutdown(context.Background()) }()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	uc := testClaimUseCase("order.process", true)
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "worker-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123", Delivery{
+		MessageID:     "msg-1",
+		ConsumerGroup: "orders",
+		Attempt:       1,
+	})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Claim(context.Background(), req, func(context.Context, Claim) error { return nil })
+	if err != nil {
+		t.Fatalf("Claim returned error: %v", err)
+	}
+
+	snap := store.Snapshot()
+	if len(snap.WorkerClaims) == 0 {
+		t.Fatal("expected inspect store to capture worker claim")
+	}
+	claim := snap.WorkerClaims[0]
+	if claim.OwnerID != "worker-1" {
+		t.Fatalf("expected owner %q, got %q", "worker-1", claim.OwnerID)
+	}
+	if claim.ResourceID != "order:123" {
+		t.Fatalf("expected resource %q, got %q", "order:123", claim.ResourceID)
+	}
+}
+
+func TestClientShutdownPublishesFinalEventsThenDrainsDispatcher(t *testing.T) {
+	d := observe.NewDispatcher()
+	store := inspect.NewStore()
+
+	reg := NewRegistry()
+	uc := testRunUseCase("order.approve")
+	mustRegisterUseCases(t, reg, uc)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithObservability(Observability{Dispatcher: d, Store: store}),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+	err = client.Run(context.Background(), req, func(context.Context, Lease) error { return nil })
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if err := client.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+
+	snap := store.Snapshot()
+	if !snap.Shutdown.Started {
+		t.Fatal("expected shutdown started event in inspect store")
+	}
+	if !snap.Shutdown.Completed {
+		t.Fatal("expected shutdown completed event in inspect store")
+	}
 }

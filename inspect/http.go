@@ -1,150 +1,154 @@
 package inspect
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/tuanuet/lockman/observe"
 )
 
-type Store interface {
-	Consume(ctx context.Context, event observe.Event) error
-	Snapshot() Snapshot
-	RecentEvents() []Event
-	Query(filter QueryFilter) []Event
-	UpdatePipelineState(state PipelineState)
-	Events() <-chan Event
+// HandlerOption configures the HTTP handler.
+type HandlerOption func(*handlerConfig)
+
+type handlerConfig struct {
+	prefix string
 }
 
-type HandlerOption func(*handler)
-
-type handler struct {
-	store Store
+// WithPrefix sets a URL prefix for all inspect routes.
+func WithPrefix(p string) HandlerOption {
+	return func(c *handlerConfig) { c.prefix = p }
 }
 
-func NewHandler(store Store, opts ...HandlerOption) http.Handler {
-	h := &handler{store: store}
-	for _, opt := range opts {
-		opt(h)
-	}
-	return h
-}
-
-func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	switch {
-	case path == "/locks/inspect" || path == "/locks/inspect/":
-		h.handleSnapshot(w, r)
-	case path == "/locks/inspect/active":
-		h.handleActive(w, r)
-	case path == "/locks/inspect/events":
-		h.handleEvents(w, r)
-	case path == "/locks/inspect/health":
-		h.handleHealth(w, r)
-	case path == "/locks/inspect/stream":
-		h.handleStream(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (h *handler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	snap := h.store.Snapshot()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(snap)
-}
-
-func (h *handler) handleActive(w http.ResponseWriter, r *http.Request) {
-	snap := h.store.Snapshot()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"runtime_locks": snap.RuntimeLocks,
-		"worker_claims": snap.WorkerClaims,
-	})
-}
-
-func (h *handler) handleEvents(w http.ResponseWriter, r *http.Request) {
-	filter := parseQueryFilter(r.URL.Query())
-	events := h.store.Query(filter)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
-}
-
-func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {
-	snap := h.store.Snapshot()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      snap.Pipeline.Status,
-		"queue_depth": snap.Pipeline.QueueDepth,
-		"errors":      snap.Pipeline.Errors,
-	})
-}
-
-func (h *handler) handleStream(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
+// NewHandler returns an http.Handler exposing inspect endpoints.
+func NewHandler(store *Store, opts ...HandlerOption) http.Handler {
+	cfg := &handlerConfig{prefix: "/locks/inspect"}
+	for _, o := range opts {
+		o(cfg)
 	}
 
-	events := h.store.Events()
-	for {
-		select {
-		case e, ok := <-events:
-			if !ok {
-				return
-			}
-			data, _ := json.Marshal(e)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		case <-r.Context().Done():
+	mux := http.NewServeMux()
+	mux.HandleFunc(cfg.prefix, handleSnapshot(store))
+	mux.HandleFunc(cfg.prefix+"/active", handleActive(store))
+	mux.HandleFunc(cfg.prefix+"/events", handleEvents(store))
+	mux.HandleFunc(cfg.prefix+"/health", handleHealth(store))
+	mux.HandleFunc(cfg.prefix+"/stream", handleStream(store))
+
+	return mux
+}
+
+func handleSnapshot(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
-		case <-time.After(30 * time.Second):
-			fmt.Fprintf(w, ": keepalive\n\n")
-			flusher.Flush()
+		}
+		writeJSON(w, store.Snapshot())
+	}
+}
+
+func handleActive(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		snap := store.Snapshot()
+		writeJSON(w, snap.RuntimeLocks)
+	}
+}
+
+func handleEvents(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		q := r.URL.Query()
+		limit := 100
+		if v := q.Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+
+		opts := QueryOptions{
+			DefinitionID: q.Get("definition_id"),
+			ResourceID:   q.Get("resource_id"),
+			OwnerID:      q.Get("owner_id"),
+		}
+
+		if v := q.Get("since"); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				opts.Since = t
+			}
+		}
+		if v := q.Get("until"); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				opts.Until = t
+			}
+		}
+		if v := q.Get("kind"); v != "" {
+			opts.Kind = parseKind(v)
+		}
+
+		events := store.Query(opts)
+		if len(events) > limit {
+			events = events[len(events)-limit:]
+		}
+
+		writeJSON(w, events)
+	}
+}
+
+func handleHealth(_ *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"status": "ok"})
+	}
+}
+
+func handleStream(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		ch := make(chan observe.Event, 64)
+		unsub := store.Subscribe(ch)
+		defer unsub()
+
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case e := <-ch:
+				data, _ := json.Marshal(e)
+				_, _ = w.Write([]byte("data: "))
+				_, _ = w.Write(data)
+				_, _ = w.Write([]byte("\n\n"))
+				flusher.Flush()
+			}
 		}
 	}
 }
 
-func parseQueryFilter(params map[string][]string) QueryFilter {
-	var filter QueryFilter
-
-	if v, ok := params["lock_id"]; ok && len(v) > 0 {
-		filter.LockID = v[0]
-	}
-	if v, ok := params["resource_key"]; ok && len(v) > 0 {
-		filter.ResourceKey = v[0]
-	}
-	if v, ok := params["owner_id"]; ok && len(v) > 0 {
-		filter.OwnerID = v[0]
-	}
-	if v, ok := params["kind"]; ok && len(v) > 0 {
-		filter.Kind = stringToEventKind(v[0])
-	}
-	if v, ok := params["since"]; ok && len(v) > 0 {
-		if t, err := time.Parse(time.RFC3339, v[0]); err == nil {
-			filter.Since = t
-		}
-	}
-	if v, ok := params["until"]; ok && len(v) > 0 {
-		if t, err := time.Parse(time.RFC3339, v[0]); err == nil {
-			filter.Until = t
-		}
-	}
-
-	return filter
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
-func stringToEventKind(s string) observe.EventKind {
+func parseKind(s string) observe.EventKind {
 	switch s {
 	case "acquire_started":
 		return observe.EventAcquireStarted

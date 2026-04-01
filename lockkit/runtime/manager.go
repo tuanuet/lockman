@@ -9,15 +9,44 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
-	"github.com/tuanuet/lockman/lockkit/observe"
+	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
+	"github.com/tuanuet/lockman/observe"
 )
+
+// Bridge receives runtime lifecycle events from the manager.
+type Bridge interface {
+	PublishRuntimeAcquireStarted(re observe.Event)
+	PublishRuntimeAcquireSucceeded(re observe.Event)
+	PublishRuntimeAcquireFailed(re observe.Event, err error)
+	PublishRuntimeContention(re observe.Event)
+	PublishRuntimeOverlapRejected(re observe.Event)
+	PublishRuntimeReleased(re observe.Event)
+	PublishRuntimePresenceChecked(re observe.Event)
+	PublishRuntimeShutdownStarted()
+	PublishRuntimeShutdownCompleted()
+}
+
+// Option configures the runtime manager.
+type Option func(*managerConfig)
+
+type managerConfig struct {
+	bridge Bridge
+}
+
+// WithBridge attaches an observability bridge to the runtime manager.
+func WithBridge(b Bridge) Option {
+	return func(cfg *managerConfig) {
+		cfg.bridge = b
+	}
+}
 
 // Manager orchestrates standard exclusive lock execution for Phase 1.
 type Manager struct {
 	registry      registry.Reader
 	driver        backend.Driver
-	recorder      observe.Recorder
+	recorder      lockobserve.Recorder
+	bridge        Bridge
 	active        sync.Map
 	shuttingDown  atomic.Bool
 	shutdownStart sync.Once
@@ -27,7 +56,12 @@ type Manager struct {
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
-func NewManager(reg registry.Reader, driver backend.Driver, recorder observe.Recorder) (*Manager, error) {
+func NewManager(reg registry.Reader, driver backend.Driver, recorder lockobserve.Recorder, opts ...Option) (*Manager, error) {
+	var cfg managerConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	validator, ok := reg.(interface{ Validate() error })
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid registry", lockerrors.ErrRegistryViolation)
@@ -49,12 +83,13 @@ func NewManager(reg registry.Reader, driver backend.Driver, recorder observe.Rec
 		}
 	}
 	if recorder == nil {
-		recorder = observe.NewNoopRecorder()
+		recorder = lockobserve.NewNoopRecorder()
 	}
 	return &Manager{
 		registry: reg,
 		driver:   driver,
 		recorder: recorder,
+		bridge:   cfg.bridge,
 		inFlightDrain: func() chan struct{} {
 			ch := make(chan struct{})
 			close(ch)
@@ -70,11 +105,17 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		m.lifecycleMu.Lock()
 		m.shuttingDown.Store(true)
 		m.lifecycleMu.Unlock()
+		if m.bridge != nil {
+			m.bridge.PublishRuntimeShutdownStarted()
+		}
 	})
 
 	drained := m.inFlightDrainChannel()
 	select {
 	case <-drained:
+		if m.bridge != nil {
+			m.bridge.PublishRuntimeShutdownCompleted()
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

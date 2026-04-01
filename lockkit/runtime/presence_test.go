@@ -10,7 +10,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
-	"github.com/tuanuet/lockman/lockkit/observe"
+	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/testkit"
 )
@@ -31,7 +31,7 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestCheckPresenceRejectsDefinitionWithoutCheckOnlyAllowed(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCheckPresenceReturnsPresenceUnknownWhenDriverHealthUnavailable(t *testi
 	mgr, err := NewManager(reg, pingFailDriver{
 		inner: testkit.NewMemoryDriver(),
 		err:   sentinelErr,
-	}, observe.NewNoopRecorder())
+	}, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 		t.Fatalf("register child failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, driver, observe.NewNoopRecorder())
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -349,4 +349,45 @@ func (p *presenceMetricRecorder) presenceDefinitionIDs() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]string(nil), p.ids...)
+}
+
+func TestCheckPresenceEmitsBridgeEvent(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "OrderLock",
+		Kind:             definitions.KindParent,
+		Resource:         "order",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		CheckOnlyAllowed: true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	driver := testkit.NewMemoryDriver()
+	bridge := &bridgeStub{}
+	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder(), WithBridge(bridge))
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	_, err = mgr.CheckPresence(context.Background(), definitions.PresenceCheckRequest{
+		DefinitionID: "OrderLock",
+		KeyInput:     map[string]string{"order_id": "123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:one"},
+	})
+	if err != nil {
+		t.Fatalf("CheckPresence returned error: %v", err)
+	}
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.presenceChecked != 1 {
+		t.Fatalf("expected 1 presence checked event, got %d", bridge.presenceChecked)
+	}
+	if bridge.lastEvent.DefinitionID != "OrderLock" {
+		t.Fatalf("expected DefinitionID=OrderLock, got %q", bridge.lastEvent.DefinitionID)
+	}
 }
