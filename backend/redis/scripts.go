@@ -185,10 +185,6 @@ for i = 1, ancestor_count do
 	end
 end
 
-if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
-	return {-2, 0}
-end
-
 for i = 1, ancestor_count do
 	local lineage_key = KEYS[1 + i]
 	redis.call("ZADD", lineage_key, "XX", expiry, member)
@@ -201,6 +197,10 @@ for i = 1, ancestor_count do
 			redis.call("PEXPIRE", lineage_key, remaining)
 		end
 	end
+end
+
+if redis.call("PEXPIRE", KEYS[1], ttl) == 0 then
+	return {-2, 0}
 end
 
 return {1, ttl}
