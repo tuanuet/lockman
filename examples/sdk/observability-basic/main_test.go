@@ -24,8 +24,8 @@ func TestResourceIDBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("With returned error: %v", err)
 	}
-	if req.ResourceKey != "order:123" {
-		t.Fatalf("expected resource key %q, got %q", "order:123", req.ResourceKey)
+	if req.ResourceKey() != "order:123" {
+		t.Fatalf("expected resource key %q, got %q", "order:123", req.ResourceKey())
 	}
 }
 

@@ -28,6 +28,11 @@ type RunRequest struct {
 	boundToRegistry       bool
 }
 
+// ResourceKey returns the bound resource key for this request.
+func (r RunRequest) ResourceKey() string {
+	return r.resourceKey
+}
+
 // ClaimRequest is an opaque request produced by ClaimUseCase.With.
 type ClaimRequest struct {
 	useCaseName     string

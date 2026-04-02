@@ -16,6 +16,14 @@ func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) Ru
 	}
 }
 
+// DefinitionID returns the use case definition name.
+func (u RunUseCase[T]) DefinitionID() string {
+	if u.core == nil {
+		return ""
+	}
+	return u.core.name
+}
+
 // With binds typed input into an opaque run request.
 func (u RunUseCase[T]) With(input T, opts ...CallOption) (RunRequest, error) {
 	if u.core == nil {
