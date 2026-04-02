@@ -39,16 +39,17 @@ cancelUC := lockman.DefineRun("order.cancel", orderBoundary.Bind())
 - `orderBoundary.Bind()` returns a `UseCaseOption`
 - Usecases bound to a boundary use the boundary's ID instead of their own definitionID for lock key construction
 - **Restriction:** Usecases bound to a boundary cannot also use lineage mode
+- **Restriction:** Hold usecases cannot be bound to a boundary (different data flow)
 
 #### 3. Force Release (Admin Operation)
 
-`Release()` is a method on `ResourceBoundary` that requires a `*Client` reference for backend access:
+`Release()` is a method on `ResourceBoundary` that takes an explicit `*Client` parameter for backend access:
 
 ```go
 err := orderBoundary.Release(ctx, client, "order:123")
 ```
 
-- `ResourceBoundary` holds a reference to the `*Client` internally (set during `DefineResourceBoundary`)
+- `ResourceBoundary` does NOT hold an internal `*Client` reference — the client is passed explicitly at call time
 - Releases any lock within the boundary without owner validation
 - Idempotent: returns `nil` if the lock does not exist
 - Cleans up lease key plus any auxiliary keys (fence counter, strict token) — uses `DEL` on all possible key forms unconditionally (Redis `DEL` on non-existent keys is a no-op)
@@ -127,7 +128,7 @@ DefineResourceBoundary("order") // panics: "lockman: boundary 'order' already de
 | Usecase Kind | Boundary Support | Notes |
 |--------------|-----------------|-------|
 | `DefineRun`  | Yes | Full support |
-| `DefineHold` | Yes | Full support |
+| `DefineHold` | No | Hold uses a separate data flow (DetachedAcquireRequest, holds.Manager); restriction enforced at define time |
 | `DefineClaim`| Yes | Full support |
 | Composite Run/Claim | No | Enforced at define time; composite atomicity conflicts with shared boundaries |
 
@@ -177,6 +178,9 @@ type useCaseConfig struct {
 ```go
 func (b *ResourceBoundary) Bind() UseCaseOption {
     return func(cfg *useCaseConfig) {
+        if cfg.kind == useCaseKindHold {
+            panic("lockman: Hold usecases cannot be bound to a boundary")
+        }
         cfg.boundaryID = b.id
     }
 }
@@ -264,7 +268,17 @@ fenced, err = strictDriver.AcquireStrict(ctx, backend.StrictAcquireRequest{
 })
 ```
 
-Also update `LeaseContext.DefinitionID` — when a boundary is present, set it to the boundaryID so that downstream code (including observe/logging) reflects the actual key used.
+Also update `LeaseContext.DefinitionID` in `exclusive.go` — when `req.BoundaryID` is not empty, override the definitionID used throughout the execution:
+
+```go
+effectiveID := def.ID
+if req.BoundaryID != "" {
+    effectiveID = req.BoundaryID
+}
+leaseCtx := LeaseContext{DefinitionID: effectiveID, ...}
+```
+
+This ensures observe/logging downstream reflects the actual key used, not the usecase's own definitionID.
 
 #### Key Resolution in Backend Driver
 
@@ -319,7 +333,7 @@ No mode detection needed.
    - Two usecases in same boundary → mutual exclusion (one acquires, other fails)
    - Force release behavior (cleans lease + auxiliary keys, idempotent on non-existent lock)
    - Strict mode + boundary interaction (fencing tokens work correctly)
-   - Hold usecase + boundary (acquire/release work correctly)
+   - Hold usecase + boundary → panic at define time (Hold not supported)
 
 3. **Backward compatibility tests:**
    - Non-boundary usecases unchanged (plain ownerID in lease key)
