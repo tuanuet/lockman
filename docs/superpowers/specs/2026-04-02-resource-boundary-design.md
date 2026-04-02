@@ -36,21 +36,20 @@ cancelUC := lockman.DefineRun("order.cancel", orderBoundary.Bind())
 
 - `orderBoundary.Bind()` returns a `UseCaseOption`
 - Usecases bound to a boundary use the boundary's ID instead of their own definitionID for lock key construction
+- **Restriction:** Usecases bound to a boundary cannot also use lineage mode (see "Lineage Incompatibility" below)
 
 #### 3. Query Active Locks
 
 ```go
-activeLocks, err := orderBoundary.ActiveLocks(ctx)
-// Returns: []BoundaryLockInfo{
-//   {ResourceKey: "order:123", UsecaseName: "order.process", OwnerID: "...", AcquiredAt: ..., ExpiresAt: ..., Mode: "standard"},
-// }
+activeLocks, nextCursor, err := orderBoundary.ActiveLocks(ctx, lockman.WithLimit(100), lockman.WithCursor(cursor))
+// Returns: ([]BoundaryLockInfo, nextCursor string, error)
 ```
 
-- Uses a maintained index key (Redis Set) for O(1) discovery, not SCAN
-- Index key format: `lockman:lease:bdry_idx:<boundaryID_hash>`
+- Uses `SSCAN` on the index key for cursor-based iteration
+- Index key format: `lockman:lease:bdry_idx:<boundaryID_hash>` (Redis Set of resourceKeys)
 - Index is maintained atomically within acquire/release Lua scripts
-- Index entries are cleaned up on release and TTL expiry (via TTL on lease key, index cleaned on release)
-- Returns cursor-based pagination: `ActiveLocks(ctx, WithLimit(100), WithCursor(cursor))`
+- Index entries may become orphaned on TTL expiry (see "Index Drift Handling" below)
+- Each returned `BoundaryLockInfo` includes `ExpiresAt` for caller-side staleness validation
 
 #### 4. Force Release (Admin Operation)
 
@@ -59,7 +58,8 @@ err := orderBoundary.Release(ctx, "order:123")
 ```
 
 - Releases any lock within the boundary without owner validation
-- Cleans up all auxiliary keys: lease, metadata, fence counter, strict token, lineage, and index entry
+- Idempotent: returns `nil` if the lock does not exist (no-op for non-existent locks)
+- Cleans up all auxiliary keys: lease, metadata, fence counter, strict token, and index entry
 - Used for admin/ops scenarios (cleanup, recovery)
 
 ### Key Construction
@@ -77,6 +77,7 @@ Index key:     lockman:lease:bdry_idx:<boundaryID_hash>  (Redis Set of resourceK
 ```
 
 - `boundaryID` = stable hash from boundary name (FNV-64a, format: `bdry_<hex>`)
+- Hash construction: `FNV-64a("b" + boundaryName)` — the `"b"` prefix distinguishes boundary hashes from usecase hashes (which use kind delimiters like `"r"`, `"c"`, `"h"`)
 - Non-boundary usecases remain unchanged — fully backward compatible
 - **Critical design decision:** Metadata is stored in a separate key, NOT in the lease value. This preserves all existing Lua scripts unchanged, since they perform direct string equality checks on the lease value (ownerID). Changing the lease value format would break every Lua script.
 
@@ -93,17 +94,23 @@ Fields:
 - `u` = usecaseName (the usecase that acquired the lock)
 - `a` = acquiredAt timestamp (RFC3339)
 - `e` = expiresAt timestamp (acquiredAt + leaseTTL, RFC3339)
-- `m` = mode ("standard", "strict", "lineage")
+- `m` = mode ("standard", "strict")
+
+**Encoding/decoding responsibility:** The SDK layer handles JSON encode/decode. The backend layer (`backend/redis/`) treats metadata as an opaque string and only manages TTL. This keeps the backend agnostic of metadata schema.
+
+**Extensibility policy:** New fields are added with new single-letter keys. Readers must ignore unknown fields. Writers must not remove fields from existing keys — only add new ones. This ensures backward-compatible evolution.
 
 **Backward compatibility:** Non-boundary usecases continue using plain ownerID in the lease key. No migration needed for existing deployments. Boundary usecases always write both lease + metadata keys atomically.
 
 ### Integration with Existing Features
 
-#### Lineage Mode (Out of Scope for v1)
+#### Lineage Incompatibility
 
-Boundary + lineage integration is **out of scope for v1**. Lineage is currently built around usecase-to-usecase parent-child relationships (via `lineageParent` field in `useCaseConfig`), which does not map cleanly to boundary semantics. This will be evaluated as a future enhancement.
+Boundary-bound usecases **cannot** use lineage mode. Lineage overlap checks depend on verifying ancestor lease keys, but boundary-based lease keys use a different ID (`bdry_<hash>`) than the usecase's definitionID. Mixing the two would cause lineage to check the wrong key, silently breaking protection.
 
-Boundary-bound usecases can still use lineage with their own definitionID — the boundary only affects the lease key, not lineage keys. Lineage keys continue using the usecase's own definitionID.
+**Enforcement:** If a usecase is bound to a boundary AND has `lineageParent` set, panic at define time: `"lockman: boundary-bound usecase cannot use lineage mode"`.
+
+This restriction will be evaluated for removal in a future version if lineage key resolution is updated to support boundary-aware lookups.
 
 #### Strict Mode
 
@@ -133,23 +140,35 @@ DefineResourceBoundary("order") // panics: "lockman: boundary 'order' already de
 #### Cross-Boundary Release
 ```go
 // Release from a usecase not bound to the boundary → ErrNotBoundToBoundary
-// Force release from boundary object → always succeeds (admin operation)
+// Force release from boundary object → always succeeds (idempotent admin operation)
 ```
 
 #### Stale Visibility Data
+
 ```go
+// Defined in backend/contracts.go
 type BoundaryLockInfo struct {
     ResourceKey string
     UsecaseName string
     OwnerID     string
     AcquiredAt  time.Time
     ExpiresAt   time.Time
-    Mode        string    // "standard", "strict", "lineage"
-    // Out of scope for v1: FencingToken, Lineage metadata
+    Mode        string    // "standard", "strict"
 }
 ```
 
 `ActiveLocks()` may return stale data (lock expired between query and return) → callers should validate `ExpiresAt.After(time.Now())`.
+
+#### Index Drift Handling
+
+Index entries can become orphaned when a lease key expires via TTL (Redis server-side event — no script runs on expiry). `ActiveLocks()` handles this by:
+
+1. Using `SSCAN` to iterate index members
+2. For each resourceKey, checking if the lease key still exists (`EXISTS leaseKey`)
+3. If lease key is missing, removing the orphaned entry from index (`SREM indexKey resourceKey`) and skipping it
+4. Returning only entries with valid lease keys
+
+This ensures `ActiveLocks()` self-heals orphaned index entries at read time, without requiring a separate cleanup job.
 
 ### Boundary Lifecycle
 
@@ -163,12 +182,12 @@ type BoundaryLockInfo struct {
 | Usecase Kind | Boundary Support | Notes |
 |--------------|-----------------|-------|
 | `DefineRun`  | Yes | Full support |
-| `DefineHold` | Yes | Metadata includes token info; `ActiveLocks()` sees Hold leases |
+| `DefineHold` | Yes | Metadata uses same JSON schema; `ActiveLocks()` sees Hold leases |
 | `DefineClaim`| Yes | Same as Run |
 
 ### Observability
 
-Boundary-specific metrics:
+Boundary-specific metrics integrate with the existing `observe` package and OTel bridge pattern:
 
 ```
 # Prometheus-style metrics
@@ -176,6 +195,8 @@ lockman_boundary_locks_active{boundary="order"} → gauge
 lockman_boundary_acquires_total{boundary="order", usecase="order.process"} → counter
 lockman_boundary_contentions_total{boundary="order"} → counter
 ```
+
+**Integration approach:** Add `BoundaryID string` field to the existing `observe.Event` struct. Boundary metrics reuse the existing event bridge — no new `EventKind` values needed. A new `observe/boundary.go` file provides helper functions for building boundary-specific labels from the existing `Event` type.
 
 **Cardinality controls:**
 - `boundary` label value uses the boundary name (not ID)
@@ -203,13 +224,73 @@ func (b *ResourceBoundary) Bind() UseCaseOption {
 }
 ```
 
-#### Key Resolution in Runtime
+#### BoundaryID Data Flow Through the Translation Chain
 
-When acquiring a lease, the runtime checks `boundaryID` in `useCaseConfig`:
-- If `boundaryID` is set → use boundary ID for key construction
-- If `boundaryID` is empty → use definitionID (current behavior)
+The boundaryID must flow from the define-time config through to the runtime layer. Here is the complete data flow:
 
-This check happens in `lockkit/runtime/exclusive.go` before calling the backend.
+1. **Define time:** `DefineRun("order.process", orderBoundary.Bind())` → sets `useCaseConfig.boundaryID`
+2. **Request time:** `uc.Run(ctx, req, fn)` → `RunRequest` carries `useCaseCore.config.boundaryID`
+3. **Client layer:** `client_run.go` reads `RunRequest.BoundaryID` and sets `definitions.SyncLockRequest.BoundaryID`
+4. **Runtime execution:** `lockkit/runtime/exclusive.go` reads `SyncLockRequest.BoundaryID` and passes it to backend
+5. **Backend acquire:** `backend.AcquireRequest.BoundaryID` → driver uses boundaryID if set, otherwise uses DefinitionID
+
+**Required struct changes:**
+
+```go
+// lockkit/definitions/ownership.go
+type SyncLockRequest struct {
+    // ... existing fields ...
+    BoundaryID string // empty = use DefinitionID
+}
+
+// backend/contracts.go
+type AcquireRequest struct {
+    // ... existing fields ...
+    BoundaryID string // empty = use DefinitionID for key construction
+}
+
+// backend/contracts.go
+type StrictAcquireRequest struct {
+    // ... existing fields ...
+    BoundaryID string
+}
+
+// backend/contracts.go
+type LineageAcquireRequest struct {
+    // ... existing fields ...
+    BoundaryID string
+}
+```
+
+#### Key Resolution in Runtime (exclusive.go)
+
+In `lockkit/runtime/exclusive.go`, the `acquireLease` function must pass `SyncLockRequest.BoundaryID` through to all three backend request types:
+
+```go
+// Standard acquire (existing code path, add BoundaryID)
+lease, err = m.acquireLease(ctx, def, acquirePlan, req.Ownership.OwnerID)
+// → backend.AcquireRequest{... BoundaryID: req.BoundaryID ...}
+
+// Strict acquire (existing code path, add BoundaryID)
+fenced, err = strictDriver.AcquireStrict(ctx, backend.StrictAcquireRequest{
+    ...,
+    BoundaryID: req.BoundaryID,
+})
+
+// Lineage acquire — NOT supported with boundary (enforced at define time)
+```
+
+#### Key Resolution in Backend Driver
+
+```go
+func (d *Driver) resolveKey(definitionID, boundaryID, resourceKey string) string {
+    keyID := definitionID
+    if boundaryID != "" {
+        keyID = boundaryID
+    }
+    return d.keyPrefix + ":" + d.encodeDefinitionID(keyID) + ":" + encodeSegment(resourceKey)
+}
+```
 
 #### Atomic Metadata + Index Writes
 
@@ -223,19 +304,48 @@ Release Lua script (boundary mode) deletes 3 keys atomically:
 2. Metadata key: `DEL metaKey`
 3. Index key: `SREM indexKey resourceKey`
 
-Force Release (boundary admin operation) deletes all keys including auxiliary (fence, strict-token, lineage).
+#### Renew Script (Boundary Mode)
+
+Standard renew only refreshes the lease key TTL via `PEXPIRE`. Boundary mode must also refresh the metadata key TTL to keep visibility data alive:
+
+```lua
+-- boundaryRenewScript
+local leaseExists = redis.call("EXISTS", KEYS[1])
+if leaseExists == 0 then
+    return 0
+end
+redis.call("PEXPIRE", KEYS[1], ARGV[2])
+redis.call("PEXPIRE", KEYS[2], ARGV[2])  -- metadata key
+return 1
+```
+
+Arguments: `KEYS[1]` = lease key, `KEYS[2]` = metadata key, `ARGV[1]` = ownerID (for validation), `ARGV[2]` = TTL in ms.
+
+The index entry does not need TTL refresh — it is self-healed by `ActiveLocks()` via `EXISTS` check.
+
+#### Force Release Script
+
+Force release deletes all possible auxiliary keys unconditionally (Redis `DEL` on non-existent keys is a no-op):
+1. Lease key: `DEL lockman:lease:bdry_<hash>:<resourceKey>`
+2. Metadata key: `DEL lockman:lease:bdry_<hash>:<resourceKey>:meta`
+3. Fence counter: `DEL lockman:lease:fence:bdry_<hash>:<resourceKey>`
+4. Strict token: `DEL lockman:lease:strict-token:bdry_<hash>:<resourceKey>`
+5. Index entry: `SREM lockman:lease:bdry_idx:<hash> <resourceKey>`
+
+No mode detection needed — `DEL` on non-existent keys is harmless.
 
 ### File Changes (Expected)
 
 | File | Change |
 |------|--------|
 | `boundary.go` | New: ResourceBoundary type, DefineResourceBoundary, Bind, ActiveLocks, Release |
-| `backend/contracts.go` | New: BoundaryLockInfo struct, BoundaryDriver interface additions |
-| `backend/redis/driver.go` | Modify: buildLeaseKey support boundary ID, new buildMetadataKey/buildIndexKey methods |
-| `backend/redis/scripts.go` | New: boundaryAcquireScript, boundaryReleaseScript, boundaryForceReleaseScript |
-| `internal/sdk/usecase.go` | No changes needed (boundary ID resolved at runtime layer) |
-| `lockkit/runtime/exclusive.go` | Modify: resolve boundary ID before acquire, pass to backend |
-| `metrics.go` | New: boundary-specific metrics registration |
+| `backend/contracts.go` | Modify: Add BoundaryID to AcquireRequest, StrictAcquireRequest, LineageAcquireRequest; add BoundaryLockInfo struct |
+| `backend/redis/driver.go` | Modify: resolveKey method for boundary ID, new buildMetadataKey/buildIndexKey methods |
+| `backend/redis/scripts.go` | New: boundaryAcquireScript, boundaryReleaseScript, boundaryRenewScript, boundaryForceReleaseScript |
+| `lockkit/definitions/ownership.go` | Modify: Add BoundaryID to SyncLockRequest |
+| `lockkit/runtime/exclusive.go` | Modify: pass BoundaryID from SyncLockRequest to backend AcquireRequest, StrictAcquireRequest |
+| `observe/event.go` | Modify: Add BoundaryID field to Event struct |
+| `observe/boundary.go` | New: boundary label builder helpers |
 | `errors.go` | New: ErrNotBoundToBoundary sentinel |
 | `boundary_test.go` | New: unit tests for boundary API |
 | `examples/core/boundary-usage/main.go` | New: example usage |
@@ -245,15 +355,19 @@ Force Release (boundary admin operation) deletes all keys including auxiliary (f
 1. **Unit tests:**
    - Boundary define/bind validation
    - Key construction with boundary ID
-   - Metadata encode/decode
+   - Metadata encode/decode (SDK layer)
    - Index key maintenance (SADD/SREM)
+   - BoundaryID data flow through SyncLockRequest → AcquireRequest
+   - Define-time rejection of lineage + boundary
 
 2. **Integration tests:**
    - Two usecases in same boundary → mutual exclusion (one acquires, other fails)
    - ActiveLocks() accuracy (returns correct usecase name, owner, timestamps)
-   - Force release behavior (cleans all keys including auxiliary)
+   - ActiveLocks() self-heals orphaned index entries (simulate TTL expiry)
+   - Force release behavior (cleans all keys, idempotent on non-existent lock)
    - Strict mode + boundary interaction (fencing tokens work correctly)
-   - Hold usecase + boundary (metadata includes token info)
+   - Hold usecase + boundary (metadata written correctly, visible via ActiveLocks)
+   - Renew refreshes both lease and metadata TTL
 
 3. **Backward compatibility tests:**
    - Non-boundary usecases unchanged (plain ownerID in lease key)
@@ -266,5 +380,6 @@ Force Release (boundary admin operation) deletes all keys including auxiliary (f
 | Additional Redis key per lock (metadata + index) | Benchmark memory impact; metadata key has same TTL as lease; index is bounded by active locks |
 | Lua script complexity (3-key atomic ops) | Scripts remain simple; 3-key ops are well within Redis limits |
 | Boundary name collision across teams | Document that boundary names should be globally unique within shared Redis; consider namespace prefix if needed |
-| Index key drift (orphaned entries) | Force release cleans index; add periodic cleanup job as future enhancement |
+| Index key drift (orphaned entries) | ActiveLocks() self-heals via SSCAN + EXISTS check + SREM cleanup |
 | Metrics cardinality explosion | Document bounded boundary names; add config to disable per-usecase metrics |
+| Lineage incompatibility | Enforced at define time; documented restriction; future enhancement tracked |
