@@ -1,6 +1,9 @@
 package workers
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // Shutdown marks the worker manager unavailable for new claims and waits for in-flight executions to drain.
 func (m *Manager) Shutdown(ctx context.Context) error {
@@ -17,21 +20,9 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		done := make(chan struct{})
-		go func() {
-			m.drainMu.Lock()
-			m.drainCond.Wait()
-			m.drainMu.Unlock()
-			close(done)
-		}()
-		m.drainMu.Unlock()
-		select {
-		case <-done:
-			m.drainMu.Lock()
-		case <-ctx.Done():
-			m.drainCond.Broadcast()
-			<-done
-			m.drainMu.Lock()
+		if done := waitForDrainWithContext(m.drainCond, &m.drainMu, func() bool {
+			return m.inFlight.Load() == 0
+		}, ctx.Done()); !done {
 			return ctx.Err()
 		}
 	}
@@ -39,4 +30,43 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		m.bridge.PublishWorkerShutdownCompleted()
 	}
 	return nil
+}
+
+func waitForDrainWithContext(cond *sync.Cond, mu *sync.Mutex, drained func() bool, done <-chan struct{}) bool {
+	if drained() {
+		return true
+	}
+
+	if done == nil {
+		for !drained() {
+			cond.Wait()
+		}
+		return true
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	go func() {
+		select {
+		case <-done:
+			mu.Lock()
+			cond.Broadcast()
+			mu.Unlock()
+		case <-stop:
+		}
+	}()
+
+	for !drained() {
+		cond.Wait()
+		select {
+		case <-done:
+			if !drained() {
+				return false
+			}
+		default:
+		}
+	}
+
+	return true
 }

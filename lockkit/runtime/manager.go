@@ -134,21 +134,9 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		done := make(chan struct{})
-		go func() {
-			m.drainMu.Lock()
-			m.drainCond.Wait()
-			m.drainMu.Unlock()
-			close(done)
-		}()
-		m.drainMu.Unlock()
-		select {
-		case <-done:
-			m.drainMu.Lock()
-		case <-ctx.Done():
-			m.drainCond.Broadcast()
-			<-done
-			m.drainMu.Lock()
+		if done := waitForDrainWithContext(m.drainCond, &m.drainMu, func() bool {
+			return m.inFlight.Load() == 0
+		}, ctx.Done()); !done {
 			return ctx.Err()
 		}
 	}
@@ -175,9 +163,13 @@ func (m *Manager) tryAdmitInFlightExecution() bool {
 }
 
 func (m *Manager) releaseInFlightExecution() {
-	if m.inFlight.Add(-1) == 0 {
-		m.drainCond.Broadcast()
+	if m.inFlight.Add(-1) != 0 {
+		return
 	}
+
+	m.drainMu.Lock()
+	m.drainCond.Broadcast()
+	m.drainMu.Unlock()
 }
 
 func (m *Manager) getCompositeDefinition(id string) (definitions.CompositeDefinition, bool) {
@@ -191,4 +183,43 @@ func (m *Manager) activeCounter(definitionID string) *atomic.Int64 {
 	counter := &atomic.Int64{}
 	actual, _ := m.activeByDef.LoadOrStore(definitionID, counter)
 	return actual.(*atomic.Int64)
+}
+
+func waitForDrainWithContext(cond *sync.Cond, mu *sync.Mutex, drained func() bool, done <-chan struct{}) bool {
+	if drained() {
+		return true
+	}
+
+	if done == nil {
+		for !drained() {
+			cond.Wait()
+		}
+		return true
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	go func() {
+		select {
+		case <-done:
+			mu.Lock()
+			cond.Broadcast()
+			mu.Unlock()
+		case <-stop:
+		}
+	}()
+
+	for !drained() {
+		cond.Wait()
+		select {
+		case <-done:
+			if !drained() {
+				return false
+			}
+		default:
+		}
+	}
+
+	return true
 }

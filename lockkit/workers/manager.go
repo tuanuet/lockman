@@ -170,9 +170,13 @@ func (m *Manager) tryAdmitInFlightExecution() bool {
 }
 
 func (m *Manager) releaseInFlightExecution() {
-	if m.inFlight.Add(-1) == 0 {
-		m.drainCond.Broadcast()
+	if m.inFlight.Add(-1) != 0 {
+		return
 	}
+
+	m.drainMu.Lock()
+	m.drainCond.Broadcast()
+	m.drainMu.Unlock()
 }
 
 func (m *Manager) registerRenewalCancel(cancel context.CancelFunc) uint64 {
