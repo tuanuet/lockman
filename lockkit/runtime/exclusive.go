@@ -50,9 +50,9 @@ func (m *Manager) ExecuteExclusive(
 		return lockerrors.ErrPolicyViolation
 	}
 
-	def, err := m.getDefinition(req.DefinitionID)
-	if err != nil {
-		return err
+	def, ok := m.getDefinition(req.DefinitionID)
+	if !ok {
+		return lockerrors.ErrPolicyViolation
 	}
 
 	acquirePlan, err := m.buildAcquirePlan(def, req.KeyInput)
@@ -111,6 +111,11 @@ func (m *Manager) ExecuteExclusive(
 			}
 		}
 		if guardInstalled {
+			if v, ok := m.active.Load(key); ok {
+				if entry, entryOk := v.(guardEntry); entryOk && entry.state == guardHeld {
+					m.activeCounter(key.definitionID).Add(-1)
+				}
+			}
 			m.active.Delete(key)
 			m.recordActiveLocks(ctx, def.ID)
 		}
@@ -148,6 +153,7 @@ func (m *Manager) ExecuteExclusive(
 	leaseAcquired = true
 
 	m.active.Store(key, guardEntry{state: guardHeld})
+	m.activeCounter(def.ID).Add(1)
 	m.recordActiveLocks(ctx, def.ID)
 	leaseCtx := definitions.LeaseContext{
 		DefinitionID:  def.ID,
@@ -244,39 +250,16 @@ func contextWithAcquireTimeout(ctx context.Context, cfg waitConfig) (context.Con
 }
 
 func (m *Manager) recordActiveLocks(ctx context.Context, definitionID string) {
-	count := m.activeCount(definitionID)
+	count := int(m.activeCounter(definitionID).Load())
 	m.recorder.RecordActiveLocks(ctx, definitionID, count)
 }
 
-func (m *Manager) activeCount(definitionID string) int {
-	count := 0
-	m.active.Range(func(key, value interface{}) bool {
-		gk, ok := key.(guardKey)
-		if !ok || gk.definitionID != definitionID {
-			return true
-		}
-		entry, ok := value.(guardEntry)
-		if ok && entry.state == guardHeld {
-			count++
-		}
-		return true
-	})
-	return count
-}
-
-func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGet(id)
-	return def, err
+func (m *Manager) getDefinition(id string) (definitions.LockDefinition, bool) {
+	return m.registry.Get(id)
 }
 
 func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[string]string) (runtimeAcquirePlan, error) {
-	definitionsByID := m.definitionsByID()
-	if !runtimeDefinitionUsesLineage(def, childrenByParent(definitionsByID)) {
+	if !m.lineageDefs[def.ID] {
 		resourceKey, err := def.KeyBuilder.Build(input)
 		if err != nil {
 			return runtimeAcquirePlan{}, err
@@ -284,7 +267,7 @@ func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[str
 		return runtimeAcquirePlan{resourceKey: resourceKey}, nil
 	}
 
-	plan, err := lineage.ResolveAcquirePlan(def, definitionsByID, input)
+	plan, err := lineage.ResolveAcquirePlan(def, m.cachedDefsByID, input)
 	if err != nil {
 		return runtimeAcquirePlan{}, err
 	}
@@ -381,30 +364,6 @@ func (m *Manager) releaseLease(ctx context.Context, held heldLease) error {
 		return lockerrors.ErrPolicyViolation
 	}
 	return lineageDriver.ReleaseWithLineage(ctx, held.lease, cloneLineageMeta(*held.lineage))
-}
-
-func (m *Manager) definitionsByID() map[string]definitions.LockDefinition {
-	defs := m.registry.Definitions()
-	out := make(map[string]definitions.LockDefinition, len(defs))
-	for _, def := range defs {
-		out[def.ID] = def
-	}
-	return out
-}
-
-func childrenByParent(definitionsByID map[string]definitions.LockDefinition) map[string][]string {
-	out := make(map[string][]string, len(definitionsByID))
-	for _, def := range definitionsByID {
-		if def.ParentRef == "" {
-			continue
-		}
-		out[def.ParentRef] = append(out[def.ParentRef], def.ID)
-	}
-	return out
-}
-
-func runtimeDefinitionUsesLineage(def definitions.LockDefinition, children map[string][]string) bool {
-	return def.ParentRef != "" || len(children[def.ID]) > 0
 }
 
 func cloneLineageMeta(meta backend.LineageLeaseMeta) backend.LineageLeaseMeta {

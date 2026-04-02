@@ -20,9 +20,10 @@ var errInvalidScriptResponse = errors.New("redis driver: invalid script response
 
 // Driver implements the lock driver contract with Redis-backed lease records.
 type Driver struct {
-	client    goredis.UniversalClient
-	keyPrefix string
-	now       func() time.Time
+	client     goredis.UniversalClient
+	keyPrefix  string
+	encodedIDs map[string]string // definitionID → base64-encoded segment
+	now        func() time.Time
 }
 
 // NewDriver constructs a Redis-backed lock driver.
@@ -420,19 +421,19 @@ func (d *Driver) Ping(ctx context.Context) error {
 }
 
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
-	return fmt.Sprintf("%s:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+	return d.keyPrefix + ":" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildStrictFenceCounterKey(definitionID, resourceKey string) string {
-	return fmt.Sprintf("%s:fence:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+	return d.keyPrefix + ":fence:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildStrictTokenKey(definitionID, resourceKey string) string {
-	return fmt.Sprintf("%s:strict-token:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+	return d.keyPrefix + ":strict-token:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildLineageKey(definitionID, resourceKey string) string {
-	return fmt.Sprintf("%s:lineage:%s:%s", d.keyPrefix, encodeSegment(definitionID), encodeSegment(resourceKey))
+	return d.keyPrefix + ":lineage:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
 }
 
 func (d *Driver) lineageAcquireKeys(req backend.LineageAcquireRequest) []string {
@@ -515,6 +516,35 @@ func lineageMember(leaseID, definitionID, resourceKey string) string {
 
 func encodeSegment(v string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(v))
+}
+
+// CacheDefinitionIDs pre-encodes definition IDs for faster key building.
+func (d *Driver) CacheDefinitionIDs(ids []string) {
+	if d.encodedIDs == nil {
+		d.encodedIDs = make(map[string]string, len(ids))
+	}
+	for _, id := range ids {
+		d.encodedIDs[id] = encodeSegment(id)
+	}
+}
+
+func (d *Driver) cacheDefinitionID(id string) {
+	if d.encodedIDs == nil {
+		d.encodedIDs = make(map[string]string)
+	}
+	d.encodedIDs[id] = encodeSegment(id)
+}
+
+func (d *Driver) encodeDefinitionID(id string) string {
+	if d.encodedIDs != nil {
+		if encoded, ok := d.encodedIDs[id]; ok {
+			return encoded
+		}
+		encoded := encodeSegment(id)
+		d.encodedIDs[id] = encoded
+		return encoded
+	}
+	return encodeSegment(id)
 }
 
 func parsePresenceResult(raw interface{}) (bool, string, time.Duration, error) {

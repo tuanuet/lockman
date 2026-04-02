@@ -43,16 +43,19 @@ func WithBridge(b Bridge) Option {
 
 // Manager orchestrates standard exclusive lock execution for Phase 1.
 type Manager struct {
-	registry      registry.Reader
-	driver        backend.Driver
-	recorder      lockobserve.Recorder
-	bridge        Bridge
-	active        sync.Map
-	shuttingDown  atomic.Bool
-	shutdownStart sync.Once
-	lifecycleMu   sync.Mutex
-	inFlight      int
-	inFlightDrain chan struct{}
+	registry       registry.Reader
+	driver         backend.Driver
+	recorder       lockobserve.Recorder
+	bridge         Bridge
+	active         sync.Map
+	activeByDef    sync.Map // definitionID → *atomic.Int64
+	lineageDefs    map[string]bool
+	cachedDefsByID map[string]definitions.LockDefinition
+	shuttingDown   atomic.Bool
+	shutdownStart  sync.Once
+	inFlight       atomic.Int64
+	drainMu        sync.Mutex
+	drainCond      *sync.Cond
 }
 
 // NewManager validates the registry and returns a configured runtime manager.
@@ -85,41 +88,62 @@ func NewManager(reg registry.Reader, driver backend.Driver, recorder lockobserve
 	if recorder == nil {
 		recorder = lockobserve.NewNoopRecorder()
 	}
-	return &Manager{
-		registry: reg,
-		driver:   driver,
-		recorder: recorder,
-		bridge:   cfg.bridge,
-		inFlightDrain: func() chan struct{} {
-			ch := make(chan struct{})
-			close(ch)
-			return ch
-		}(),
-	}, nil
+
+	defs := reg.Definitions()
+	defsByID := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		defsByID[def.ID] = def
+	}
+	childrenByParent := make(map[string][]string, len(defs))
+	for _, def := range defs {
+		if def.ParentRef == "" {
+			continue
+		}
+		childrenByParent[def.ParentRef] = append(childrenByParent[def.ParentRef], def.ID)
+	}
+	lineageDefs := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		lineageDefs[def.ID] = def.ParentRef != "" || len(childrenByParent[def.ID]) > 0
+	}
+
+	m := &Manager{
+		registry:       reg,
+		driver:         driver,
+		recorder:       recorder,
+		bridge:         cfg.bridge,
+		lineageDefs:    lineageDefs,
+		cachedDefsByID: defsByID,
+	}
+	m.drainCond = sync.NewCond(&m.drainMu)
+	return m, nil
 }
 
 // Shutdown marks the manager as unavailable for new lock acquisitions and
 // waits for admitted in-flight executions to drain.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.shutdownStart.Do(func() {
-		m.lifecycleMu.Lock()
 		m.shuttingDown.Store(true)
-		m.lifecycleMu.Unlock()
 		if m.bridge != nil {
 			m.bridge.PublishRuntimeShutdownStarted()
 		}
 	})
 
-	drained := m.inFlightDrainChannel()
-	select {
-	case <-drained:
-		if m.bridge != nil {
-			m.bridge.PublishRuntimeShutdownCompleted()
+	m.drainMu.Lock()
+	defer m.drainMu.Unlock()
+	for m.inFlight.Load() > 0 {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+		if done := waitForDrainWithContext(m.drainCond, &m.drainMu, func() bool {
+			return m.inFlight.Load() == 0
+		}, ctx.Done()); !done {
+			return ctx.Err()
+		}
 	}
+	if m.bridge != nil {
+		m.bridge.PublishRuntimeShutdownCompleted()
+	}
+	return nil
 }
 
 func (m *Manager) isShuttingDown() bool {
@@ -127,46 +151,75 @@ func (m *Manager) isShuttingDown() bool {
 }
 
 func (m *Manager) tryAdmitInFlightExecution() bool {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-
 	if m.shuttingDown.Load() {
 		return false
 	}
-
-	if m.inFlight == 0 {
-		m.inFlightDrain = make(chan struct{})
+	m.inFlight.Add(1)
+	if m.shuttingDown.Load() {
+		m.releaseInFlightExecution()
+		return false
 	}
-	m.inFlight++
 	return true
 }
 
 func (m *Manager) releaseInFlightExecution() {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-
-	if m.inFlight <= 0 {
+	if m.inFlight.Add(-1) != 0 {
 		return
 	}
 
-	m.inFlight--
-	if m.inFlight == 0 {
-		close(m.inFlightDrain)
+	m.drainMu.Lock()
+	m.drainCond.Broadcast()
+	m.drainMu.Unlock()
+}
+
+func (m *Manager) getCompositeDefinition(id string) (definitions.CompositeDefinition, bool) {
+	return m.registry.GetComposite(id)
+}
+
+func (m *Manager) activeCounter(definitionID string) *atomic.Int64 {
+	if v, ok := m.activeByDef.Load(definitionID); ok {
+		return v.(*atomic.Int64)
 	}
+	counter := &atomic.Int64{}
+	actual, _ := m.activeByDef.LoadOrStore(definitionID, counter)
+	return actual.(*atomic.Int64)
 }
 
-func (m *Manager) inFlightDrainChannel() <-chan struct{} {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-	return m.inFlightDrain
-}
+func waitForDrainWithContext(cond *sync.Cond, mu *sync.Mutex, drained func() bool, done <-chan struct{}) bool {
+	if drained() {
+		return true
+	}
 
-func (m *Manager) getCompositeDefinition(id string) (def definitions.CompositeDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
+	if done == nil {
+		for !drained() {
+			cond.Wait()
+		}
+		return true
+	}
+
+	stop := make(chan struct{})
+	defer close(stop)
+
+	go func() {
+		select {
+		case <-done:
+			mu.Lock()
+			cond.Broadcast()
+			mu.Unlock()
+		case <-stop:
 		}
 	}()
-	def = m.registry.MustGetComposite(id)
-	return def, err
+
+	for !drained() {
+		cond.Wait()
+		select {
+		case <-done:
+			if !drained() {
+				return false
+			}
+		default:
+		}
+	}
+
+	return true
 }

@@ -420,3 +420,64 @@ func TestShutdownEmitsBridgeLifecycleEvents(t *testing.T) {
 		t.Fatalf("expected 1 shutdown completed event, got %d", bridge.shutdownDone)
 	}
 }
+
+func TestShutdownDoesNotMissDrainSignal(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	for i := 0; i < 200; i++ {
+		mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+		if err != nil {
+			t.Fatalf("NewManager returned error: %v", err)
+		}
+
+		callbackEntered := make(chan struct{})
+		releaseCallback := make(chan struct{})
+		execErrCh := make(chan error, 1)
+		go func() {
+			execErrCh <- mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+				DefinitionID: "OrderLock",
+				KeyInput: map[string]string{
+					"order_id": "123",
+				},
+				Ownership: definitions.OwnershipMeta{OwnerID: "svc:one"},
+			}, func(ctx context.Context, lease definitions.LeaseContext) error {
+				close(callbackEntered)
+				<-releaseCallback
+				return nil
+			})
+		}()
+
+		<-callbackEntered
+
+		shutdownErrCh := make(chan error, 1)
+		go func() {
+			shutdownErrCh <- mgr.Shutdown(context.Background())
+		}()
+
+		close(releaseCallback)
+
+		select {
+		case err := <-shutdownErrCh:
+			if err != nil {
+				t.Fatalf("Shutdown returned error on iteration %d: %v", i, err)
+			}
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("Shutdown blocked waiting for drain signal on iteration %d", i)
+		}
+
+		if err := <-execErrCh; err != nil {
+			t.Fatalf("ExecuteExclusive returned error on iteration %d: %v", i, err)
+		}
+	}
+}

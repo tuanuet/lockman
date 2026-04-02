@@ -314,6 +314,14 @@ func (a aliasRegistry) MustGetComposite(id string) definitions.CompositeDefiniti
 	panic("unexpected MustGetComposite call in presence tests")
 }
 
+func (a aliasRegistry) Get(id string) (definitions.LockDefinition, bool) {
+	return a.definition, true
+}
+
+func (a aliasRegistry) GetComposite(id string) (definitions.CompositeDefinition, bool) {
+	return definitions.CompositeDefinition{}, false
+}
+
 func (a aliasRegistry) Validate() error {
 	return nil
 }

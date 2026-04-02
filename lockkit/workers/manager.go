@@ -52,22 +52,21 @@ func WithBridge(b Bridge) Option {
 
 // Manager orchestrates single-resource worker claim execution for Phase 2.
 type Manager struct {
-	registry    registry.Reader
-	driver      backend.Driver
-	idempotency idempotency.Store
-	bridge      Bridge
-
-	active sync.Map
-
-	shuttingDown  atomic.Bool
-	shutdownStart sync.Once
-	lifecycleMu   sync.Mutex
-	inFlight      int
-	inFlightDrain chan struct{}
-
-	renewalsMu  sync.Mutex
-	renewals    map[uint64]context.CancelFunc
-	nextRenewal uint64
+	registry       registry.Reader
+	driver         backend.Driver
+	idempotency    idempotency.Store
+	bridge         Bridge
+	active         sync.Map
+	lineageDefs    map[string]bool
+	cachedDefsByID map[string]definitions.LockDefinition
+	shuttingDown   atomic.Bool
+	shutdownStart  sync.Once
+	inFlight       atomic.Int64
+	drainMu        sync.Mutex
+	drainCond      *sync.Cond
+	renewalsMu     sync.Mutex
+	renewals       map[uint64]context.CancelFunc
+	nextRenewal    uint64
 }
 
 // NewManager validates dependencies and returns a configured worker manager.
@@ -107,16 +106,34 @@ func NewManager(reg registry.Reader, driver backend.Driver, store idempotency.St
 		return nil, lockerrors.ErrPolicyViolation
 	}
 
-	drain := make(chan struct{})
-	close(drain)
-	return &Manager{
-		registry:      reg,
-		driver:        driver,
-		idempotency:   store,
-		bridge:        cfg.bridge,
-		inFlightDrain: drain,
-		renewals:      make(map[uint64]context.CancelFunc),
-	}, nil
+	defs := reg.Definitions()
+	defsByID := make(map[string]definitions.LockDefinition, len(defs))
+	for _, def := range defs {
+		defsByID[def.ID] = def
+	}
+	childrenByParent := make(map[string][]string, len(defs))
+	for _, def := range defs {
+		if def.ParentRef == "" {
+			continue
+		}
+		childrenByParent[def.ParentRef] = append(childrenByParent[def.ParentRef], def.ID)
+	}
+	lineageDefs := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		lineageDefs[def.ID] = def.ParentRef != "" || len(childrenByParent[def.ID]) > 0
+	}
+
+	m := &Manager{
+		registry:       reg,
+		driver:         driver,
+		idempotency:    store,
+		bridge:         cfg.bridge,
+		renewals:       make(map[uint64]context.CancelFunc),
+		lineageDefs:    lineageDefs,
+		cachedDefsByID: defsByID,
+	}
+	m.drainCond = sync.NewCond(&m.drainMu)
+	return m, nil
 }
 
 func registryRequiresIdempotencyStore(reg registry.Reader) bool {
@@ -141,36 +158,25 @@ func (m *Manager) isShuttingDown() bool {
 }
 
 func (m *Manager) tryAdmitInFlightExecution() bool {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-
 	if m.shuttingDown.Load() {
 		return false
 	}
-	if m.inFlight == 0 {
-		m.inFlightDrain = make(chan struct{})
+	m.inFlight.Add(1)
+	if m.shuttingDown.Load() {
+		m.releaseInFlightExecution()
+		return false
 	}
-	m.inFlight++
 	return true
 }
 
 func (m *Manager) releaseInFlightExecution() {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-
-	if m.inFlight <= 0 {
+	if m.inFlight.Add(-1) != 0 {
 		return
 	}
-	m.inFlight--
-	if m.inFlight == 0 {
-		close(m.inFlightDrain)
-	}
-}
 
-func (m *Manager) inFlightDrainChannel() <-chan struct{} {
-	m.lifecycleMu.Lock()
-	defer m.lifecycleMu.Unlock()
-	return m.inFlightDrain
+	m.drainMu.Lock()
+	m.drainCond.Broadcast()
+	m.drainMu.Unlock()
 }
 
 func (m *Manager) registerRenewalCancel(cancel context.CancelFunc) uint64 {
@@ -207,12 +213,6 @@ func (m *Manager) cancelAllRenewals() {
 	}
 }
 
-func (m *Manager) getDefinition(id string) (def definitions.LockDefinition, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = lockerrors.ErrPolicyViolation
-		}
-	}()
-	def = m.registry.MustGet(id)
-	return def, err
+func (m *Manager) getDefinition(id string) (definitions.LockDefinition, bool) {
+	return m.registry.Get(id)
 }
