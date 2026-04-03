@@ -4,7 +4,7 @@ This workspace mirror tracks the public SDK interface. The root `main.go` is gat
 
 ## Backbone concept
 
-This example shows the shorthand async path after the `v1.3.0` definition-first backbone is understood.
+This example shows the deprecated shorthand async path after the `v1.3.0` definition-first backbone is understood.
 
 ## What this example defines
 
@@ -12,13 +12,13 @@ This example shows the shorthand async path after the `v1.3.0` definition-first 
 - one async execution surface for `order.process`
 - idempotent delivery handling on the SDK path
 
-The example stays on shorthand because it teaches one focused `Claim` flow rather than a shared definition across multiple public use cases.
+The example stays on the deprecated shorthand constructor because this workspace mirror still covers the compatibility path that remains fully functional in the current release line.
 
 ## Why this shape matters
 
-After the shared-definition backbone is clear, this is the shortest way to see async claiming, delivery metadata, and duplicate handling together.
+After the shared-definition backbone is clear, this example shows how older shorthand-based claim flows map onto the current SDK surface.
 
-It shows that shorthand is still useful, while shared lock definition remains the primary SDK authoring model.
+It is compatibility coverage for existing users, not the recommended starting point for new code.
 
 ## How to run
 

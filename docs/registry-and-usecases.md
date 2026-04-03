@@ -12,7 +12,7 @@ var Approve = lockman.DefineRunOn("order.approve", OrderDef)
 var Process = lockman.DefineClaimOn("order.process", OrderDef, lockman.Idempotent())
 ```
 
-If one focused path is enough, shorthand constructors like `DefineRun(...)` and `DefineClaim(...)` still work as convenience forms with implicit definitions.
+Shorthand constructors like `DefineRun(...)`, `DefineHold(...)`, and `DefineClaim(...)` are deprecated. They still work in the current release line for compatibility, but new code should use explicit lock definitions plus attached execution surfaces.
 
 ## Register Centrally
 

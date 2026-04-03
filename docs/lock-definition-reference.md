@@ -28,7 +28,25 @@ Use `lockman.DefineRunOn[T](...)` to attach a synchronous execution surface to a
 var Approve = lockman.DefineRunOn("order.approve", OrderDef, lockman.TTL(30*time.Second))
 ```
 
-Use the shorthand `lockman.DefineRun[T](...)` only when one sync use case can own its own implicit definition:
+The shorthand `lockman.DefineRun[T](...)` is deprecated. It remains fully functional in the current release line for compatibility, but new code should use `DefineLock + DefineRunOn`.
+
+```go
+// before
+var Approve = lockman.DefineRun[ApproveInput](
+	"order.approve",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+)
+
+// after
+var OrderDef = lockman.DefineLock(
+	"order",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+)
+
+var Approve = lockman.DefineRunOn("order.approve", OrderDef)
+```
+
+The extracted definition can stay private to one package. You do not need to share a definition across multiple public use cases to justify the migration.
 
 ```go
 type ApproveInput struct {
@@ -50,7 +68,26 @@ Use `lockman.DefineClaimOn[T](...)` when the flow starts from message delivery a
 var Process = lockman.DefineClaimOn("order.process", OrderDef, lockman.TTL(30*time.Second), lockman.Idempotent())
 ```
 
-Use the shorthand `lockman.DefineClaim[T](...)` only when one async use case can own its own implicit definition:
+The shorthand `lockman.DefineClaim[T](...)` is deprecated. It remains fully functional in the current release line for compatibility, but new code should use `DefineLock + DefineClaimOn`.
+
+```go
+// before
+var Process = lockman.DefineClaim[ProcessInput](
+	"order.process",
+	lockman.BindResourceID("order", func(in ProcessInput) string { return in.OrderID }),
+	lockman.Idempotent(),
+)
+
+// after
+var OrderDef = lockman.DefineLock(
+	"order",
+	lockman.BindResourceID("order", func(in ProcessInput) string { return in.OrderID }),
+)
+
+var Process = lockman.DefineClaimOn("order.process", OrderDef, lockman.Idempotent())
+```
+
+This migration is about one consistent API model, not only about shared identity reuse.
 
 ```go
 type ProcessInput struct {
@@ -84,6 +121,32 @@ if err := reg.Register(Approve, Process); err != nil {
 - `lockman.TTL(...)`: lease TTL hint
 - `lockman.WaitTimeout(...)`: acquire wait budget
 - `lockman.Idempotent()`: required for claim use cases that must deduplicate deliveries
+
+## Hold Use Cases
+
+Use `lockman.DefineHoldOn[T](...)` to attach a hold execution surface to an existing lock definition:
+
+```go
+var ManualHold = lockman.DefineHoldOn("order.manual_hold", OrderDef)
+```
+
+The shorthand `lockman.DefineHold[T](...)` is deprecated. It remains fully functional in the current release line for compatibility, but new code should use `DefineLock + DefineHoldOn`.
+
+```go
+// before
+var ManualHold = lockman.DefineHold[OrderInput](
+	"order.manual_hold",
+	lockman.BindResourceID("order", func(in OrderInput) string { return in.OrderID }),
+)
+
+// after
+var OrderDef = lockman.DefineLock(
+	"order",
+	lockman.BindResourceID("order", func(in OrderInput) string { return in.OrderID }),
+)
+
+var ManualHold = lockman.DefineHoldOn("order.manual_hold", OrderDef)
+```
 
 ## Canonical Example
 

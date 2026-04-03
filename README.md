@@ -90,13 +90,33 @@ The point of this example is that one `LockDefinition` owns the shared business 
 
 If you want the smallest runnable version of that model, start with [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition).
 
-## When Shorthand Is Enough
+## Deprecated Shorthand Constructors
 
-`DefineRun`, `DefineHold`, and `DefineClaim` still remain valid.
+`DefineRun`, `DefineHold`, and `DefineClaim` are deprecated.
 
-Use them when one use case can own a private implicit definition and you do not need to share lock identity across multiple public use cases.
+They remain fully functional in the current release line for compatibility, but new code should use `DefineLock` plus `DefineRunOn`, `DefineHoldOn`, or `DefineClaimOn`.
 
-That shorthand is still part of the SDK, but it is a convenience path, not the main `v1.3.0` teaching model.
+The next major release will remove these shorthand constructors from the root SDK.
+
+Mechanical migration looks like this:
+
+```go
+// before
+var Approve = lockman.DefineRun[ApproveInput](
+	"order.approve",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+)
+
+// after
+var OrderDef = lockman.DefineLock(
+	"order",
+	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
+)
+
+var Approve = lockman.DefineRunOn("order.approve", OrderDef)
+```
+
+The extracted definition can stay private to one package. You do not need shared multi-use-case coordination to justify this migration; the point is one consistent public authoring model.
 
 ## Shared Lock Definitions
 

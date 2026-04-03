@@ -20,7 +20,7 @@ This is the advanced follow-up to the normal SDK backbone.
 
 It shows that stricter execution changes the coordination semantics, but the public SDK path still starts from a typed lock definition and execution surface.
 
-In this example the definition is implicit because the strict shorthand constructor is enough for one focused write path.
+In this example the definition is implicit because the strict wrapper preserves a focused compatibility-oriented path. That specialized surface is outside the scope of the current root-SDK shorthand deprecation pass.
 
 ## How to run
 

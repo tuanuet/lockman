@@ -67,7 +67,7 @@ Runnable examples:
 - Workspace SDK mirror: [`examples/sdk/async-process-order`](../examples/sdk/async-process-order)
 - Published adapter copy: [`idempotency/redis/examples/async-process-order`](../idempotency/redis/examples/async-process-order)
 
-If you only need one focused async use case, the shorthand `DefineClaim(...)` form shown in `examples/sdk/async-process-order` is still valid. Use it as a convenience path after the shared-definition backbone is clear.
+If you only need one focused async use case, the shorthand `DefineClaim(...)` form shown in `examples/sdk/async-process-order` is deprecated but still fully functional in the current release line. New code should use `DefineLock + DefineClaimOn`.
 
 Run the workspace SDK mirror from the repo root:
 

@@ -7,6 +7,8 @@ In the public SDK, you choose between two execution surfaces:
 
 From `v1.3.0`, that lifecycle decision sits on top of a definition-first model: define the lock boundary first, then choose which execution surface should attach to it.
 
+Deprecated shorthand constructors still work in the current release line, but they are no longer the recommended place to start for new code.
+
 ## Use `Run`
 
 Choose `Run` when:

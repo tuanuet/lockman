@@ -11,7 +11,7 @@ type RunUseCase[T any] struct {
 	binding Binding[T]
 }
 
-// DefineRun declares a typed run use case.
+// Deprecated: use DefineLock plus DefineRunOn.
 func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) RunUseCase[T] {
 	if strings.TrimSpace(name) == "" || binding.build == nil {
 		return RunUseCase[T]{

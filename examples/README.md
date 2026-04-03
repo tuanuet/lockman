@@ -24,10 +24,10 @@ This is the canonical first example for the `v1.3.0` SDK path. It teaches the ba
 - `examples/sdk/sync-approve-order`
 - `examples/sdk/async-process-order`
 
-These show the shortest SDK-path variants once the shared-definition backbone is clear:
+These show focused compatibility examples once the shared-definition backbone is clear:
 
-- `sync-approve-order` uses the shorthand `Run` path for a focused request/response flow
-- `async-process-order` uses the shorthand `Claim` path for a focused idempotent delivery flow
+- `sync-approve-order` covers the deprecated shorthand `Run` path that still works in the current release line
+- `async-process-order` covers the deprecated shorthand `Claim` path that still works in the current release line
 
 ## Shared Definition Patterns
 
@@ -36,6 +36,8 @@ These show the shortest SDK-path variants once the shared-definition backbone is
 - `examples/sdk/sync-transfer-funds`
 
 These extend the backbone into modeling choices across aggregate boundaries.
+
+Some of these examples still use deprecated shorthand internally to preserve focused migration coverage, but they are not the recommended starting point for new code.
 
 ## Advanced Coordination
 

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Deprecate the root-SDK shorthand constructors:
+  - `DefineRun`, `DefineHold`, `DefineClaim`
+  - New code should use `DefineLock`, `DefineRunOn`, `DefineHoldOn`, and `DefineClaimOn`
+- Keep shorthand constructor behavior unchanged in the current release line for compatibility
+- Document intent to remove the shorthand constructors in the next major release
+
 ## [1.3.1] - 2026-04-03
 
 - Split Redis contention benchmarks to distinguish same-owner and distinct-owner workloads:

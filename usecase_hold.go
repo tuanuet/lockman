@@ -21,7 +21,7 @@ type HoldUseCase[T any] struct {
 	binding Binding[T]
 }
 
-// DefineHold declares a typed hold use case.
+// Deprecated: use DefineLock plus DefineHoldOn.
 func DefineHold[T any](name string, binding Binding[T], opts ...UseCaseOption) HoldUseCase[T] {
 	if strings.TrimSpace(name) == "" || binding.build == nil {
 		return HoldUseCase[T]{

@@ -50,7 +50,9 @@ defer client.Shutdown(ctx)
 
 Prefer the root SDK unless a concrete stale-writer or multi-resource requirement proves otherwise. The root path keeps the learning surface small and avoids pulling in advanced modules before you need them.
 
-On that root SDK path, prefer starting with `DefineLock` plus `DefineRunOn`, `DefineHoldOn`, or `DefineClaimOn`. Use shorthand constructors like `DefineRun` and `DefineClaim` only when one focused use case is enough and you do not need a shared definition.
+On that root SDK path, use `DefineLock` plus `DefineRunOn`, `DefineHoldOn`, or `DefineClaimOn` for new code. Shorthand constructors like `DefineRun`, `DefineHold`, and `DefineClaim` are deprecated, but remain fully functional in the current release line for compatibility.
+
+Advanced packages such as `advanced/strict` and `advanced/composite` are specialized surfaces and are outside the scope of this root-SDK shorthand deprecation pass.
 
 ## When Strict Is Worth It
 
@@ -149,7 +151,7 @@ Observability export failures do not fail the lock lifecycle. The `observe.Dispa
 ## Common Mistakes
 
 - Defining use cases inline at call time instead of at package scope.
-- Treating shorthand constructors as the whole SDK model instead of as a convenience path.
+- Treating shorthand constructors as recommended new-code APIs instead of deprecated compatibility helpers.
 - Forgetting `lockman.Idempotent()` claim use cases require idempotency wiring — client startup will fail before the worker begins serving traffic.
 - Using `Run` for queue consumers that receive retries or redeliveries.
 - Raising TTL instead of restructuring slow callbacks.
