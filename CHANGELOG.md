@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-03
+
+- Add definition-first shared lock authoring with `LockDefinition[T]` and explicit constructors:
+  - `DefineLock`, `DefineRunOn`, `DefineHoldOn`, `DefineClaimOn`
+  - Preserve shorthand constructors with implicit per-use-case definitions
+- Normalize shared definitions in client planning and engine registration:
+  - Deduplicate shared definition registration
+  - Compute execution kind across attached use cases (`ExecutionSync`, `ExecutionAsync`, `ExecutionBoth`)
+  - Keep public `DefinitionID()` name-facing while using internal shared definition IDs for execution
+- Add shared-definition option validation and strictness behavior:
+  - Treat strictness at definition level
+  - Reject conflicting non-zero `TTL` and `WaitTimeout` across use cases sharing one definition
+- Extend composite run use cases to support shared-definition members with projection-based member APIs while preserving legacy `Composite(...)` compatibility
+- Add definition-level force release capability:
+  - New optional backend contract `ForceReleaseDriver`
+  - Redis implementation to idempotently cleanup lease and strict-state keys
+- Add and move shared lock definition examples to the SDK examples layer:
+  - `examples/sdk/shared-lock-definition`
+  - README updates for shared-definition guidance and examples layout
+
 ## [1.1.0] - 2026-03-31
 
 - Add Phase 3c observability and inspection support:
