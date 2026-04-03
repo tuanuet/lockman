@@ -57,9 +57,14 @@ func newUseCaseCoreWithDefinition(name string, kind useCaseKind, def *definition
 	}
 }
 
-func newUseCaseCoreWithComposite[T any](name string, members ...CompositeMember[T]) *useCaseCore {
+func newUseCaseCoreWithComposite[T any](name string, members []CompositeMember[T], opts ...UseCaseOption) *useCaseCore {
 	cfg := useCaseConfig{
 		composite: buildCompositeMemberConfigs(members),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
 	}
 
 	return &useCaseCore{

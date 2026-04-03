@@ -124,10 +124,11 @@ func BenchmarkAdoptionClaimDuplicateMemory(b *testing.B) {
 }
 
 func BenchmarkAdoptionStrictMemory(b *testing.B) {
-	uc := strict.DefineRun[string](
+	strictDef := lockman.DefineLock(
 		"bench.strict",
 		lockman.BindResourceID("order", func(v string) string { return v }),
 	)
+	uc := strict.DefineRunOn("bench.strict", strictDef)
 	reg := lockman.NewRegistry()
 	if err := reg.Register(uc); err != nil {
 		b.Fatalf("Register returned error: %v", err)
@@ -171,23 +172,20 @@ func BenchmarkAdoptionCompositeMemory(b *testing.B) {
 		count := count
 		b.Run(benchmarkRunLogFmt("members", count), func(b *testing.B) {
 			var uc lockman.RunUseCase[compositeInput]
+			alphaDef := lockman.DefineLock("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A }))
+			betaDef := lockman.DefineLock("beta", lockman.BindResourceID("beta", func(in compositeInput) string { return in.B }))
+			gammaDef := lockman.DefineLock("gamma", lockman.BindResourceID("gamma", func(in compositeInput) string { return in.C }))
+			deltaDef := lockman.DefineLock("delta", lockman.BindResourceID("delta", func(in compositeInput) string { return in.D }))
 			switch count {
 			case 1:
-				uc = composite.DefineRun[compositeInput]("bench.composite.1",
-					composite.DefineMember("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A })),
-				)
+				compositeDef := composite.DefineLock("bench.composite.1", alphaDef)
+				uc = composite.AttachRun("bench.composite.1", compositeDef)
 			case 2:
-				uc = composite.DefineRun[compositeInput]("bench.composite.2",
-					composite.DefineMember("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A })),
-					composite.DefineMember("beta", lockman.BindResourceID("beta", func(in compositeInput) string { return in.B })),
-				)
+				compositeDef := composite.DefineLock("bench.composite.2", alphaDef, betaDef)
+				uc = composite.AttachRun("bench.composite.2", compositeDef)
 			default:
-				uc = composite.DefineRun[compositeInput]("bench.composite.4",
-					composite.DefineMember("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A })),
-					composite.DefineMember("beta", lockman.BindResourceID("beta", func(in compositeInput) string { return in.B })),
-					composite.DefineMember("gamma", lockman.BindResourceID("gamma", func(in compositeInput) string { return in.C })),
-					composite.DefineMember("delta", lockman.BindResourceID("delta", func(in compositeInput) string { return in.D })),
-				)
+				compositeDef := composite.DefineLock("bench.composite.4", alphaDef, betaDef, gammaDef, deltaDef)
+				uc = composite.AttachRun("bench.composite.4", compositeDef)
 			}
 
 			reg := lockman.NewRegistry()

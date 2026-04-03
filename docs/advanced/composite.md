@@ -11,13 +11,22 @@ Use `github.com/tuanuet/lockman/advanced/composite` when one synchronous operati
 ## Public Shape
 
 ```go
-transfer := composite.DefineRunWithOptions(
-	"transfer.run",
-	[]lockman.UseCaseOption{lockman.TTL(5 * time.Second)},
-	composite.DefineMember("account", lockman.BindResourceID("account", func(in Input) string { return in.AccountID })),
-	composite.DefineMember("ledger", lockman.BindResourceID("ledger", func(in Input) string { return in.LedgerID })),
+accountDef := lockman.DefineLock(
+	"account",
+	lockman.BindResourceID("account", func(in Input) string { return in.AccountID }),
 )
+
+ledgerDef := lockman.DefineLock(
+	"ledger",
+	lockman.BindResourceID("ledger", func(in Input) string { return in.LedgerID }),
+)
+
+transferDef := composite.DefineLock("transfer", accountDef, ledgerDef)
+transfer := composite.AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
 ```
+
+The child definitions may stay private inside one package. Reuse is available when
+it helps your model, but it is not required.
 
 Then register it in the normal root registry and execute it with the normal root client:
 

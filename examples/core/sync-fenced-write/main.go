@@ -19,10 +19,12 @@ type writeInput struct {
 	OrderID string
 }
 
-var strictWrite = strict.DefineRun(
+var strictWriteDef = lockman.DefineLock(
 	"order.strict-write",
 	lockman.BindResourceID("order", func(in writeInput) string { return in.OrderID }),
 )
+
+var strictWrite = strict.DefineRunOn("order.strict-write", strictWriteDef)
 
 func main() {
 	client, err := redisClientFromEnv()
