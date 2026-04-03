@@ -20,18 +20,21 @@ A `Definition` is a shared lock identity. Multiple variants inherit the same `de
 
 #### 1. Define Base Definition
 
-Separate functions for each kind (since `useCaseKind` is unexported):
+`DefineRun`, `DefineHold`, `DefineClaim` remain unchanged — they return `RunUseCase[T]`/`HoldUseCase[T]`/`ClaimUseCase[T]` as before.
+
+For shared definitions, use `DefineDefinition`:
 
 ```go
-contract := lockman.DefineRun("contract",
+contract := lockman.DefineDefinition("contract", lockman.Run,
     lockman.BindResourceID("order", func(o Order) string { return o.ID }),
     lockman.TTL(30*time.Second),
 )
 ```
 
-- `DefineRun`, `DefineHold`, `DefineClaim` create a `*Definition[T]` with a stable `definitionID` (FNV-64a hash of name + kind)
+- `DefineDefinition` creates a `*Definition[T]` with a stable `definitionID` (FNV-64a hash of name + kind)
 - Binding is specified at the base definition level — variants inherit it
 - Variants cannot override the binding (they share the same lock resource)
+- `DefineDefinition` does NOT create a usable usecase directly — variants do
 
 #### 2. Create Variants
 
@@ -80,14 +83,25 @@ importUC := contract.Variant("import", lockman.LineageParent(validateUC))
 #### 5. Hold with Variants
 
 ```go
-holdDef := lockman.DefineHold("contract",
+holdDef := lockman.DefineDefinition("contract", lockman.Hold,
     lockman.BindResourceID("order", func(o Order) string { return o.ID }),
 )
-holdUC := holdDef.Variant("hold")
+holdUC := holdDef.HoldVariant("hold")
 ```
 
 - Hold variants work the same as run variants — shared `definitionID`
 - No data flow changes needed — hold uses `def.ID` which is already the shared ID
+
+#### 6. Standalone Usecase (Non-Variant)
+
+Existing `DefineRun`/`DefineHold`/`DefineClaim` remain unchanged:
+
+```go
+settingUC := lockman.DefineRun("setting", settingBinding, lockman.TTL(30*time.Second))
+```
+
+- No breaking changes — existing code works as-is
+- `DefineRun` returns `RunUseCase[T]` with `.With()` method
 
 #### 6. Force Release
 
@@ -139,19 +153,7 @@ type Definition[T any] struct {
     binding  Binding[T]
 }
 
-func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
-    return define[T](name, useCaseKindRun, binding, opts...)
-}
-
-func DefineHold[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
-    return define[T](name, useCaseKindHold, binding, opts...)
-}
-
-func DefineClaim[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
-    return define[T](name, useCaseKindClaim, binding, opts...)
-}
-
-func define[T any](name string, kind useCaseKind, binding Binding[T], opts []UseCaseOption) *Definition[T] {
+func DefineDefinition[T any](name string, kind useCaseKind, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
     trimmed := strings.TrimSpace(name)
     if trimmed == "" {
         panic("lockman: definition name is required")
@@ -167,7 +169,7 @@ func stableDefinitionID(name string, kind useCaseKind) string {
     hash := fnv.New64a()
     _, _ = hash.Write([]byte{kindToByte(kind)})
     _, _ = hash.Write([]byte(name))
-    return toHex(hash.Sum64())
+    return fmt.Sprintf("%016x", hash.Sum64())  // inline hex encoding, no dependency on internal/sdk
 }
 
 func kindToByte(kind useCaseKind) byte {
@@ -192,11 +194,15 @@ func (d *Definition[T]) Variant(name string, opts ...UseCaseOption) RunUseCase[T
         panic("lockman: variant name is required")
     }
     fullName := d.name + "." + trimmed
-    cfg := applyUseCaseOptions(opts...)
-    cfg.definitionID = d.id  // shared!
+    cfg := useCaseConfig{definitionID: d.id}
+    for _, opt := range opts {
+        if opt != nil {
+            opt(&cfg)
+        }
+    }
     return RunUseCase[T]{
         core:    newUseCaseCoreWithConfig(fullName, d.kind, cfg),
-        binding: d.binding,  // type-safe, no interface{} assertion
+        binding: d.binding,
     }
 }
 ```
@@ -213,8 +219,12 @@ func (d *Definition[T]) HoldVariant(name string, opts ...UseCaseOption) HoldUseC
         panic("lockman: variant name is required")
     }
     fullName := d.name + "." + trimmed
-    cfg := applyUseCaseOptions(opts...)
-    cfg.definitionID = d.id
+    cfg := useCaseConfig{definitionID: d.id}
+    for _, opt := range opts {
+        if opt != nil {
+            opt(&cfg)
+        }
+    }
     return HoldUseCase[T]{
         core:    newUseCaseCoreWithConfig(fullName, d.kind, cfg),
         binding: d.binding,
