@@ -93,6 +93,14 @@ func (u HoldUseCase[T]) ForfeitWith(token string) ForfeitRequest {
 	return req
 }
 
+// DefinitionID returns the use case definition name.
+func (u HoldUseCase[T]) DefinitionID() string {
+	if u.core == nil {
+		return ""
+	}
+	return u.core.name
+}
+
 func (u HoldUseCase[T]) sdkUseCase() *useCaseCore {
 	return u.core
 }

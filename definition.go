@@ -67,6 +67,11 @@ func stableDefinitionID(name string) string {
 	return name
 }
 
+// DefinitionID returns the lock definition name.
+func (d LockDefinition[T]) DefinitionID() string {
+	return d.ref.name
+}
+
 // ForceRelease forcibly releases a lock held under this definition.
 func (d LockDefinition[T]) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
 	if client == nil {

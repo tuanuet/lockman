@@ -54,6 +54,11 @@ type HoldRequest struct {
 	boundToRegistry bool
 }
 
+// ResourceKey returns the bound resource key for this request.
+func (r HoldRequest) ResourceKey() string {
+	return r.resourceKey
+}
+
 // ForfeitRequest is an opaque request produced by HoldUseCase.ForfeitWith.
 type ForfeitRequest struct {
 	useCaseName     string
