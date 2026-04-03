@@ -25,6 +25,7 @@ type Client struct {
 	holds            *holds.Manager
 	bridge           *observebridge.Bridge
 	shuttingDown     atomic.Bool
+	plan             clientPlan
 }
 
 // New validates startup wiring and constructs the public SDK client.
@@ -47,6 +48,7 @@ func New(opts ...ClientOption) (*Client, error) {
 		idempotency:      cfg.idempotency,
 		identity:         cfg.identity,
 		identityProvider: cfg.identityProvider,
+		plan:             plan,
 	}
 
 	var store observe.Sink

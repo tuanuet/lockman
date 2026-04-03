@@ -86,7 +86,7 @@ func (r *Registry) Register(useCases ...registeredUseCase) error {
 
 	planned := make([]*useCaseCore, 0, len(useCases))
 	seen := make(map[string]struct{}, len(useCases))
-	seenDefNames := make(map[string]struct{}, len(useCases))
+	seenDefNames := make(map[string]*definitionRef, len(useCases))
 	for _, entry := range useCases {
 		if entry == nil {
 			return fmt.Errorf("lockman: use case is nil")
@@ -108,12 +108,12 @@ func (r *Registry) Register(useCases ...registeredUseCase) error {
 			return fmt.Errorf("lockman: duplicate use case name %q", core.name)
 		}
 
-		defName := definitionNameForUseCase(core)
-		if defName != "" {
-			if _, exists := seenDefNames[defName]; exists {
-				return fmt.Errorf("lockman: duplicate definition name %q", defName)
+		defRef := definitionRefForUseCase(core)
+		if defRef != nil {
+			if existingRef, exists := seenDefNames[defRef.name]; exists && existingRef != defRef {
+				return fmt.Errorf("lockman: duplicate definition name %q", defRef.name)
 			}
-			seenDefNames[defName] = struct{}{}
+			seenDefNames[defRef.name] = defRef
 		}
 
 		seen[core.name] = struct{}{}
@@ -143,6 +143,23 @@ func (r *Registry) registeredUseCases() []*useCaseCore {
 		useCases = append(useCases, r.byName[name])
 	}
 	return useCases
+}
+
+func definitionIDForUseCase(core *useCaseCore) string {
+	if core.definition != nil {
+		return core.definition.id
+	}
+	if core.config.definitionRef != nil {
+		return core.config.definitionRef.id
+	}
+	return ""
+}
+
+func definitionRefForUseCase(core *useCaseCore) *definitionRef {
+	if core.definition != nil {
+		return core.definition
+	}
+	return core.config.definitionRef
 }
 
 func definitionNameForUseCase(core *useCaseCore) string {

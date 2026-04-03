@@ -9,6 +9,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/inspect"
+	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
@@ -665,5 +666,239 @@ func TestClientShutdownPublishesFinalEventsThenDrainsDispatcher(t *testing.T) {
 	}
 	if !snap.Shutdown.Completed {
 		t.Fatal("expected shutdown completed event in inspect store")
+	}
+}
+
+func TestNewAllowsMultipleUseCasesToShareOneDefinition(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def)
+	holdUC := DefineHoldOn("order.hold", def)
+	mustRegisterUseCases(t, reg, runUC, holdUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+
+	// Verify the engine registry has exactly one definition for the shared definition.
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition for shared definition, got %d", len(defs))
+	}
+	if defs[0].ID != def.stableID() {
+		t.Fatalf("expected definition ID %q, got %q", def.stableID(), defs[0].ID)
+	}
+}
+
+func TestSharedDefinitionReferencedByRunAndClaimNormalizesToExecutionBoth(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def)
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	mustRegisterUseCases(t, reg, runUC, claimUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition, got %d", len(defs))
+	}
+	if defs[0].ExecutionKind != definitions.ExecutionBoth {
+		t.Fatalf("expected ExecutionBoth for run+claim shared definition, got %v", defs[0].ExecutionKind)
+	}
+}
+
+func TestHoldOnStrictDefinitionFailsAtStartup(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when defining hold on strict definition")
+		}
+	}()
+
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }), StrictDef())
+	holdUC := DefineHoldOn("order.hold", def)
+	mustRegisterUseCases(t, reg, holdUC)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err == nil {
+		t.Fatal("expected strict hold definition startup failure")
+	}
+	if !strings.Contains(err.Error(), "hold") || !strings.Contains(err.Error(), "strict") {
+		t.Fatalf("expected strict hold error, got %v", err)
+	}
+}
+
+func TestRunUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def)
+	mustRegisterUseCases(t, reg, runUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := runUC.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var got Lease
+	err = client.Run(context.Background(), req, func(_ context.Context, lease Lease) error {
+		got = lease
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got.ResourceKey != "order:123" {
+		t.Fatalf("expected resource key %q, got %q", "order:123", got.ResourceKey)
+	}
+}
+
+func TestHoldUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	holdUC := DefineHoldOn("order.hold", def)
+	mustRegisterUseCases(t, reg, holdUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "holder-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := holdUC.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	handle, err := client.Hold(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Hold returned error: %v", err)
+	}
+	if handle.Token() == "" {
+		t.Fatal("expected non-empty hold token")
+	}
+}
+
+func TestClaimUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	mustRegisterUseCases(t, reg, claimUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "worker-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := claimUC.With("123", Delivery{
+		MessageID:     "msg-1",
+		ConsumerGroup: "orders",
+		Attempt:       1,
+	})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var got Claim
+	err = client.Claim(context.Background(), req, func(_ context.Context, claim Claim) error {
+		got = claim
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Claim returned error: %v", err)
+	}
+	if got.ResourceKey != "order:123" {
+		t.Fatalf("expected resource key %q, got %q", "order:123", got.ResourceKey)
+	}
+}
+
+func TestSharedDefinitionWithHoldAndRunNormalizesToExecutionSync(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def)
+	holdUC := DefineHoldOn("order.hold", def)
+	mustRegisterUseCases(t, reg, runUC, holdUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition, got %d", len(defs))
+	}
+	if defs[0].ExecutionKind != definitions.ExecutionSync {
+		t.Fatalf("expected ExecutionSync for run+hold shared definition, got %v", defs[0].ExecutionKind)
+	}
+}
+
+func TestSharedDefinitionWithHoldAndClaimNormalizesToExecutionBoth(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	holdUC := DefineHoldOn("order.hold", def)
+	mustRegisterUseCases(t, reg, claimUC, holdUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "worker-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition, got %d", len(defs))
+	}
+	if defs[0].ExecutionKind != definitions.ExecutionBoth {
+		t.Fatalf("expected ExecutionBoth for claim+hold shared definition, got %v", defs[0].ExecutionKind)
 	}
 }

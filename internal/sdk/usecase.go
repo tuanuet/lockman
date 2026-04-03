@@ -72,6 +72,29 @@ func NewUseCase(name string, kind UseCaseKind, requirements CapabilityRequiremen
 	}
 }
 
+// NewUseCaseWithID creates a normalized internal SDK use case with an explicit definition ID.
+// When definitionID is non-empty, it overrides the default name+kind hashing.
+func NewUseCaseWithID(name string, definitionID string, kind UseCaseKind, requirements CapabilityRequirements, link RegistryLink) UseCase {
+	trimmedName := strings.TrimSpace(name)
+	id := useCaseID(definitionID)
+	if id == "" {
+		id = stableUseCaseID(trimmedName, useCaseKind(kind))
+	}
+	return UseCase{
+		internal: useCase{
+			id:         id,
+			publicName: trimmedName,
+			kind:       useCaseKind(kind),
+			requirements: capabilityRequirements{
+				requiresIdempotency: requirements.RequiresIdempotency,
+				requiresStrict:      requirements.RequiresStrict,
+				requiresLineage:     requirements.RequiresLineage,
+			},
+			registryLink: registryLink(link),
+		},
+	}
+}
+
 // DefinitionID returns the stable low-level definition identifier for the normalized use case.
 func (u UseCase) DefinitionID() string {
 	return string(u.internal.id)

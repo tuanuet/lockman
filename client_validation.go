@@ -17,10 +17,11 @@ import (
 const defaultLeaseTTL = 30 * time.Second
 
 type clientPlan struct {
-	engineRegistry   *lockregistry.Registry
-	hasRunUseCases   bool
-	hasClaimUseCases bool
-	hasHoldUseCases  bool
+	engineRegistry        *lockregistry.Registry
+	hasRunUseCases        bool
+	hasClaimUseCases      bool
+	hasHoldUseCases       bool
+	definitionIDByUseCase map[string]string
 }
 
 func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
@@ -81,13 +82,71 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 		return clientPlan{}, wrapCapabilityError(useCases, childCounts, err)
 	}
 
+	plannedDefs, err := collectPlannedDefinitions(useCases, normalizedByName, cfg.registry.link)
+	if err != nil {
+		return clientPlan{}, err
+	}
+
 	engineRegistry := lockregistry.New()
-	plan := clientPlan{engineRegistry: engineRegistry}
-	for _, useCase := range useCases {
-		norm := normalizedByName[useCase.name]
-		if err := registerEngineUseCase(engineRegistry, useCase, norm, normalizedByName); err != nil {
-			return clientPlan{}, err
+	definitionIDByUseCase := make(map[string]string, len(useCases))
+	for _, def := range plannedDefs {
+		if err := engineRegistry.Register(def.definition); err != nil {
+			return clientPlan{}, fmt.Errorf("lockman: register definition %q: %w", def.definition.ID, err)
 		}
+		for _, ucName := range def.useCaseNames {
+			definitionIDByUseCase[ucName] = def.definition.ID
+		}
+	}
+
+	for _, useCase := range useCases {
+		if resolveDefinitionID(useCase) != "" {
+			continue
+		}
+		norm := normalizedByName[useCase.name]
+		if len(useCase.config.composite) == 0 {
+			def, err := translateUseCaseDefinition(useCase, norm, normalizedByName)
+			if err != nil {
+				return clientPlan{}, err
+			}
+			if err := engineRegistry.Register(def); err != nil {
+				return clientPlan{}, fmt.Errorf("lockman: register use case %q: %w", useCase.name, err)
+			}
+			definitionIDByUseCase[useCase.name] = def.ID
+			continue
+		}
+
+		memberIDs := make([]string, 0, len(useCase.config.composite))
+		for _, member := range useCase.config.composite {
+			def, err := translateCompositeMemberDefinition(useCase, norm, member)
+			if err != nil {
+				return clientPlan{}, err
+			}
+			if err := engineRegistry.Register(def); err != nil {
+				return clientPlan{}, fmt.Errorf("lockman: register composite member %q for use case %q: %w", member.name, useCase.name, err)
+			}
+			memberIDs = append(memberIDs, def.ID)
+		}
+
+		if err := engineRegistry.RegisterComposite(definitions.CompositeDefinition{
+			ID:               norm.DefinitionID(),
+			Members:          memberIDs,
+			OrderingPolicy:   definitions.OrderingCanonical,
+			AcquirePolicy:    definitions.AcquireAllOrNothing,
+			EscalationPolicy: definitions.EscalationReject,
+			ModeResolution:   definitions.ModeResolutionHomogeneous,
+			MaxMemberCount:   len(memberIDs),
+			ExecutionKind:    definitions.ExecutionSync,
+		}); err != nil {
+			return clientPlan{}, fmt.Errorf("lockman: register composite use case %q: %w", useCase.name, err)
+		}
+		definitionIDByUseCase[useCase.name] = norm.DefinitionID()
+	}
+
+	plan := clientPlan{
+		engineRegistry:        engineRegistry,
+		definitionIDByUseCase: definitionIDByUseCase,
+	}
+	for _, useCase := range useCases {
 		if useCase.kind == useCaseKindRun {
 			plan.hasRunUseCases = true
 		}
@@ -102,49 +161,149 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	return plan, nil
 }
 
-func registerEngineUseCase(
-	engineRegistry *lockregistry.Registry,
-	useCase *useCaseCore,
-	normalized sdk.UseCase,
+type plannedDefinition struct {
+	definition   definitions.LockDefinition
+	useCaseNames []string
+}
+
+func collectPlannedDefinitions(
+	useCases []*useCaseCore,
 	normalizedByName map[string]sdk.UseCase,
-) error {
-	if len(useCase.config.composite) == 0 {
-		def, err := translateUseCaseDefinition(useCase, normalized, normalizedByName)
-		if err != nil {
-			return err
+	link sdk.RegistryLink,
+) (map[string]plannedDefinition, error) {
+	definitionKinds := make(map[string]map[useCaseKind]bool)
+	definitionUseCases := make(map[string][]*useCaseCore)
+	definitionStrict := make(map[string]bool)
+	definitionTTL := make(map[string]time.Duration)
+	definitionWait := make(map[string]time.Duration)
+	definitionIdempotent := make(map[string]bool)
+	definitionLineage := make(map[string]string)
+
+	for _, uc := range useCases {
+		defID := resolveDefinitionID(uc)
+		if defID == "" {
+			continue
 		}
-		if err := engineRegistry.Register(def); err != nil {
-			return fmt.Errorf("lockman: register use case %q: %w", useCase.name, err)
+
+		if definitionKinds[defID] == nil {
+			definitionKinds[defID] = make(map[useCaseKind]bool)
 		}
-		return nil
+		definitionKinds[defID][uc.kind] = true
+		definitionUseCases[defID] = append(definitionUseCases[defID], uc)
+
+		if useCaseIsStrict(uc) {
+			definitionStrict[defID] = true
+		}
+		if uc.config.ttl > 0 {
+			if existing, ok := definitionTTL[defID]; !ok || uc.config.ttl > existing {
+				definitionTTL[defID] = uc.config.ttl
+			}
+		}
+		if uc.config.wait > 0 {
+			if existing, ok := definitionWait[defID]; !ok || uc.config.wait > existing {
+				definitionWait[defID] = uc.config.wait
+			}
+		}
+		if uc.kind == useCaseKindClaim && uc.config.idempotent {
+			definitionIdempotent[defID] = true
+		}
+		if parent := strings.TrimSpace(uc.config.lineageParent); parent != "" {
+			definitionLineage[defID] = parent
+		}
 	}
 
-	memberIDs := make([]string, 0, len(useCase.config.composite))
-	for _, member := range useCase.config.composite {
-		def, err := translateCompositeMemberDefinition(useCase, normalized, member)
-		if err != nil {
-			return err
+	result := make(map[string]plannedDefinition)
+	for defID, kinds := range definitionKinds {
+		execKind := executionKindForDefinition(kinds)
+		ucList := definitionUseCases[defID]
+		useCaseNames := make([]string, 0, len(ucList))
+		for _, uc := range ucList {
+			useCaseNames = append(useCaseNames, uc.name)
 		}
-		if err := engineRegistry.Register(def); err != nil {
-			return fmt.Errorf("lockman: register composite member %q for use case %q: %w", member.name, useCase.name, err)
+
+		ttl := definitionTTL[defID]
+		if ttl <= 0 {
+			ttl = defaultLeaseTTL
 		}
-		memberIDs = append(memberIDs, def.ID)
+
+		strict := definitionStrict[defID]
+		if strict && len(kinds) == 1 {
+			if _, hasHold := kinds[useCaseKindHold]; hasHold {
+				return nil, fmt.Errorf("lockman: hold use case %q does not support strict mode", ucList[0].name)
+			}
+		}
+
+		resourceName := useCaseNames[0]
+		if len(useCaseNames) > 1 {
+			resourceName = defID
+		}
+
+		def := definitions.LockDefinition{
+			ID:            defID,
+			Kind:          definitions.KindParent,
+			Resource:      resourceName,
+			Mode:          definitions.ModeStandard,
+			ExecutionKind: execKind,
+			LeaseTTL:      ttl,
+			WaitTimeout:   definitionWait[defID],
+			KeyBuilder:    definitions.MustTemplateKeyBuilder("{"+sdk.ResourceKeyInputKey+"}", []string{sdk.ResourceKeyInputKey}),
+		}
+
+		if definitionIdempotent[defID] {
+			def.IdempotencyRequired = true
+		}
+		if strict {
+			def.Mode = definitions.ModeStrict
+			def.FencingRequired = true
+			def.BackendFailurePolicy = definitions.BackendFailClosed
+		}
+
+		if parentName := definitionLineage[defID]; parentName != "" {
+			parent, ok := normalizedByName[parentName]
+			if !ok {
+				return nil, fmt.Errorf(
+					"lockman: use case %q references unknown lineage parent %q: %w",
+					ucList[0].name,
+					parentName,
+					ErrUseCaseNotFound,
+				)
+			}
+			def.Kind = definitions.KindChild
+			def.ParentRef = parent.DefinitionID()
+			def.OverlapPolicy = definitions.OverlapReject
+		}
+
+		result[defID] = plannedDefinition{
+			definition:   def,
+			useCaseNames: useCaseNames,
+		}
 	}
 
-	if err := engineRegistry.RegisterComposite(definitions.CompositeDefinition{
-		ID:               normalized.DefinitionID(),
-		Members:          memberIDs,
-		OrderingPolicy:   definitions.OrderingCanonical,
-		AcquirePolicy:    definitions.AcquireAllOrNothing,
-		EscalationPolicy: definitions.EscalationReject,
-		ModeResolution:   definitions.ModeResolutionHomogeneous,
-		MaxMemberCount:   len(memberIDs),
-		ExecutionKind:    definitions.ExecutionSync,
-	}); err != nil {
-		return fmt.Errorf("lockman: register composite use case %q: %w", useCase.name, err)
-	}
+	return result, nil
+}
 
-	return nil
+func executionKindForDefinition(kinds map[useCaseKind]bool) definitions.ExecutionKind {
+	hasRun := kinds[useCaseKindRun]
+	hasClaim := kinds[useCaseKindClaim]
+	hasHold := kinds[useCaseKindHold]
+
+	if hasClaim {
+		return definitions.ExecutionBoth
+	}
+	if hasRun || hasHold {
+		return definitions.ExecutionSync
+	}
+	return definitions.ExecutionSync
+}
+
+func resolveDefinitionID(uc *useCaseCore) string {
+	if uc.definition != nil {
+		return uc.definition.id
+	}
+	if uc.config.definitionRef != nil {
+		return uc.config.definitionRef.id
+	}
+	return ""
 }
 
 func hasStartupIdentity(cfg *clientConfig) bool {
@@ -168,6 +327,20 @@ func useCaseIsStrict(useCase *useCaseCore) bool {
 }
 
 func normalizeUseCase(useCase *useCaseCore, childCounts map[string]int, link sdk.RegistryLink) sdk.UseCase {
+	defID := resolveDefinitionID(useCase)
+	if defID != "" {
+		return sdk.NewUseCaseWithID(
+			useCase.name,
+			defID,
+			toSDKUseCaseKind(useCase.kind),
+			sdk.CapabilityRequirements{
+				RequiresIdempotency: useCase.kind == useCaseKindClaim && useCase.config.idempotent,
+				RequiresStrict:      useCaseIsStrict(useCase),
+				RequiresLineage:     strings.TrimSpace(useCase.config.lineageParent) != "" || childCounts[useCase.name] > 0,
+			},
+			link,
+		)
+	}
 	return sdk.NewUseCase(
 		useCase.name,
 		toSDKUseCaseKind(useCase.kind),
