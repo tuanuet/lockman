@@ -3,6 +3,7 @@ package lockman_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -146,6 +147,62 @@ func BenchmarkSyncLockLockmanRunRedisContention(b *testing.B) {
 				for pb.Next() {
 					for {
 						err := cl.Run(context.Background(), req, func(context.Context, lockman.Lease) error {
+							return nil
+						})
+						if errors.Is(err, lockman.ErrBusy) {
+							continue
+						}
+						if err != nil {
+							b.Fatalf("Run returned error: %v", err)
+						}
+						break
+					}
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkSyncLockLockmanRunRedisContentionDistinctOwners(b *testing.B) {
+	s := newMiniRedisB(b)
+	client := goredis.NewClient(&goredis.Options{Addr: s.Addr()})
+	b.Cleanup(func() { _ = client.Close() })
+
+	drv := backendredis.New(client, "")
+
+	parallelismLevels := []int{1, 4, 16}
+	for _, p := range parallelismLevels {
+		p := p
+		b.Run(benchmarkRunLogFmt("parallel", p), func(b *testing.B) {
+			b.SetParallelism(p)
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				ownerID := fmt.Sprintf("bench-worker-%d-%p", p, pb)
+				workerUC := lockman.DefineRun[string](
+					"bench.lockman-run-redis-contention",
+					lockman.BindResourceID("order", func(v string) string { return v }),
+					lockman.WaitTimeout(2*time.Second),
+				)
+				workerReg := lockman.NewRegistry()
+				registerBenchmarkRunUseCase(b, workerReg, workerUC)
+				workerClient, err := lockman.New(
+					lockman.WithRegistry(workerReg),
+					lockman.WithIdentity(lockman.Identity{OwnerID: ownerID}),
+					lockman.WithBackend(drv),
+				)
+				if err != nil {
+					b.Fatalf("New returned error: %v", err)
+				}
+				defer workerClient.Shutdown(context.Background())
+
+				workerReq, err := workerUC.With("order-contention")
+				if err != nil {
+					b.Fatalf("With returned error: %v", err)
+				}
+
+				for pb.Next() {
+					for {
+						err := workerClient.Run(context.Background(), workerReq, func(context.Context, lockman.Lease) error {
 							return nil
 						})
 						if errors.Is(err, lockman.ErrBusy) {
