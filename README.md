@@ -70,6 +70,26 @@ func approve(ctx context.Context, redisClient any) error {
 
 If you want the smallest runnable version of that flow, start with [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order).
 
+## Shared Lock Definitions
+
+Use `LockDefinition` when multiple use cases should contend on the same lock identity.
+
+- `DefineLock(...)` owns the shared lock identity, binding, and strictness configuration.
+- `DefineRunOn(...)`, `DefineHoldOn(...)`, and `DefineClaimOn(...)` attach execution surfaces to that shared definition.
+- `DefinitionID()` on use cases remains public-name-facing for compatibility and observability.
+
+```go
+contractDef := lockman.DefineLock(
+	"order.contract",
+	lockman.BindResourceID("order", func(in OrderInput) string { return in.OrderID }),
+)
+
+importUC := lockman.DefineRunOn("order.import", contractDef)
+holdUC := lockman.DefineHoldOn("order.manual_hold", contractDef)
+```
+
+See [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition) for a focused runnable example.
+
 ## Examples By Use Case
 
 - [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order): the shortest sync request/response flow on the SDK path
@@ -77,8 +97,12 @@ If you want the smallest runnable version of that flow, start with [`examples/sd
 - [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds): one operation holding multiple resources together
 - [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write): strict fenced execution on the SDK path
 - [`examples/sdk/shared-aggregate-split-definitions`](examples/sdk/shared-aggregate-split-definitions): compare sync and async flows on one aggregate boundary
+- [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition): share one lock definition across run and hold use cases
 - [`examples/core/strict-guarded-write`](examples/core/strict-guarded-write): strict fencing carried all the way into a guarded database write
 - [`examples/core/parent-lock-over-composite`](examples/core/parent-lock-over-composite): when one aggregate lock is enough and composite locking is overkill
+
+Some scenarios intentionally appear in both `examples/core` and `examples/sdk`.
+`examples/core` keeps preserved lower-level source material, while `examples/sdk` keeps workspace mirrors of the current public SDK interface.
 
 Published adapter-backed copies also live here:
 

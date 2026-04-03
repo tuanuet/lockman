@@ -16,6 +16,7 @@ Current SDK mirrors:
 - `examples/sdk/sync-transfer-funds`
 - `examples/sdk/sync-fenced-write`
 - `examples/sdk/observability-basic`
+- `examples/sdk/shared-lock-definition`
 
 Published adapter-backed runnable copies still live in:
 
