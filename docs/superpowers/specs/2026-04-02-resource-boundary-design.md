@@ -1,57 +1,91 @@
-# Resource Boundary Design
+# Definition + Variant Design
 
 ## Problem Statement
 
 Currently, lock keys are constructed from `DefinitionID:resourceKey`, where `DefinitionID` is a hash derived from `useCaseName + kind`. This means two different usecases (e.g., `order.process` and `order.cancel`) cannot mutually exclude on the same resource (e.g., `order:123`) — they produce two different Redis keys.
 
-**Requirements:** Allow multiple usecases to share a lock boundary so that:
+**Requirements:** Allow multiple usecases to share a lock key so that:
 1. Mutual exclusion on the same resource across usecases
-2. Explicit API — declared clearly at define time
-3. Visibility is handled by existing observe/logging, not stored in Redis
+2. Explicit, intuitive API — "base definition + variants" concept
+3. Works with composite, lineage, and hold modes without restrictions
+4. No changes to SDK structs, request structs, backend driver, or Lua scripts
 
-## Solution: ResourceBoundary
+## Solution: Definition + Variant
 
 ### Core Concept
 
-`ResourceBoundary` is an abstraction independent of usecases, representing a "lock domain". Multiple usecases bind to the same boundary → shared lock key.
+A `Definition` is a shared lock identity. Multiple variants inherit the same `definitionID` → same lock key. Variants differ only in name (for logging/observe) and optional config overrides.
 
 ### API Design
 
-#### 1. Define Boundary
+#### 1. Define Base Definition
 
 ```go
-orderBoundary := lockman.DefineResourceBoundary("order")
+contract := lockman.Define("contract", lockman.Run,
+    lockman.BindResourceID("order", func(o Order) string { return o.ID }),
+    lockman.TTL(30*time.Second),
+)
 ```
 
-- `DefineResourceBoundary` is a **package-level function** in the root `lockman` package
-- Boundary is owned by a **global registry** (package-level), not by any specific `Client`
-- Boundary name must be unique across all boundaries in the process
-- Panics on duplicate name: `"lockman: boundary 'order' already defined"`
-- Boundary names are intended to be globally unique across services that share the same Redis instance. Two services defining `DefineResourceBoundary("order")` will produce the same `bdry_<hash>` and share locks — this is intentional for cross-service coordination.
+- `Define` creates a `*Definition` with a stable `definitionID` (FNV-64a hash of name + kind)
+- Binding is specified at the base definition level — variants inherit it
+- Variants cannot override the binding (they share the same lock resource)
 
-#### 2. Bind Usecases to Boundary
+#### 2. Create Variants
 
 ```go
-processUC := lockman.DefineRun("order.process", orderBoundary.Bind())
-cancelUC := lockman.DefineRun("order.cancel", orderBoundary.Bind())
+importUC := contract.Variant("import")
+deleteUC := contract.Variant("delete")
 ```
 
-- `orderBoundary.Bind()` returns a `UseCaseOption` that sets `boundaryID` in the usecase config
-- Usecases bound to a boundary use the boundary's ID instead of their own definitionID for lock key construction
-- `Bind()` does NOT validate restrictions — it only stores the boundaryID. Restrictions are enforced later in `buildClientPlan()` (see "Restriction Enforcement" below)
+- Variants inherit `definitionID` and binding from the base definition
+- Variant name = `baseName.variantName` (e.g., `contract.import`)
+- Variants can add config overrides via `UseCaseOption` (e.g., `Strict()`, `TTL()`)
+- Variants register as independent usecases in the registry (unique name)
 
-#### 3. Force Release (Admin Operation)
-
-Force release is a method on `Client`, not `ResourceBoundary`, since it needs backend access:
+#### 3. Composite with Variants
 
 ```go
-err := client.ForceReleaseBoundary(ctx, orderBoundary, "order:123")
+settingUC := lockman.Define("setting", lockman.Run, settingBinding)
+syncUC := contract.Composite("sync", settingUC, importUC)
 ```
 
-- Releases any lock within the boundary without owner validation
-- Idempotent: returns `nil` if the lock does not exist
-- Cleans up lease key plus any auxiliary keys (fence counter, strict token) — uses `DEL` on all possible key forms unconditionally (Redis `DEL` on non-existent keys is a no-op)
-- Used for admin/ops scenarios (cleanup, recovery)
+- Composite members can be variants or standalone usecases
+- Variant members use the shared `definitionID` for lock acquisition
+- Composite atomicity works naturally — variant = just another member
+
+#### 4. Lineage with Variants
+
+```go
+validateUC := contract.Variant("validate")
+importUC := contract.Variant("import", lockman.LineageParent(validateUC))
+```
+
+- Parent and child variants share the same `definitionID`
+- Lineage key resolution uses shared `definitionID` → consistent behavior
+- No restriction needed — lineage + variant works naturally
+
+#### 5. Hold with Variants
+
+```go
+holdDef := lockman.Define("contract", lockman.Hold,
+    lockman.BindResourceID("order", func(o Order) string { return o.ID }),
+)
+holdUC := holdDef.Variant("hold")
+```
+
+- Hold variants work the same as run variants — shared `definitionID`
+- No data flow changes needed — hold uses `def.ID` which is already the shared ID
+
+#### 6. Force Release
+
+```go
+err := contract.ForceRelease(ctx, client, "order:123")
+```
+
+- Force release is a method on `Definition`
+- Uses the shared `definitionID` for key construction
+- Idempotent: returns `nil` if lock does not exist
 
 ### Key Construction
 
@@ -60,286 +94,161 @@ err := client.ForceReleaseBoundary(ctx, orderBoundary, "order:123")
 lockman:lease:<definitionID>:<resourceKey>
 ```
 
-#### After (with boundary)
+#### After (with variants)
 ```
-lockman:lease:bdry_<boundaryID_hash>:<resourceKey>
+lockman:lease:<shared_definitionID>:<resourceKey>
 ```
 
-- `boundaryID` = stable hash from boundary name (FNV-64a, format: `bdry_<hex>`)
-- Hash construction: `FNV-64a("b" + boundaryName)` — the `"b"` prefix distinguishes boundary hashes from usecase hashes (which use kind delimiters like `"r"`, `"c"`, `"h"`)
-- Non-boundary usecases remain unchanged — fully backward compatible
+- Variants share the same `definitionID` → same lock key
+- Non-variant usecases remain unchanged — fully backward compatible
 - Lease value remains plain ownerID string — no changes to Lua scripts
-
-### Integration with Existing Features
-
-#### Lineage Incompatibility
-
-Boundary-bound usecases **cannot** use lineage mode. Lineage overlap checks depend on verifying ancestor lease keys, but boundary-based lease keys use a different ID (`bdry_<hash>`) than the usecase's definitionID. Mixing the two would cause lineage to check the wrong key, silently breaking protection.
-
-#### Strict Mode
-
-Strict mode (fencing tokens) works with boundaries. All auxiliary keys use the boundary ID:
-
-- Fence counter key: `lockman:lease:fence:bdry_<hash>:<resourceKey>`
-- Strict token key: `lockman:lease:strict-token:bdry_<hash>:<resourceKey>`
-- Fencing token validation unchanged — only checks ownerID, independent of usecase name
-
-#### Composite Mode
-
-Composite usecases (composite run/claim) do **not** support boundaries. Composite mode acquires multiple locks as a single atomic operation, each with its own definitionID. Sharing boundaries across composite members would complicate atomicity guarantees.
-
-#### Hold Mode
-
-Hold usecases do **not** support boundaries. Hold uses a separate data flow (`DetachedAcquireRequest` / `holds.Manager`) that does not go through the SDK translation layer where boundaryID propagation occurs.
-
-#### Restriction Enforcement
-
-All incompatibility checks are enforced in `buildClientPlan()` in `client_validation.go`, where the usecase kind, composite config, lineage parent, and boundaryID are all accessible:
-
-```go
-if useCase.config.boundaryID != "" {
-    if useCase.kind == useCaseKindHold {
-        return clientPlan{}, fmt.Errorf("lockman: hold use case %q cannot be bound to a boundary", useCase.name)
-    }
-    if len(useCase.config.composite) > 0 {
-        return clientPlan{}, fmt.Errorf("lockman: composite use case %q cannot be bound to a boundary", useCase.name)
-    }
-    if strings.TrimSpace(useCase.config.lineageParent) != "" {
-        return clientPlan{}, fmt.Errorf("lockman: boundary-bound use case %q cannot use lineage mode", useCase.name)
-    }
-}
-```
-
-### Error Handling
-
-#### Sentinel Errors
-
-```go
-var (
-    ErrNotBoundToBoundary = errors.New("lockman: use case is not bound to the requested boundary")
-)
-```
-
-#### Boundary Collision
-```go
-DefineResourceBoundary("order") // ok
-DefineResourceBoundary("order") // panics: "lockman: boundary 'order' already defined"
-```
-
-### Boundary Lifecycle
-
-- Boundaries are created at startup via `DefineResourceBoundary()`
-- No runtime creation/destruction — boundaries are static after client initialization
-- No `Close()` or `Shutdown()` method — boundaries are lightweight (just a name + ID)
-- Boundary registry is global (package-level) and cleaned up when the process exits
-
-### Usecase Kind Compatibility
-
-| Usecase Kind | Boundary Support | Notes |
-|--------------|-----------------|-------|
-| `DefineRun`  | Yes | Full support |
-| `DefineHold` | No | Separate data flow (DetachedAcquireRequest); restriction enforced in buildClientPlan |
-| `DefineClaim`| Yes | Full support |
-| Composite Run/Claim | No | Composite atomicity conflicts with shared boundaries |
+- No new keys, no metadata, no index — just shared definitionID
 
 ### Implementation Details
-
-#### Boundary Registry (Global, Package-Level)
-
-```go
-// boundary.go (root lockman package)
-var boundaryRegistry = &sync.Map{} // map[string]*ResourceBoundary
-
-type ResourceBoundary struct {
-    name string
-    id   string // bdry_<hex>
-}
-
-func DefineResourceBoundary(name string) *ResourceBoundary {
-    trimmed := strings.TrimSpace(name)
-    if trimmed == "" {
-        panic("lockman: boundary name must not be empty")
-    }
-    id := stableBoundaryID(trimmed)
-    if _, loaded := boundaryRegistry.LoadOrStore(trimmed, &ResourceBoundary{name: trimmed, id: id}); loaded {
-        panic(fmt.Sprintf("lockman: boundary %q already defined", trimmed))
-    }
-    return &ResourceBoundary{name: trimmed, id: id}
-}
-
-func stableBoundaryID(name string) string {
-    hash := fnv.New64a()
-    _, _ = hash.Write([]byte{'b'})
-    _, _ = hash.Write([]byte(name))
-    return "bdry_" + toHex(hash.Sum64())
-}
-
-func (b *ResourceBoundary) Bind() UseCaseOption {
-    return func(cfg *useCaseConfig) {
-        cfg.boundaryID = b.id
-    }
-}
-
-func (b *ResourceBoundary) ID() string {
-    return b.id
-}
-```
 
 #### useCaseConfig Change
 
 ```go
 type useCaseConfig struct {
     // ... existing fields ...
-    boundaryID string // boundary ID for shared lock key construction (empty = no boundary)
+    definitionID string // shared definitionID for variants (empty = derive from name)
 }
 ```
 
-#### ForceReleaseBoundary on Client
+#### Definition Type
 
 ```go
-// client_boundary.go (root lockman package)
-func (c *Client) ForceReleaseBoundary(ctx context.Context, boundary *ResourceBoundary, resourceKey string) error {
-    // Build all possible auxiliary key forms
-    keys := []string{
-        c.backend.buildLeaseKey(boundary.id, resourceKey),
-        c.backend.buildStrictFenceCounterKey(boundary.id, resourceKey),
-        c.backend.buildStrictTokenKey(boundary.id, resourceKey),
+// definition.go (root lockman package)
+type Definition struct {
+    name    string
+    id      string // stable hash: FNV-64a(name + kind)
+    kind    useCaseKind
+    binding interface{} // resource binding from Define()
+}
+
+func Define[T any](name string, kind useCaseKind, binding Binding[T], opts ...UseCaseOption) *Definition {
+    trimmed := strings.TrimSpace(name)
+    if trimmed == "" {
+        panic("lockman: definition name is required")
     }
-    // Unconditionally delete all keys (DEL on non-existent is no-op)
-    if err := c.backend.deleteKeys(ctx, keys...); err != nil {
-        return fmt.Errorf("lockman: force release boundary: %w", err)
+    if binding.build == nil {
+        panic("lockman: binding is required")
+    }
+    id := stableDefinitionID(trimmed, kind)
+    return &Definition{name: trimmed, id: id, kind: kind, binding: binding}
+}
+
+func stableDefinitionID(name string, kind useCaseKind) string {
+    hash := fnv.New64a()
+    _, _ = hash.Write([]byte{kindDelimiter(kind)})
+    _, _ = hash.Write([]byte(name))
+    return toHex(hash.Sum64())
+}
+```
+
+#### Variant Method
+
+```go
+func (d *Definition) Variant(variantName string, opts ...UseCaseOption) UseCase {
+    trimmed := strings.TrimSpace(variantName)
+    if trimmed == "" {
+        panic("lockman: variant name is required")
+    }
+    fullName := d.name + "." + trimmed
+    cfg := applyUseCaseOptions(opts...)
+    cfg.definitionID = d.id  // shared!
+    return newUseCase(fullName, d.kind, cfg, d.binding)
+}
+```
+
+#### Composite Method
+
+```go
+func (d *Definition) Composite[T any](compositeName string, members ...CompositeMember[T]) UseCase {
+    fullName := d.name + "." + strings.TrimSpace(compositeName)
+    cfg := useCaseConfig{
+        definitionID: d.id,
+        composite:    buildCompositeMembers(members),
+    }
+    return newUseCase(fullName, d.kind, cfg, nil) // composite has its own binding
+}
+```
+
+#### Force Release
+
+```go
+func (d *Definition) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
+    if client == nil {
+        return fmt.Errorf("lockman: client is required")
+    }
+    return client.backend.ForceReleaseDefinition(ctx, d.id, resourceKey)
+}
+```
+
+#### normalizeUseCase Change
+
+In `client_validation.go`, when creating `sdk.UseCase`, pass the shared `definitionID`:
+
+```go
+func normalizeUseCase(useCase *useCaseCore, childCounts map[string]int, link sdk.RegistryLink) sdk.UseCase {
+    return sdk.NewUseCaseWithID(
+        useCase.name,
+        useCase.config.definitionID,  // empty = derive from name (default)
+        toSDKUseCaseKind(useCase.kind),
+        sdk.CapabilityRequirements{
+            RequiresIdempotency: useCase.kind == useCaseKindClaim && useCase.config.idempotent,
+            RequiresStrict:      useCase.config.strict,
+            RequiresLineage:     strings.TrimSpace(useCase.config.lineageParent) != "" || childCounts[useCase.name] > 0,
+        },
+        link,
+    )
+}
+```
+
+#### SDK Change
+
+Add `NewUseCaseWithID` to `internal/sdk/usecase.go`:
+
+```go
+func NewUseCaseWithID(name string, definitionID string, kind UseCaseKind, reqs CapabilityRequirements, link RegistryLink) UseCase {
+    id := definitionID
+    if id == "" {
+        id = stableUseCaseID(name, kind)  // default behavior
+    }
+    return useCase{
+        id:           id,
+        publicName:   name,
+        kind:         kind,
+        requirements: reqs,
+        registryLink: link,
+    }
+}
+```
+
+#### Backend Change
+
+Add `ForceReleaseDefinition` to `backend.Driver` interface:
+
+```go
+type Driver interface {
+    // ... existing methods ...
+    ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error
+}
+```
+
+Implementation in `backend/redis/driver.go`:
+
+```go
+func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error {
+    keys := []string{
+        d.buildLeaseKey(definitionID, resourceKey),
+        d.buildStrictFenceCounterKey(definitionID, resourceKey),
+        d.buildStrictTokenKey(definitionID, resourceKey),
+    }
+    if err := d.client.Del(ctx, keys...).Err(); err != nil {
+        return fmt.Errorf("lockman: force release definition: %w", err)
     }
     return nil
-}
-```
-
-#### BoundaryID Data Flow Through the Translation Chain
-
-The boundaryID must flow from the define-time config through to the runtime layer. Here is the complete data flow:
-
-1. **Define time:** `DefineRun("order.process", orderBoundary.Bind())` → sets `useCaseConfig.boundaryID` in `binding.go`
-2. **Request time:** `uc.Run(ctx, req, fn)` → `RunRequest` carries `useCaseCore` which holds `config.boundaryID`
-3. **Validation layer:** `client_validation.go` reads `useCaseCore.config.boundaryID` and passes it through `sdk.BindRunRequest()`
-4. **SDK layer:** `internal/sdk/request.go` — `runRequest` struct receives `boundaryID`; `sdk.BindRunRequest()` passes it through; `sdk.translateRun()` sets `definitions.SyncLockRequest.BoundaryID`
-5. **Runtime execution:** `lockkit/runtime/exclusive.go` reads `SyncLockRequest.BoundaryID` and passes it to backend
-6. **Backend acquire:** `backend.AcquireRequest.BoundaryID` → driver uses boundaryID if set, otherwise uses DefinitionID
-
-**Required struct changes:**
-
-```go
-// internal/sdk/request.go
-type runRequest struct {
-    // ... existing fields ...
-    boundaryID string
-}
-func BindRunRequest(uc UseCase, resourceKey, ownerID, boundaryID string) (*runRequest, error) {
-    // ... pass boundaryID through ...
-}
-
-type claimRequest struct {
-    // ... existing fields ...
-    boundaryID string
-}
-func BindClaimRequest(uc UseCase, resourceKey, ownerID, boundaryID string) (*claimRequest, error) {
-    // ... pass boundaryID through ...
-}
-
-// internal/sdk/translate_run.go
-func translateRun(req *runRequest) definitions.SyncLockRequest {
-    return definitions.SyncLockRequest{
-        // ... existing fields ...
-        BoundaryID: req.boundaryID,
-    }
-}
-
-// internal/sdk/translate_claim.go
-func translateClaim(req *claimRequest) definitions.MessageClaimRequest {
-    return definitions.MessageClaimRequest{
-        // ... existing fields ...
-        BoundaryID: req.boundaryID,
-    }
-}
-
-// lockkit/definitions/ownership.go
-type SyncLockRequest struct {
-    // ... existing fields ...
-    BoundaryID string // empty = use DefinitionID
-}
-
-// backend/contracts.go
-type AcquireRequest struct {
-    // ... existing fields ...
-    BoundaryID string // empty = use DefinitionID for key construction
-}
-
-// backend/contracts.go
-type StrictAcquireRequest struct {
-    // ... existing fields ...
-    BoundaryID string
-}
-```
-
-#### client_validation.go Changes
-
-In `client_validation.go`, during request validation, the `boundaryID` from `useCaseCore.config.boundaryID` must be passed through to the SDK layer:
-
-```go
-// In validateRunRequest
-req.sdkReq, err = sdk.BindRunRequest(
-    normalizedUseCase,
-    req.resourceKey,
-    identity.OwnerID,
-    req.useCaseCore.config.boundaryID,  // pass boundaryID through
-)
-
-// In validateClaimRequest (parallel change)
-req.sdkReq, err = sdk.BindClaimRequest(
-    normalizedUseCase,
-    req.resourceKey,
-    identity.OwnerID,
-    req.useCaseCore.config.boundaryID,  // pass boundaryID through
-)
-```
-
-#### Key Resolution in Runtime (exclusive.go)
-
-In `lockkit/runtime/exclusive.go`, compute an `effectiveID` that overrides the definitionID for all downstream operations (lease key, guard key, active counter):
-
-```go
-effectiveID := def.ID
-if req.BoundaryID != "" {
-    effectiveID = req.BoundaryID
-}
-```
-
-Pass `effectiveID` consistently to:
-- `LeaseContext.DefinitionID` (for observe/logging)
-- `guardKey{definitionID: effectiveID}` (for reentrant-acquire protection)
-- `m.activeCounter(effectiveID)` (for active lock counters)
-
-Pass `req.BoundaryID` to backend requests:
-
-```go
-// Standard acquire
-lease, err = m.acquireLease(ctx, def, acquirePlan, req.Ownership.OwnerID)
-// AcquireRequest{... BoundaryID: req.BoundaryID ...}
-
-// Strict acquire
-fenced, err = strictDriver.AcquireStrict(ctx, backend.StrictAcquireRequest{
-    ...,
-    BoundaryID: req.BoundaryID,
-})
-```
-
-#### Key Resolution in Backend Driver
-
-```go
-func (d *Driver) resolveKey(definitionID, boundaryID, resourceKey string) string {
-    keyID := definitionID
-    if boundaryID != "" {
-        keyID = boundaryID
-    }
-    return d.keyPrefix + ":" + d.encodeDefinitionID(keyID) + ":" + encodeSegment(resourceKey)
 }
 ```
 
@@ -347,45 +256,44 @@ func (d *Driver) resolveKey(definitionID, boundaryID, resourceKey string) string
 
 | File | Change |
 |------|--------|
-| `boundary.go` | New: ResourceBoundary type, DefineResourceBoundary, Bind, ID, global registry |
-| `client_boundary.go` | New: Client.ForceReleaseBoundary method |
-| `binding.go` | Modify: Add boundaryID to useCaseConfig |
-| `client_validation.go` | Modify: Pass boundaryID to sdk.BindRunRequest/BindClaimRequest; add boundary restriction checks in buildClientPlan |
-| `backend/contracts.go` | Modify: Add BoundaryID to AcquireRequest, StrictAcquireRequest |
-| `backend/redis/driver.go` | Modify: resolveKey method for boundary ID; add deleteKeys helper |
-| `internal/sdk/request.go` | Modify: Add boundaryID to runRequest/claimRequest; pass through BindRunRequest/BindClaimRequest |
-| `internal/sdk/translate_run.go` | Modify: Set BoundaryID on SyncLockRequest |
-| `internal/sdk/translate_claim.go` | Modify: Set BoundaryID on SyncLockRequest |
-| `lockkit/definitions/ownership.go` | Modify: Add BoundaryID to SyncLockRequest |
-| `lockkit/runtime/exclusive.go` | Modify: effectiveID computation; pass BoundaryID to backend requests; use effectiveID in guard keys and active counters |
-| `boundary_test.go` | New: unit tests for boundary API |
-| `examples/core/boundary-usage/main.go` | New: example usage |
+| `definition.go` | New: Definition type, Define, Variant, Composite, ForceRelease |
+| `binding.go` | Modify: Add definitionID to useCaseConfig |
+| `registry.go` | Modify: newUseCaseCore accepts binding parameter |
+| `client_validation.go` | Modify: normalizeUseCase passes definitionID to SDK |
+| `internal/sdk/usecase.go` | Modify: Add NewUseCaseWithID function |
+| `internal/sdk/request.go` | No changes needed |
+| `backend/contracts.go` | Modify: Add ForceReleaseDefinition to Driver interface |
+| `backend/redis/driver.go` | Modify: Implement ForceReleaseDefinition |
+| `definition_test.go` | New: unit tests for Definition + Variant API |
+| `examples/core/definition-variant/main.go` | New: example usage |
 
 ### Testing Strategy
 
 1. **Unit tests:**
-   - Boundary define/bind validation
-   - Key construction with boundary ID
-   - Global registry: duplicate name panics
-   - BoundaryID data flow through BindRunRequest → translateRun → SyncLockRequest
-   - Define-time rejection of lineage + boundary (in buildClientPlan)
-   - Define-time rejection of composite + boundary (in buildClientPlan)
-   - Define-time rejection of Hold + boundary (in buildClientPlan)
+   - Define creates stable definitionID
+   - Variant inherits definitionID from base
+   - Variant name = baseName.variantName
+   - Composite with variant members
+   - Lineage with variant parent/child
+   - Hold variant inherits definitionID
+   - ForceRelease calls backend with correct definitionID
 
 2. **Integration tests:**
-   - Two usecases in same boundary → mutual exclusion (one acquires, other fails)
-   - Force release behavior (cleans lease + auxiliary keys, idempotent on non-existent lock)
-   - Strict mode + boundary interaction (fencing tokens work correctly)
+   - Two variants of same definition → mutual exclusion (one acquires, other fails)
+   - Composite with variant members → atomic acquire
+   - Lineage with variant parent/child → overlap rejection works
+   - Hold variant → acquire/release works with shared key
+   - Force release behavior (cleans lease + auxiliary keys, idempotent)
 
 3. **Backward compatibility tests:**
-   - Non-boundary usecases unchanged (plain ownerID in lease key)
-   - Mixed environment (some boundary, some not) coexist in same Redis instance
+   - Non-variant usecases unchanged (derive definitionID from name)
+   - Mixed environment (some variants, some not) coexist
 
 ### Risks & Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Boundary name collision across teams | Document that boundary names should be globally unique within shared Redis; consider namespace prefix if needed |
-| Lineage incompatibility | Enforced in buildClientPlan; documented restriction; future enhancement tracked |
-| Composite incompatibility | Enforced in buildClientPlan; documented restriction |
-| Hold incompatibility | Enforced in buildClientPlan; documented restriction |
+| Variant binding override confusion | Variants cannot override binding — enforced at API level |
+| Composite with duplicate variant members | Composite validation already handles duplicate member IDs |
+| Lineage with cross-definition parent/child | Lineage checks use definitionID — cross-definition works naturally |
+| ForceReleaseDefinition interface change | New method on existing interface — all implementations must add it |
