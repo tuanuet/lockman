@@ -8,7 +8,7 @@ Choose the lock boundary that matches the real aggregate before reaching for com
 
 ## What this example defines
 
-- one deprecated shorthand sync lock definition for `ShipmentAggregateLock`
+- one named parent lock definition for the shipment aggregate
 - one execution surface that protects `shipment:sh-123`
 - one parent aggregate boundary even though multiple sub-resources are touched
 
@@ -21,7 +21,7 @@ The flow touches two packages inside one shipment:
 
 But the business invariant still belongs to the shipment aggregate, so the example protects `shipment:sh-123` with one parent lock instead of inventing a composite.
 
-That keeps the implicit lock definition aligned with the actual business boundary. In this example, the shorthand constructor is compatibility coverage, not the recommended new-code authoring style.
+That keeps the named lock definition aligned with the actual business boundary. The example stays on the recommended definition-first SDK path even though the scenario itself is about choosing parent locking over composite locking.
 
 ## How to run
 

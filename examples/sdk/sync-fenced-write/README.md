@@ -9,7 +9,7 @@ Strict fenced execution is an advanced coordination mode layered on top of the s
 ## What this example defines
 
 - one strict sync execution surface for `order.strict-write`
-- one implicit strict lock definition bound to `order:<id>`
+- one strict lock boundary bound to `order:<id>`
 - fencing tokens that increase across successive writers
 
 This example uses the strict surface because the scenario needs ordered guarded writes, not just mutual exclusion.
@@ -18,9 +18,9 @@ This example uses the strict surface because the scenario needs ordered guarded 
 
 This is the advanced follow-up to the normal SDK backbone.
 
-It shows that stricter execution changes the coordination semantics, but the public SDK path still starts from a typed lock definition and execution surface.
+It shows that stricter execution changes the coordination semantics, but the public SDK path still starts from a typed lock boundary and execution surface.
 
-In this example the definition is implicit because the strict wrapper preserves a focused compatibility-oriented path. That specialized surface is outside the scope of the current root-SDK shorthand deprecation pass.
+This specialized strict surface is outside the scope of the root-SDK shorthand deprecation pass, so the example focuses on fencing semantics rather than on the root `Define*On` constructors.
 
 ## How to run
 

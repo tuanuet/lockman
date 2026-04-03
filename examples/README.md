@@ -24,10 +24,10 @@ This is the canonical first example for the `v1.3.0` SDK path. It teaches the ba
 - `examples/sdk/sync-approve-order`
 - `examples/sdk/async-process-order`
 
-These show focused compatibility examples once the shared-definition backbone is clear:
+These show focused definition-first examples once the shared-definition backbone is clear:
 
-- `sync-approve-order` covers the deprecated shorthand `Run` path that still works in the current release line
-- `async-process-order` covers the deprecated shorthand `Claim` path that still works in the current release line
+- `sync-approve-order` covers the shortest sync `Run` flow built on `DefineLock + DefineRunOn`
+- `async-process-order` covers the shortest async `Claim` flow built on `DefineLock + DefineClaimOn`
 
 ## Shared Definition Patterns
 
@@ -37,7 +37,7 @@ These show focused compatibility examples once the shared-definition backbone is
 
 These extend the backbone into modeling choices across aggregate boundaries.
 
-Some of these examples still use deprecated shorthand internally to preserve focused migration coverage, but they are not the recommended starting point for new code.
+They stay on the same definition-first SDK model while showing different ways to choose and share lock boundaries.
 
 ## Advanced Coordination
 

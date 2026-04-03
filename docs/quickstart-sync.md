@@ -58,7 +58,7 @@ Runnable examples:
 - Workspace SDK mirror: [`examples/sdk/sync-approve-order`](../examples/sdk/sync-approve-order)
 - Published adapter copy: [`backend/redis/examples/sync-approve-order`](../backend/redis/examples/sync-approve-order)
 
-If you only need one focused sync use case, the shorthand `DefineRun(...)` form shown in `examples/sdk/sync-approve-order` is deprecated but still fully functional in the current release line. New code should use `DefineLock + DefineRunOn`.
+If you only need one focused sync use case, `examples/sdk/sync-approve-order` is the smallest runnable mirror of the recommended `DefineLock + DefineRunOn` path.
 
 Run the workspace SDK mirror from the repo root:
 

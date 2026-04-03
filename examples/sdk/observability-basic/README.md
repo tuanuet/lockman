@@ -2,6 +2,8 @@
 
 This example demonstrates wiring observability into the root SDK client.
 
+The example stays on the same definition-first SDK surface as the other `examples/sdk` flows: define a lock boundary first, then attach the execution surface that the client runs.
+
 ## What It Shows
 
 - Creating an `observe.Dispatcher` for async event export

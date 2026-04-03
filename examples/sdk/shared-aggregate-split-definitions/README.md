@@ -6,15 +6,16 @@ This example shows one aggregate boundary touched by both a direct human-action 
 
 ## Backbone concept
 
-One business aggregate can keep one boundary while still choosing separate execution surfaces even when legacy shorthand compatibility examples are still present.
+One business aggregate can keep one boundary while still choosing separate execution surfaces for sync and async work.
 
 ## What this example defines
 
-- one shorthand sync lock definition for `OrderApprovalSync`
-- one shorthand async lock definition for `OrderApprovalAsync`
+- one shared lock definition for the order aggregate
+- one sync execution surface for `OrderApprovalSync`
+- one async execution surface for `OrderApprovalAsync`
 - one shared aggregate resource key boundary: `order:123`
 
-The aggregate key stays the same across both flows even though the execution surfaces differ. In this example, the source still uses deprecated shorthand constructors for compatibility coverage rather than as recommended new-code style.
+The aggregate key stays the same across both flows because both surfaces attach to the same order definition.
 
 ## Why this shape matters
 

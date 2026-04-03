@@ -4,20 +4,18 @@ This workspace mirror tracks the public SDK interface. The root `main.go` is gat
 
 ## Backbone concept
 
-This example shows the deprecated shorthand sync path after the `v1.3.0` definition-first backbone is understood.
+This example shows the shortest sync path on the `v1.3.0` definition-first backbone.
 
 ## What this example defines
 
-- one shorthand lock definition owned implicitly by `DefineRun`
+- one named lock definition: `orderDef`
 - one sync execution surface for `order.approve`
 
-The example does not create a named shared definition. It uses the deprecated shorthand constructor because this workspace mirror still covers the compatibility path that remains fully functional in the current release line.
+The example keeps the smallest recommended SDK shape for new code: define the boundary once, then attach a sync surface to it.
 
 ## Why this shape matters
 
-After learning `DefineLock` plus attached execution surfaces, this example shows how older shorthand code maps onto the current SDK surface.
-
-It is compatibility coverage for existing users, not the recommended starting point for new code.
+After learning the shared-definition backbone, this is the smallest runnable request/response flow on that same model.
 
 ## How to run
 
