@@ -11,7 +11,7 @@ type Definition[T any] struct {
 func DefineLock[T any](name string, defs ...lockman.LockDefinition[T]) Definition[T] {
 	members := make([]lockman.CompositeMember[T], 0, len(defs))
 	for _, def := range defs {
-		members = append(members, lockman.Member[T](def.DefinitionID(), def, func(in T) T { return in }))
+		members = append(members, lockman.MemberWithStrict[T](def.DefinitionID(), def, def.Config().Strict, func(in T) T { return in }))
 	}
 	return Definition[T]{
 		members: members,

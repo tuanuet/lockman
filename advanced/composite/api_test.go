@@ -66,3 +66,35 @@ func TestCompositePackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 		t.Fatalf("expected ordered resource keys, got %q", joined)
 	}
 }
+
+func TestCompositePackageRejectsStrictCompositeRuns(t *testing.T) {
+	reg := lockman.NewRegistry()
+	strictAccountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+		lockman.StrictDef(),
+	)
+	ledgerDef := lockman.DefineLock(
+		"ledger",
+		lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		strictAccountDef,
+		ledgerDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef)
+	err := reg.Register(transfer)
+	t.Logf("Register error: %v", err)
+	if err == nil {
+		_, err := lockman.New(
+			lockman.WithRegistry(reg),
+			lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
+			lockman.WithBackend(testkit.NewMemoryDriver()),
+		)
+		t.Logf("New error: %v", err)
+		if err == nil {
+			t.Fatal("expected composite with strict member to fail at New")
+		}
+	}
+}
