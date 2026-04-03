@@ -97,3 +97,73 @@ func TestDefinitionIDNeverExposesInternalHashedID(t *testing.T) {
 		t.Fatalf("expected DefinitionID to never expose internal hashed ID, got %q", id)
 	}
 }
+
+func TestDefineRunShorthandCreatesImplicitPrivateDefinition(t *testing.T) {
+	ucA := DefineRun("order.create", BindResourceID("order", func(v string) string { return v }))
+	ucB := DefineRun("order.delete", BindResourceID("order", func(v string) string { return v }))
+
+	if ucA.core.config.definitionRef == nil {
+		t.Fatal("expected DefineRun to create an implicit definitionRef")
+	}
+	if ucB.core.config.definitionRef == nil {
+		t.Fatal("expected DefineRun to create an implicit definitionRef")
+	}
+	if ucA.core.config.definitionRef == ucB.core.config.definitionRef {
+		t.Fatal("expected shorthand use cases with different names to have separate definitionRef pointers")
+	}
+	if ucA.core.config.definitionRef.name != "order.create" {
+		t.Fatalf("expected implicit definition name to match use case name, got %q", ucA.core.config.definitionRef.name)
+	}
+	if ucB.core.config.definitionRef.name != "order.delete" {
+		t.Fatalf("expected implicit definition name to match use case name, got %q", ucB.core.config.definitionRef.name)
+	}
+}
+
+func TestRegistryRejectsDuplicateDefinitionNamesWhenExplicitlyRegistered(t *testing.T) {
+	defA := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	defB := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+
+	ucA := DefineRunOn("import", defA)
+	ucB := DefineRunOn("export", defB)
+
+	reg := NewRegistry()
+	if err := reg.Register(ucA, ucB); err == nil {
+		t.Fatal("expected registry to reject use cases referencing definitions with the same name")
+	}
+}
+
+func TestDefineHoldShorthandCreatesImplicitPrivateDefinition(t *testing.T) {
+	ucA := DefineHold("order.hold", BindResourceID("order", func(v string) string { return v }))
+	ucB := DefineHold("order.manual_hold", BindResourceID("order", func(v string) string { return v }))
+
+	if ucA.core.config.definitionRef == nil {
+		t.Fatal("expected DefineHold to create an implicit definitionRef")
+	}
+	if ucB.core.config.definitionRef == nil {
+		t.Fatal("expected DefineHold to create an implicit definitionRef")
+	}
+	if ucA.core.config.definitionRef == ucB.core.config.definitionRef {
+		t.Fatal("expected shorthand hold use cases with different names to have separate definitionRef pointers")
+	}
+	if ucA.core.config.definitionRef.name != "order.hold" {
+		t.Fatalf("expected implicit definition name to match use case name, got %q", ucA.core.config.definitionRef.name)
+	}
+}
+
+func TestDefineClaimShorthandCreatesImplicitPrivateDefinition(t *testing.T) {
+	ucA := DefineClaim("order.claim", BindResourceID("order", func(v string) string { return v }))
+	ucB := DefineClaim("order.retry", BindResourceID("order", func(v string) string { return v }))
+
+	if ucA.core.config.definitionRef == nil {
+		t.Fatal("expected DefineClaim to create an implicit definitionRef")
+	}
+	if ucB.core.config.definitionRef == nil {
+		t.Fatal("expected DefineClaim to create an implicit definitionRef")
+	}
+	if ucA.core.config.definitionRef == ucB.core.config.definitionRef {
+		t.Fatal("expected shorthand claim use cases with different names to have separate definitionRef pointers")
+	}
+	if ucA.core.config.definitionRef.name != "order.claim" {
+		t.Fatalf("expected implicit definition name to match use case name, got %q", ucA.core.config.definitionRef.name)
+	}
+}

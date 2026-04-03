@@ -13,10 +13,14 @@ type ClaimUseCase[T any] struct {
 
 // DefineClaim declares a typed claim use case.
 func DefineClaim[T any](name string, binding Binding[T], opts ...UseCaseOption) ClaimUseCase[T] {
-	return ClaimUseCase[T]{
-		core:    newUseCaseCore(name, useCaseKindClaim, opts...),
-		binding: binding,
+	if strings.TrimSpace(name) == "" || binding.build == nil {
+		return ClaimUseCase[T]{
+			core:    newUseCaseCore(name, useCaseKindClaim, opts...),
+			binding: binding,
+		}
 	}
+	def := DefineLock(name, binding)
+	return DefineClaimOn(name, def, opts...)
 }
 
 // DefineClaimOn declares a typed claim use case on top of a shared lock definition.

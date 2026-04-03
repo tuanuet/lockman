@@ -1,6 +1,9 @@
 package lockman
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // RunUseCase defines a typed synchronous use case.
 type RunUseCase[T any] struct {
@@ -10,10 +13,14 @@ type RunUseCase[T any] struct {
 
 // DefineRun declares a typed run use case.
 func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) RunUseCase[T] {
-	return RunUseCase[T]{
-		core:    newUseCaseCore(name, useCaseKindRun, opts...),
-		binding: binding,
+	if strings.TrimSpace(name) == "" || binding.build == nil {
+		return RunUseCase[T]{
+			core:    newUseCaseCore(name, useCaseKindRun, opts...),
+			binding: binding,
+		}
 	}
+	def := DefineLock(name, binding)
+	return DefineRunOn(name, def, opts...)
 }
 
 // DefineRunOn declares a typed run use case on top of a shared lock definition.
