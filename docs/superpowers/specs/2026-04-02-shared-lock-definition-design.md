@@ -222,11 +222,13 @@ Use-case-level options:
 2. `WaitTimeout(...)`
 3. `Idempotent()`
 
-This split keeps shared lock semantics attached to the definition while still allowing execution behavior to vary per use case.
+This split keeps shared lock semantics attached to the definition while still allowing execution behavior to vary per use case where the engine model can represent it.
 
 Restrictions:
 
 1. Hold use cases may not reference a strict definition
+2. When a definition is shared by multiple use cases, non-zero `TTL(...)` values must agree across those use cases
+3. When a definition is shared by multiple use cases, non-zero `WaitTimeout(...)` values must agree across those use cases
 
 Example:
 
@@ -241,7 +243,7 @@ importUC := lockman.DefineRunOn("import", contractDef, lockman.TTL(30*time.Secon
 deleteUC := lockman.DefineRunOn("delete", contractDef, lockman.WaitTimeout(5*time.Second))
 ```
 
-Both share the same lock identity and strict lock semantics, but can still differ in execution-specific options.
+Both share the same lock identity and strict lock semantics. Shared definitions may still vary by execution-specific options such as `Idempotent()`, but `TTL(...)` and `WaitTimeout(...)` must not conflict across attached use cases.
 
 ## Engine and Registry Implications
 
@@ -277,6 +279,8 @@ That means the engine representation must support the equivalent of:
 2. Acquire is atomic across that set
 3. Conflict detection remains consistent with standalone acquires of those same definitions
 4. Each member carries its own projected resource key derived from the composite input
+
+No fallback that invents composite-specific member definition IDs is acceptable for this feature. Composite members must reuse the same shared definition IDs as standalone acquires.
 
 If the current lockkit composite model only supports member IDs derived from a composite-specific parent ID, that model must be extended for this feature.
 
@@ -343,6 +347,8 @@ The design should enforce the following:
 9. Hold use cases cannot reference strict definitions
 10. Hold use cases still reject unsupported options such as composite execution on the hold use case itself
 11. Composite use cases still reject unsupported combinations such as strict mode if the existing engine cannot support them
+12. Shared definitions reject conflicting non-zero `TTL(...)` values across attached use cases
+13. Shared definitions reject conflicting non-zero `WaitTimeout(...)` values across attached use cases
 
 No lineage validation is needed because lineage is not part of this design.
 
