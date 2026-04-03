@@ -147,6 +147,7 @@ Start here:
 Then choose an execution surface:
 
 - [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order): the shortest sync request/response flow on the SDK path
+- [`examples/sdk/manual-hold`](examples/sdk/manual-hold): the shortest manual hold acquire/forfeit flow on the SDK path
 - [`examples/sdk/async-process-order`](examples/sdk/async-process-order): the shortest async delivery flow with idempotency on the SDK path
 
 Then expand into shared-definition patterns:

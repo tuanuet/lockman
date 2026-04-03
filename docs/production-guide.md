@@ -163,6 +163,7 @@ Observability export failures do not fail the lock lifecycle. The `observe.Dispa
 |---|---|
 | Definition-first shared boundary | [`examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition) |
 | Sync request/response lock | [`examples/sdk/sync-approve-order`](../examples/sdk/sync-approve-order) |
+| Manual hold acquire/forfeit | [`examples/sdk/manual-hold`](../examples/sdk/manual-hold) |
 | Async queue consumer with idempotency | [`examples/sdk/async-process-order`](../examples/sdk/async-process-order) |
 | Multi-resource transfer | [`examples/sdk/sync-transfer-funds`](../examples/sdk/sync-transfer-funds) |
 | Strict fenced write | [`examples/sdk/sync-fenced-write`](../examples/sdk/sync-fenced-write) |
