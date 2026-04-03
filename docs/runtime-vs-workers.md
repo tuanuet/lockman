@@ -1,11 +1,11 @@
 # Run vs Claim
 
-In the public SDK, you choose between two entry points:
+In the public SDK, you choose between two execution surfaces:
 
 - `Run`: protect a synchronous critical section
 - `Claim`: protect asynchronous message processing
 
-That is the first lifecycle decision a new user makes. Everything else builds on top of it.
+From `v1.3.0`, that lifecycle decision sits on top of a definition-first model: define the lock boundary first, then choose which execution surface should attach to it.
 
 ## Use `Run`
 
@@ -68,6 +68,7 @@ Typical examples:
 
 ## Examples
 
+- Definition-first canonical example: [`examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition)
 - Sync: [`docs/quickstart-sync.md`](quickstart-sync.md)
 - Async: [`docs/quickstart-async.md`](quickstart-async.md)
 - Composite sync: [`docs/advanced/composite.md`](advanced/composite.md)

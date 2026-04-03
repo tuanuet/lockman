@@ -2,6 +2,8 @@
 
 Use `Claim` when a delivery may be retried or redelivered.
 
+From `v1.3.0`, the SDK backbone is still definition-first on the async path: define the lock boundary first, then attach the async execution surface.
+
 ```go
 package orderlocks
 
@@ -11,9 +13,14 @@ type ProcessInput struct {
 	OrderID string
 }
 
-var Process = lockman.DefineClaim[ProcessInput](
-	"order.process",
+var OrderDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in ProcessInput) string { return in.OrderID }),
+)
+
+var Process = lockman.DefineClaimOn(
+	"order.process",
+	OrderDef,
 	lockman.Idempotent(),
 )
 ```
@@ -56,8 +63,11 @@ err = client.Claim(ctx, req, func(ctx context.Context, claim lockman.Claim) erro
 
 Runnable examples:
 
+- Definition-first SDK path: [`examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition)
 - Workspace SDK mirror: [`examples/sdk/async-process-order`](../examples/sdk/async-process-order)
 - Published adapter copy: [`idempotency/redis/examples/async-process-order`](../idempotency/redis/examples/async-process-order)
+
+If you only need one focused async use case, the shorthand `DefineClaim(...)` form shown in `examples/sdk/async-process-order` is still valid. Use it as a convenience path after the shared-definition backbone is clear.
 
 Run the workspace SDK mirror from the repo root:
 

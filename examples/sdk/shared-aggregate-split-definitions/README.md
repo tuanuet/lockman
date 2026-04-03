@@ -4,15 +4,19 @@ This workspace mirror tracks the public SDK interface. Its `main.go` is gated be
 
 This example shows one aggregate boundary touched by both a direct human-action path and a background-worker path.
 
-## What It Teaches
+## Backbone concept
 
-- The aggregate key can stay the same across sync and async lifecycles.
-- The teaching case uses split SDK use cases:
-  - `OrderApprovalSync`
-  - `OrderApprovalAsync`
-- The point is boundary clarity, not aggressive deduplication of registry entries.
+One business aggregate can keep one boundary while still choosing separate execution surfaces and separate shorthand definitions for sync and async lifecycles.
 
-## Why Split Definitions Here
+## What this example defines
+
+- one shorthand sync lock definition for `OrderApprovalSync`
+- one shorthand async lock definition for `OrderApprovalAsync`
+- one shared aggregate resource key boundary: `order:123`
+
+The aggregate key stays the same across both flows even though the execution surfaces differ.
+
+## Why this shape matters
 
 The example uses split sync and async definitions over the same aggregate key boundary because the execution lifecycles are different:
 
@@ -23,7 +27,7 @@ That does not automatically mean `ExecutionKind=both` is wrong. A single shared 
 
 This SDK version focuses on one public-client flow that issues both `Run` and `Claim` requests against the same aggregate boundary.
 
-## Run
+## How to run
 
 ```bash
 go run -tags lockman_examples ./examples/sdk/shared-aggregate-split-definitions

@@ -4,7 +4,7 @@ This guide answers the questions application teams ask before shipping `lockman`
 
 ## Start Here
 
-Start with one use case, one registry, one client, and one `Run(...)` or `Claim(...)` callsite. Add more only after that first path is running in staging.
+Start with one lock definition, one registry, one client, and one attached execution surface. Add more only after that first path is running in staging.
 
 ## Choose Run Or Claim
 
@@ -16,6 +16,7 @@ Quickstarts:
 - [`quickstart-sync.md`](quickstart-sync.md) — `Run` walkthrough
 - [`quickstart-async.md`](quickstart-async.md) — `Claim` walkthrough
 - [`runtime-vs-workers.md`](runtime-vs-workers.md) — choosing between the two models
+- [`../examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition) — the canonical first `v1.3.0` SDK example
 
 ## Minimum Production Wiring
 
@@ -26,6 +27,9 @@ Quickstarts:
 Minimal wiring pattern:
 
 ```go
+var OrderDef = lockman.DefineLock(...)
+var Approve = lockman.DefineRunOn("order.approve", OrderDef)
+
 reg := lockman.NewRegistry()
 if err := reg.Register(orderlocks.Approve); err != nil {
     return err
@@ -45,6 +49,8 @@ defer client.Shutdown(ctx)
 ## Stay On The Default Path
 
 Prefer the root SDK unless a concrete stale-writer or multi-resource requirement proves otherwise. The root path keeps the learning surface small and avoids pulling in advanced modules before you need them.
+
+On that root SDK path, prefer starting with `DefineLock` plus `DefineRunOn`, `DefineHoldOn`, or `DefineClaimOn`. Use shorthand constructors like `DefineRun` and `DefineClaim` only when one focused use case is enough and you do not need a shared definition.
 
 ## When Strict Is Worth It
 
@@ -143,6 +149,7 @@ Observability export failures do not fail the lock lifecycle. The `observe.Dispa
 ## Common Mistakes
 
 - Defining use cases inline at call time instead of at package scope.
+- Treating shorthand constructors as the whole SDK model instead of as a convenience path.
 - Forgetting `lockman.Idempotent()` claim use cases require idempotency wiring — client startup will fail before the worker begins serving traffic.
 - Using `Run` for queue consumers that receive retries or redeliveries.
 - Raising TTL instead of restructuring slow callbacks.
@@ -152,6 +159,7 @@ Observability export failures do not fail the lock lifecycle. The `observe.Dispa
 
 | Scenario | Start from |
 |---|---|
+| Definition-first shared boundary | [`examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition) |
 | Sync request/response lock | [`examples/sdk/sync-approve-order`](../examples/sdk/sync-approve-order) |
 | Async queue consumer with idempotency | [`examples/sdk/async-process-order`](../examples/sdk/async-process-order) |
 | Multi-resource transfer | [`examples/sdk/sync-transfer-funds`](../examples/sdk/sync-transfer-funds) |

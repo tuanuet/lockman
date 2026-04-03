@@ -2,13 +2,17 @@
 
 This workspace mirror tracks the public SDK interface for a case where one higher aggregate parent lock is enough even though the handler touches multiple sub-resources.
 
-## What It Teaches
+## Backbone concept
 
-- several nested sub-resources inside the same aggregate do not automatically justify a composite
-- a single parent boundary can be the right answer when the invariant is aggregate-wide
-- composite is overkill when it does not add real coordination value
+Choose the lock boundary that matches the real aggregate before reaching for composite coordination.
 
-## Scenario
+## What this example defines
+
+- one shorthand sync lock definition for `ShipmentAggregateLock`
+- one execution surface that protects `shipment:sh-123`
+- one parent aggregate boundary even though multiple sub-resources are touched
+
+## Why this shape matters
 
 The flow touches two packages inside one shipment:
 
@@ -17,7 +21,9 @@ The flow touches two packages inside one shipment:
 
 But the business invariant still belongs to the shipment aggregate, so the example protects `shipment:sh-123` with one parent lock instead of inventing a composite.
 
-## Run
+That keeps the implicit lock definition aligned with the actual business boundary.
+
+## How to run
 
 ```bash
 go run -tags lockman_examples ./examples/sdk/parent-lock-over-composite

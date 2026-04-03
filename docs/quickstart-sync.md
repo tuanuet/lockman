@@ -1,10 +1,11 @@
 # Quickstart: Sync
 
-This is the default synchronous path.
+From `v1.3.0`, the SDK backbone is definition-first even on the sync path.
 
-1. define a typed use case once
-2. register it centrally at startup
-3. bind typed input and call `Client.Run(...)`
+1. define one lock boundary once
+2. attach a sync execution surface to it
+3. register it centrally at startup
+4. bind typed input and call `Client.Run(...)`
 
 ```go
 package orderlocks
@@ -15,10 +16,12 @@ type ApproveInput struct {
 	OrderID string
 }
 
-var Approve = lockman.DefineRun[ApproveInput](
-	"order.approve",
+var OrderDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in ApproveInput) string { return in.OrderID }),
 )
+
+var Approve = lockman.DefineRunOn("order.approve", OrderDef)
 ```
 
 ```go
@@ -51,8 +54,11 @@ err = client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error 
 
 Runnable examples:
 
+- Definition-first SDK path: [`examples/sdk/shared-lock-definition`](../examples/sdk/shared-lock-definition)
 - Workspace SDK mirror: [`examples/sdk/sync-approve-order`](../examples/sdk/sync-approve-order)
 - Published adapter copy: [`backend/redis/examples/sync-approve-order`](../backend/redis/examples/sync-approve-order)
+
+If you only need one focused sync use case, the shorthand `DefineRun(...)` form shown in `examples/sdk/sync-approve-order` is still valid. Use it as a convenience path after the shared-definition backbone is clear.
 
 Run the workspace SDK mirror from the repo root:
 

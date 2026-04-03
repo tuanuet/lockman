@@ -4,12 +4,15 @@ The registry is mandatory, but it should stay a startup concern rather than leak
 
 ## Define In Code
 
-Define typed use cases next to the domain code that owns them.
+Define lock boundaries and typed execution surfaces next to the domain code that owns them.
 
 ```go
-var Approve = lockman.DefineRun[ApproveInput](...)
-var Process = lockman.DefineClaim[ProcessInput](...)
+var OrderDef = lockman.DefineLock(...)
+var Approve = lockman.DefineRunOn("order.approve", OrderDef)
+var Process = lockman.DefineClaimOn("order.process", OrderDef, lockman.Idempotent())
 ```
+
+If one focused path is enough, shorthand constructors like `DefineRun(...)` and `DefineClaim(...)` still work as convenience forms with implicit definitions.
 
 ## Register Centrally
 
@@ -41,7 +44,7 @@ Callsites should see:
 
 - typed input
 - one `With(...)`
-- one `Run(...)` or `Claim(...)`
+- one execution surface call such as `Run(...)` or `Claim(...)`
 
 Callsites should not need to pass raw definition IDs, registry lookups, or `map[string]string`.
 
