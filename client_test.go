@@ -81,8 +81,11 @@ func TestNewAllowsNonIdempotentClaimUseCaseWithoutIdempotencyStore(t *testing.T)
 
 func TestNewFailsWhenStrictUseCaseNeedsStrictBackendSupport(t *testing.T) {
 	reg := NewRegistry()
-	uc := testRunUseCase("order.strict")
-	uc.core.config.strict = true
+	uc := DefineRun[string](
+		"order.strict",
+		BindResourceID("order", func(v string) string { return v }),
+		Strict(),
+	)
 	mustRegisterUseCases(t, reg, uc)
 
 	_, err := New(

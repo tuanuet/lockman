@@ -19,6 +19,14 @@ func DefineClaim[T any](name string, binding Binding[T], opts ...UseCaseOption) 
 	}
 }
 
+// DefineClaimOn declares a typed claim use case on top of a shared lock definition.
+func DefineClaimOn[T any](name string, def LockDefinition[T], opts ...UseCaseOption) ClaimUseCase[T] {
+	return ClaimUseCase[T]{
+		core:    newUseCaseCoreWithDefinition(name, useCaseKindClaim, def.ref, opts...),
+		binding: def.binding,
+	}
+}
+
 // With binds typed input and delivery metadata into an opaque claim request.
 func (u ClaimUseCase[T]) With(input T, delivery Delivery, opts ...CallOption) (ClaimRequest, error) {
 	if u.core == nil {

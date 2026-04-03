@@ -48,14 +48,14 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	childCounts := make(map[string]int, len(useCases))
 	for _, useCase := range useCases {
 		if useCase.kind == useCaseKindHold {
-			if useCase.config.strict {
+			if useCaseIsStrict(useCase) {
 				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support strict mode", useCase.name)
 			}
 			if len(useCase.config.composite) > 0 {
 				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support composite mode", useCase.name)
 			}
 		}
-		if len(useCase.config.composite) > 0 && useCase.config.strict {
+		if len(useCase.config.composite) > 0 && useCaseIsStrict(useCase) {
 			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
 		}
 		parentName := strings.TrimSpace(useCase.config.lineageParent)
@@ -157,13 +157,23 @@ func hasStartupIdentity(cfg *clientConfig) bool {
 	return cfg.identityProvider != nil
 }
 
+func useCaseIsStrict(useCase *useCaseCore) bool {
+	if useCase.definition != nil {
+		return useCase.definition.config.strict
+	}
+	if useCase.config.definitionRef != nil {
+		return useCase.config.definitionRef.config.strict
+	}
+	return false
+}
+
 func normalizeUseCase(useCase *useCaseCore, childCounts map[string]int, link sdk.RegistryLink) sdk.UseCase {
 	return sdk.NewUseCase(
 		useCase.name,
 		toSDKUseCaseKind(useCase.kind),
 		sdk.CapabilityRequirements{
 			RequiresIdempotency: useCase.kind == useCaseKindClaim && useCase.config.idempotent,
-			RequiresStrict:      useCase.config.strict,
+			RequiresStrict:      useCaseIsStrict(useCase),
 			RequiresLineage:     strings.TrimSpace(useCase.config.lineageParent) != "" || childCounts[useCase.name] > 0,
 		},
 		link,
@@ -194,7 +204,7 @@ func translateUseCaseDefinition(
 	if useCase.kind == useCaseKindClaim && useCase.config.idempotent {
 		definition.IdempotencyRequired = true
 	}
-	if useCase.config.strict {
+	if useCaseIsStrict(useCase) {
 		definition.Mode = definitions.ModeStrict
 		definition.FencingRequired = true
 		definition.BackendFailurePolicy = definitions.BackendFailClosed
@@ -288,7 +298,7 @@ func wrapCapabilityError(useCases []*useCaseCore, childCounts map[string]int, er
 		switch {
 		case errors.Is(err, sdk.ErrIdempotencyCapabilityRequired) && useCase.kind == useCaseKindClaim && useCase.config.idempotent:
 			return fmt.Errorf("lockman: use case %q requires WithIdempotency(...): %w", useCase.name, ErrIdempotencyRequired)
-		case errors.Is(err, sdk.ErrStrictCapabilityRequired) && useCase.config.strict:
+		case errors.Is(err, sdk.ErrStrictCapabilityRequired) && useCaseIsStrict(useCase):
 			return fmt.Errorf("lockman: use case %q requires strict backend support: %w", useCase.name, ErrBackendCapabilityRequired)
 		case errors.Is(err, sdk.ErrLineageCapabilityRequired) && requiresLineage:
 			return fmt.Errorf("lockman: use case %q requires lineage backend support: %w", useCase.name, ErrBackendCapabilityRequired)

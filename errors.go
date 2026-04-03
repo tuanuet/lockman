@@ -19,4 +19,5 @@ var (
 	ErrHoldExpired               = errors.New("lockman: hold lease has expired")
 	ErrBackendCapabilityRequired = errors.New("lockman: backend lacks required capability")
 	ErrIdempotencyRequired       = errors.New("lockman: idempotency backend is required for this claim use case")
+	ErrNotImplemented            = errors.New("lockman: not yet implemented")
 )

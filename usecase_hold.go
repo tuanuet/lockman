@@ -26,6 +26,17 @@ func DefineHold[T any](name string, binding Binding[T], opts ...UseCaseOption) H
 	}
 }
 
+// DefineHoldOn declares a typed hold use case on top of a shared lock definition.
+func DefineHoldOn[T any](name string, def LockDefinition[T], opts ...UseCaseOption) HoldUseCase[T] {
+	if def.ref.config.strict {
+		panic("lockman: hold use case cannot use strict definition")
+	}
+	return HoldUseCase[T]{
+		core:    newUseCaseCoreWithDefinition(name, useCaseKindHold, def.ref, opts...),
+		binding: def.binding,
+	}
+}
+
 // With binds typed input into an opaque hold request.
 func (u HoldUseCase[T]) With(input T, opts ...CallOption) (HoldRequest, error) {
 	if u.core == nil {

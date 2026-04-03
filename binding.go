@@ -27,9 +27,9 @@ type useCaseConfig struct {
 	ttl           time.Duration
 	wait          time.Duration
 	idempotent    bool
-	strict        bool
 	lineageParent string
 	composite     []compositeMemberConfig
+	definitionRef *definitionRef
 }
 
 type compositeMemberConfig struct {
@@ -102,9 +102,15 @@ func Idempotent() UseCaseOption {
 }
 
 // Strict marks a run use case as requiring strict fenced execution.
+// Deprecated: use StrictDef() as a DefinitionOption instead.
 func Strict() UseCaseOption {
 	return func(cfg *useCaseConfig) {
-		cfg.strict = true
+		if cfg.definitionRef == nil {
+			cfg.definitionRef = &definitionRef{
+				config: definitionConfig{strict: true},
+			}
+		}
+		cfg.definitionRef.config.strict = true
 	}
 }
 

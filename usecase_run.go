@@ -16,6 +16,14 @@ func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) Ru
 	}
 }
 
+// DefineRunOn declares a typed run use case on top of a shared lock definition.
+func DefineRunOn[T any](name string, def LockDefinition[T], opts ...UseCaseOption) RunUseCase[T] {
+	return RunUseCase[T]{
+		core:    newUseCaseCoreWithDefinition(name, useCaseKindRun, def.ref, opts...),
+		binding: def.binding,
+	}
+}
+
 // DefinitionID returns the use case definition name.
 func (u RunUseCase[T]) DefinitionID() string {
 	if u.core == nil {

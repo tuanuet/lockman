@@ -17,10 +17,11 @@ const (
 )
 
 type useCaseCore struct {
-	name     string
-	kind     useCaseKind
-	config   useCaseConfig
-	registry *Registry
+	name       string
+	kind       useCaseKind
+	config     useCaseConfig
+	definition *definitionRef
+	registry   *Registry
 }
 
 func newUseCaseCore(name string, kind useCaseKind, opts ...UseCaseOption) *useCaseCore {
@@ -35,6 +36,24 @@ func newUseCaseCore(name string, kind useCaseKind, opts ...UseCaseOption) *useCa
 		name:   strings.TrimSpace(name),
 		kind:   kind,
 		config: cfg,
+	}
+}
+
+func newUseCaseCoreWithDefinition(name string, kind useCaseKind, def *definitionRef, opts ...UseCaseOption) *useCaseCore {
+	cfg := useCaseConfig{
+		definitionRef: def,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+
+	return &useCaseCore{
+		name:       strings.TrimSpace(name),
+		kind:       kind,
+		config:     cfg,
+		definition: def,
 	}
 }
 
