@@ -8,7 +8,7 @@ Currently, lock keys are constructed from `DefinitionID:resourceKey`, where `Def
 1. Mutual exclusion on the same resource across usecases
 2. Explicit, intuitive API — "base definition + variants" concept
 3. Works with composite, lineage, and hold modes without restrictions
-4. No changes to SDK structs, request structs, backend driver, or Lua scripts
+4. Minimal code changes — no SDK struct, request struct, or Lua script changes
 
 ## Solution: Definition + Variant
 
@@ -20,14 +20,16 @@ A `Definition` is a shared lock identity. Multiple variants inherit the same `de
 
 #### 1. Define Base Definition
 
+Separate functions for each kind (since `useCaseKind` is unexported):
+
 ```go
-contract := lockman.Define("contract", lockman.Run,
+contract := lockman.DefineRun("contract",
     lockman.BindResourceID("order", func(o Order) string { return o.ID }),
     lockman.TTL(30*time.Second),
 )
 ```
 
-- `Define` creates a `*Definition` with a stable `definitionID` (FNV-64a hash of name + kind)
+- `DefineRun`, `DefineHold`, `DefineClaim` create a `*Definition[T]` with a stable `definitionID` (FNV-64a hash of name + kind)
 - Binding is specified at the base definition level — variants inherit it
 - Variants cannot override the binding (they share the same lock resource)
 
@@ -42,33 +44,43 @@ deleteUC := contract.Variant("delete")
 - Variant name = `baseName.variantName` (e.g., `contract.import`)
 - Variants can add config overrides via `UseCaseOption` (e.g., `Strict()`, `TTL()`)
 - Variants register as independent usecases in the registry (unique name)
+- `Variant` is generic: `func (d *Definition[T]) Variant(name string, opts ...UseCaseOption) RunUseCase[T]`
 
 #### 3. Composite with Variants
 
+Use the existing `Composite()` option — variants work naturally as composite members:
+
 ```go
-settingUC := lockman.Define("setting", lockman.Run, settingBinding)
-syncUC := contract.Composite("sync", settingUC, importUC)
+settingUC := lockman.DefineRun("setting", settingBinding)
+syncUC := lockman.DefineRun("sync", syncBinding,
+    lockman.Composite(
+        lockman.DefineCompositeMember("setting", settingBinding),
+        lockman.DefineCompositeMember("import", contract.Binding()),  // variant binding = base binding
+    ),
+)
 ```
 
-- Composite members can be variants or standalone usecases
-- Variant members use the shared `definitionID` for lock acquisition
-- Composite atomicity works naturally — variant = just another member
+- Composite members use `DefineCompositeMember` with the variant's inherited binding
+- The `Definition` exposes its binding via `Binding() Binding[T]` method
+- Composite atomicity works naturally
 
 #### 4. Lineage with Variants
+
+Add a `LineageParent` function that accepts a usecase:
 
 ```go
 validateUC := contract.Variant("validate")
 importUC := contract.Variant("import", lockman.LineageParent(validateUC))
 ```
 
+- `LineageParent` extracts the parent's name: `func LineageParent[T any](parent RunUseCase[T]) UseCaseOption`
 - Parent and child variants share the same `definitionID`
 - Lineage key resolution uses shared `definitionID` → consistent behavior
-- No restriction needed — lineage + variant works naturally
 
 #### 5. Hold with Variants
 
 ```go
-holdDef := lockman.Define("contract", lockman.Hold,
+holdDef := lockman.DefineHold("contract",
     lockman.BindResourceID("order", func(o Order) string { return o.ID }),
 )
 holdUC := holdDef.Variant("hold")
@@ -83,7 +95,7 @@ holdUC := holdDef.Variant("hold")
 err := contract.ForceRelease(ctx, client, "order:123")
 ```
 
-- Force release is a method on `Definition`
+- Force release is a method on `Definition[T]`
 - Uses the shared `definitionID` for key construction
 - Idempotent: returns `nil` if lock does not exist
 
@@ -109,6 +121,7 @@ lockman:lease:<shared_definitionID>:<resourceKey>
 #### useCaseConfig Change
 
 ```go
+// binding.go
 type useCaseConfig struct {
     // ... existing fields ...
     definitionID string // shared definitionID for variants (empty = derive from name)
@@ -119,14 +132,26 @@ type useCaseConfig struct {
 
 ```go
 // definition.go (root lockman package)
-type Definition struct {
-    name    string
-    id      string // stable hash: FNV-64a(name + kind)
-    kind    useCaseKind
-    binding interface{} // resource binding from Define()
+type Definition[T any] struct {
+    name     string
+    id       string // stable hash: FNV-64a(name + kind)
+    kind     useCaseKind
+    binding  Binding[T]
 }
 
-func Define[T any](name string, kind useCaseKind, binding Binding[T], opts ...UseCaseOption) *Definition {
+func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
+    return define[T](name, useCaseKindRun, binding, opts...)
+}
+
+func DefineHold[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
+    return define[T](name, useCaseKindHold, binding, opts...)
+}
+
+func DefineClaim[T any](name string, binding Binding[T], opts ...UseCaseOption) *Definition[T] {
+    return define[T](name, useCaseKindClaim, binding, opts...)
+}
+
+func define[T any](name string, kind useCaseKind, binding Binding[T], opts []UseCaseOption) *Definition[T] {
     trimmed := strings.TrimSpace(name)
     if trimmed == "" {
         panic("lockman: definition name is required")
@@ -135,53 +160,119 @@ func Define[T any](name string, kind useCaseKind, binding Binding[T], opts ...Us
         panic("lockman: binding is required")
     }
     id := stableDefinitionID(trimmed, kind)
-    return &Definition{name: trimmed, id: id, kind: kind, binding: binding}
+    return &Definition[T]{name: trimmed, id: id, kind: kind, binding: binding}
 }
 
 func stableDefinitionID(name string, kind useCaseKind) string {
     hash := fnv.New64a()
-    _, _ = hash.Write([]byte{kindDelimiter(kind)})
+    _, _ = hash.Write([]byte{kindToByte(kind)})
     _, _ = hash.Write([]byte(name))
     return toHex(hash.Sum64())
+}
+
+func kindToByte(kind useCaseKind) byte {
+    switch kind {
+    case useCaseKindRun: return 'r'
+    case useCaseKindClaim: return 'c'
+    case useCaseKindHold: return 'h'
+    default: return '?'
+    }
 }
 ```
 
 #### Variant Method
 
 ```go
-func (d *Definition) Variant(variantName string, opts ...UseCaseOption) UseCase {
-    trimmed := strings.TrimSpace(variantName)
+func (d *Definition[T]) Variant(name string, opts ...UseCaseOption) RunUseCase[T] {
+    if d.kind != useCaseKindRun {
+        panic("lockman: Variant is only supported for Run definitions")
+    }
+    trimmed := strings.TrimSpace(name)
     if trimmed == "" {
         panic("lockman: variant name is required")
     }
     fullName := d.name + "." + trimmed
     cfg := applyUseCaseOptions(opts...)
     cfg.definitionID = d.id  // shared!
-    return newUseCase(fullName, d.kind, cfg, d.binding)
+    return RunUseCase[T]{
+        core:    newUseCaseCoreWithConfig(fullName, d.kind, cfg),
+        binding: d.binding,  // type-safe, no interface{} assertion
+    }
+}
+```
+
+#### Hold Variant Method
+
+```go
+func (d *Definition[T]) HoldVariant(name string, opts ...UseCaseOption) HoldUseCase[T] {
+    if d.kind != useCaseKindHold {
+        panic("lockman: HoldVariant is only supported for Hold definitions")
+    }
+    trimmed := strings.TrimSpace(name)
+    if trimmed == "" {
+        panic("lockman: variant name is required")
+    }
+    fullName := d.name + "." + trimmed
+    cfg := applyUseCaseOptions(opts...)
+    cfg.definitionID = d.id
+    return HoldUseCase[T]{
+        core:    newUseCaseCoreWithConfig(fullName, d.kind, cfg),
+        binding: d.binding,
+    }
 }
 ```
 
 #### Composite Method
 
+Composite uses the existing `Composite()` option. The `Definition` exposes its binding for use in composite member definitions:
+
 ```go
-func (d *Definition) Composite[T any](compositeName string, members ...CompositeMember[T]) UseCase {
-    fullName := d.name + "." + strings.TrimSpace(compositeName)
-    cfg := useCaseConfig{
-        definitionID: d.id,
-        composite:    buildCompositeMembers(members),
+func (d *Definition[T]) Binding() Binding[T] {
+    return d.binding
+}
+```
+
+Example:
+```go
+syncUC := lockman.DefineRun("sync", syncBinding,
+    lockman.Composite(
+        lockman.DefineCompositeMember("setting", settingBinding),
+        lockman.DefineCompositeMember("import", contract.Binding()),
+    ),
+)
+```
+
+#### LineageParent Function
+
+```go
+func LineageParent[T any](parent RunUseCase[T]) UseCaseOption {
+    return func(cfg *useCaseConfig) {
+        cfg.lineageParent = parent.core.name
     }
-    return newUseCase(fullName, d.kind, cfg, nil) // composite has its own binding
 }
 ```
 
 #### Force Release
 
 ```go
-func (d *Definition) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
+func (d *Definition[T]) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
     if client == nil {
         return fmt.Errorf("lockman: client is required")
     }
     return client.backend.ForceReleaseDefinition(ctx, d.id, resourceKey)
+}
+```
+
+#### newUseCaseCoreWithConfig
+
+```go
+// registry.go
+func newUseCaseCoreWithConfig(name string, kind useCaseKind, cfg useCaseConfig) *useCaseCore {
+    return &useCaseCore{
+        name:   strings.TrimSpace(name),
+        kind:   kind,
+        config: cfg,
+    }
 }
 ```
 
@@ -244,6 +335,7 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
         d.buildLeaseKey(definitionID, resourceKey),
         d.buildStrictFenceCounterKey(definitionID, resourceKey),
         d.buildStrictTokenKey(definitionID, resourceKey),
+        d.buildLineageKey(definitionID, resourceKey),
     }
     if err := d.client.Del(ctx, keys...).Err(); err != nil {
         return fmt.Errorf("lockman: force release definition: %w", err)
@@ -256,34 +348,34 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 
 | File | Change |
 |------|--------|
-| `definition.go` | New: Definition type, Define, Variant, Composite, ForceRelease |
-| `binding.go` | Modify: Add definitionID to useCaseConfig |
-| `registry.go` | Modify: newUseCaseCore accepts binding parameter |
+| `definition.go` | New: Definition[T] type, DefineRun/Hold/Claim, Variant, HoldVariant, Binding, ForceRelease, stableDefinitionID, kindToByte |
+| `binding.go` | Modify: Add definitionID to useCaseConfig; add LineageParent function |
+| `registry.go` | New: newUseCaseCoreWithConfig function |
 | `client_validation.go` | Modify: normalizeUseCase passes definitionID to SDK |
 | `internal/sdk/usecase.go` | Modify: Add NewUseCaseWithID function |
-| `internal/sdk/request.go` | No changes needed |
 | `backend/contracts.go` | Modify: Add ForceReleaseDefinition to Driver interface |
-| `backend/redis/driver.go` | Modify: Implement ForceReleaseDefinition |
+| `backend/redis/driver.go` | Modify: Implement ForceReleaseDefinition (includes lineage key cleanup) |
 | `definition_test.go` | New: unit tests for Definition + Variant API |
 | `examples/core/definition-variant/main.go` | New: example usage |
 
 ### Testing Strategy
 
 1. **Unit tests:**
-   - Define creates stable definitionID
+   - DefineRun/Hold/Claim creates stable definitionID
    - Variant inherits definitionID from base
    - Variant name = baseName.variantName
-   - Composite with variant members
-   - Lineage with variant parent/child
-   - Hold variant inherits definitionID
+   - Variant binding type safety (compile-time)
+   - LineageParent extracts parent name correctly
+   - HoldVariant inherits definitionID
    - ForceRelease calls backend with correct definitionID
+   - Binding type mismatch panics with clear message
 
 2. **Integration tests:**
    - Two variants of same definition → mutual exclusion (one acquires, other fails)
-   - Composite with variant members → atomic acquire
+   - Composite with variant binding → atomic acquire
    - Lineage with variant parent/child → overlap rejection works
    - Hold variant → acquire/release works with shared key
-   - Force release behavior (cleans lease + auxiliary keys, idempotent)
+   - Force release behavior (cleans lease + auxiliary + lineage keys, idempotent)
 
 3. **Backward compatibility tests:**
    - Non-variant usecases unchanged (derive definitionID from name)
@@ -293,7 +385,8 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 
 | Risk | Mitigation |
 |------|-----------|
-| Variant binding override confusion | Variants cannot override binding — enforced at API level |
+| Variant binding type mismatch | Compile-time safety via generics; panic with clear message if misused |
 | Composite with duplicate variant members | Composite validation already handles duplicate member IDs |
 | Lineage with cross-definition parent/child | Lineage checks use definitionID — cross-definition works naturally |
 | ForceReleaseDefinition interface change | New method on existing interface — all implementations must add it |
+| Variant only works for same kind | Documented restriction; panic at define time if misused |
