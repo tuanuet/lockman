@@ -174,8 +174,8 @@ func collectPlannedDefinitions(
 	definitionKinds := make(map[string]map[useCaseKind]bool)
 	definitionUseCases := make(map[string][]*useCaseCore)
 	definitionStrict := make(map[string]bool)
-	definitionTTL := make(map[string]time.Duration)
-	definitionWait := make(map[string]time.Duration)
+	definitionTTLValues := make(map[string]map[time.Duration][]string)
+	definitionWaitValues := make(map[string]map[time.Duration][]string)
 	definitionIdempotent := make(map[string]bool)
 	definitionLineage := make(map[string]string)
 
@@ -195,14 +195,16 @@ func collectPlannedDefinitions(
 			definitionStrict[defID] = true
 		}
 		if uc.config.ttl > 0 {
-			if existing, ok := definitionTTL[defID]; !ok || uc.config.ttl > existing {
-				definitionTTL[defID] = uc.config.ttl
+			if definitionTTLValues[defID] == nil {
+				definitionTTLValues[defID] = make(map[time.Duration][]string)
 			}
+			definitionTTLValues[defID][uc.config.ttl] = append(definitionTTLValues[defID][uc.config.ttl], uc.name)
 		}
 		if uc.config.wait > 0 {
-			if existing, ok := definitionWait[defID]; !ok || uc.config.wait > existing {
-				definitionWait[defID] = uc.config.wait
+			if definitionWaitValues[defID] == nil {
+				definitionWaitValues[defID] = make(map[time.Duration][]string)
 			}
+			definitionWaitValues[defID][uc.config.wait] = append(definitionWaitValues[defID][uc.config.wait], uc.name)
 		}
 		if uc.kind == useCaseKindClaim && uc.config.idempotent {
 			definitionIdempotent[defID] = true
@@ -221,9 +223,17 @@ func collectPlannedDefinitions(
 			useCaseNames = append(useCaseNames, uc.name)
 		}
 
-		ttl := definitionTTL[defID]
+		ttl, err := resolveDefinitionOption("TTL", defID, useCaseNames, definitionTTLValues[defID])
+		if err != nil {
+			return nil, err
+		}
 		if ttl <= 0 {
 			ttl = defaultLeaseTTL
+		}
+
+		wait, err := resolveDefinitionOption("WaitTimeout", defID, useCaseNames, definitionWaitValues[defID])
+		if err != nil {
+			return nil, err
 		}
 
 		strict := definitionStrict[defID]
@@ -245,7 +255,7 @@ func collectPlannedDefinitions(
 			Mode:          definitions.ModeStandard,
 			ExecutionKind: execKind,
 			LeaseTTL:      ttl,
-			WaitTimeout:   definitionWait[defID],
+			WaitTimeout:   wait,
 			KeyBuilder:    definitions.MustTemplateKeyBuilder("{"+sdk.ResourceKeyInputKey+"}", []string{sdk.ResourceKeyInputKey}),
 		}
 
@@ -280,6 +290,30 @@ func collectPlannedDefinitions(
 	}
 
 	return result, nil
+}
+
+func resolveDefinitionOption(
+	optionName string,
+	defID string,
+	allUseCaseNames []string,
+	values map[time.Duration][]string,
+) (time.Duration, error) {
+	if len(values) == 0 {
+		return 0, nil
+	}
+	if len(values) == 1 {
+		for v := range values {
+			return v, nil
+		}
+	}
+
+	conflicting := make([]string, 0, len(values)*2)
+	for v, names := range values {
+		for _, n := range names {
+			conflicting = append(conflicting, fmt.Sprintf("%s (%v)", n, v))
+		}
+	}
+	return 0, fmt.Errorf("lockman: shared definition %q has conflicting %s values across use cases: %s", defID, optionName, strings.Join(conflicting, ", "))
 }
 
 func executionKindForDefinition(kinds map[useCaseKind]bool) definitions.ExecutionKind {

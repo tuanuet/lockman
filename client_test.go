@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
@@ -928,5 +929,113 @@ func TestRunAndRunSharingOneDefinitionProducesSingleEngineDefinition(t *testing.
 	}
 	if defs[0].ExecutionKind != definitions.ExecutionSync {
 		t.Fatalf("expected ExecutionSync for run+run shared definition, got %v", defs[0].ExecutionKind)
+	}
+}
+
+func TestSharedStrictDefinitionRequiresStrictBackendSupport(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }), StrictDef())
+	runUC := DefineRunOn("order.run", def)
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	mustRegisterUseCases(t, reg, runUC, claimUC)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if !errors.Is(err, ErrBackendCapabilityRequired) {
+		t.Fatalf("expected ErrBackendCapabilityRequired, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "strict") {
+		t.Fatalf("expected strict capability detail, got %v", err)
+	}
+}
+
+func TestSharedClaimUseCaseStillRequiresIdempotencyWhenConfigured(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	mustRegisterUseCases(t, reg, claimUC)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "worker-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if !errors.Is(err, ErrIdempotencyRequired) {
+		t.Fatalf("expected ErrIdempotencyRequired, got %v", err)
+	}
+}
+
+func TestSharedDefinitionTTLAndWaitTimeoutRequireAgreementAcrossUseCases(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def)
+	claimUC := DefineClaimOn("order.claim", def, Idempotent())
+	mustRegisterUseCases(t, reg, runUC, claimUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition, got %d", len(defs))
+	}
+	if defs[0].LeaseTTL != defaultLeaseTTL {
+		t.Fatalf("expected default LeaseTTL %v when no use case sets TTL, got %v", defaultLeaseTTL, defs[0].LeaseTTL)
+	}
+	if defs[0].WaitTimeout != 0 {
+		t.Fatalf("expected zero WaitTimeout when no use case sets it, got %v", defs[0].WaitTimeout)
+	}
+}
+
+func TestSharedDefinitionRejectsConflictingTTLValues(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def, TTL(10*time.Second))
+	claimUC := DefineClaimOn("order.claim", def, Idempotent(), TTL(30*time.Second))
+	mustRegisterUseCases(t, reg, runUC, claimUC)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err == nil {
+		t.Fatal("expected startup error for conflicting TTL values")
+	}
+	if !strings.Contains(err.Error(), "TTL") {
+		t.Fatalf("expected TTL conflict error, got %v", err)
+	}
+}
+
+func TestSharedDefinitionRejectsConflictingWaitTimeoutValues(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	runUC := DefineRunOn("order.run", def, WaitTimeout(5*time.Second))
+	claimUC := DefineClaimOn("order.claim", def, Idempotent(), WaitTimeout(15*time.Second))
+	mustRegisterUseCases(t, reg, runUC, claimUC)
+
+	_, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+		WithIdempotency(idempotency.NewMemoryStore()),
+	)
+	if err == nil {
+		t.Fatal("expected startup error for conflicting WaitTimeout values")
+	}
+	if !strings.Contains(err.Error(), "WaitTimeout") {
+		t.Fatalf("expected WaitTimeout conflict error, got %v", err)
 	}
 }
