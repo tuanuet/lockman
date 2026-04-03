@@ -20,11 +20,12 @@ type processInput struct {
 	OrderID string
 }
 
-var processOrder = lockman.DefineClaim[processInput](
-	"order.process",
+var orderDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in processInput) string { return in.OrderID }),
-	lockman.Idempotent(),
 )
+
+var processOrder = lockman.DefineClaimOn("order.process", orderDef, lockman.Idempotent())
 
 func main() {
 	client, err := redisClientFromEnv()
