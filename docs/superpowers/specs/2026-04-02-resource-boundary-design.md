@@ -77,8 +77,9 @@ importUC := contract.Variant("import", lockman.LineageParent(validateUC))
 ```
 
 - `LineageParent` extracts the parent's name: `func LineageParent[T any](parent RunUseCase[T]) UseCaseOption`
-- Parent and child variants share the same `definitionID`
-- Lineage key resolution uses shared `definitionID` → consistent behavior
+- **Restriction:** `LineageParent` cannot reference a variant of the same definition. Both parent and child share the same `definitionID`, which would cause the child's `ParentRef` to equal its own `ID` — breaking lineage resolution.
+- **Enforcement:** In `buildClientPlan`, detect same-definition lineage and reject: `"lockman: lineage parent cannot be a variant of the same definition"`
+- If parent and child are from different definitions (different `definitionID`), lineage works normally
 
 #### 5. Hold with Variants
 
@@ -232,6 +233,31 @@ func (d *Definition[T]) HoldVariant(name string, opts ...UseCaseOption) HoldUseC
 }
 ```
 
+#### Claim Variant Method
+
+```go
+func (d *Definition[T]) ClaimVariant(name string, opts ...UseCaseOption) ClaimUseCase[T] {
+    if d.kind != useCaseKindClaim {
+        panic("lockman: ClaimVariant is only supported for Claim definitions")
+    }
+    trimmed := strings.TrimSpace(name)
+    if trimmed == "" {
+        panic("lockman: variant name is required")
+    }
+    fullName := d.name + "." + trimmed
+    cfg := useCaseConfig{definitionID: d.id}
+    for _, opt := range opts {
+        if opt != nil {
+            opt(&cfg)
+        }
+    }
+    return ClaimUseCase[T]{
+        core:    newUseCaseCoreWithConfig(fullName, d.kind, cfg),
+        binding: d.binding,
+    }
+}
+```
+
 #### Composite Method
 
 Composite uses the existing `Composite()` option. The `Definition` exposes its binding for use in composite member definitions:
@@ -358,7 +384,7 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 
 | File | Change |
 |------|--------|
-| `definition.go` | New: Definition[T] type, DefineRun/Hold/Claim, Variant, HoldVariant, Binding, ForceRelease, stableDefinitionID, kindToByte |
+| `definition.go` | New: Definition[T] type, DefineDefinition, Variant, HoldVariant, ClaimVariant, Binding, ForceRelease, stableDefinitionID, kindToByte |
 | `binding.go` | Modify: Add definitionID to useCaseConfig; add LineageParent function |
 | `registry.go` | New: newUseCaseCoreWithConfig function |
 | `client_validation.go` | Modify: normalizeUseCase passes definitionID to SDK |
@@ -371,12 +397,12 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 ### Testing Strategy
 
 1. **Unit tests:**
-   - DefineRun/Hold/Claim creates stable definitionID
-   - Variant inherits definitionID from base
+   - DefineDefinition creates stable definitionID
+   - Variant/HoldVariant/ClaimVariant inherit definitionID from base
    - Variant name = baseName.variantName
    - Variant binding type safety (compile-time)
    - LineageParent extracts parent name correctly
-   - HoldVariant inherits definitionID
+   - Same-definition lineage rejection in buildClientPlan
    - ForceRelease calls backend with correct definitionID
    - Binding type mismatch panics with clear message
 
@@ -399,4 +425,5 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 | Composite with duplicate variant members | Composite validation already handles duplicate member IDs |
 | Lineage with cross-definition parent/child | Lineage checks use definitionID — cross-definition works naturally |
 | ForceReleaseDefinition interface change | New method on existing interface — all implementations must add it |
-| Variant only works for same kind | Documented restriction; panic at define time if misused |
+| Same-definition lineage rejection | Enforced in buildClientPlan; documented restriction |
+| Variant only works for matching kind | Documented restriction; panic at define time if misused |
