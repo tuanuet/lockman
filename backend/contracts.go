@@ -139,3 +139,9 @@ type LineageDriver interface {
 	RenewWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) (LeaseRecord, LineageLeaseMeta, error)
 	ReleaseWithLineage(ctx context.Context, lease LeaseRecord, lineage LineageLeaseMeta) error
 }
+
+// ForceReleaseDriver is an optional capability for backends that can forcibly release
+// a lock definition without requiring the original lease holder's identity.
+type ForceReleaseDriver interface {
+	ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error
+}

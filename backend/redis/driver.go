@@ -420,6 +420,21 @@ func (d *Driver) Ping(ctx context.Context) error {
 	return d.client.Ping(ctx).Err()
 }
 
+func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error {
+	if err := d.validateClient(); err != nil {
+		return err
+	}
+
+	keys := []string{
+		d.buildLeaseKey(definitionID, resourceKey),
+		d.buildStrictFenceCounterKey(definitionID, resourceKey),
+		d.buildStrictTokenKey(definitionID, resourceKey),
+	}
+
+	_, err := d.client.Del(ctx, keys...).Result()
+	return err
+}
+
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
 	return d.keyPrefix + ":" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
 }

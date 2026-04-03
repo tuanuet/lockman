@@ -2,7 +2,6 @@ package lockman
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
@@ -71,9 +70,17 @@ func stableDefinitionID(name string) string {
 // ForceRelease forcibly releases a lock held under this definition.
 func (d LockDefinition[T]) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
 	if client == nil {
-		return fmt.Errorf("lockman: client is required: %w", ErrNotImplemented)
+		return ErrBackendRequired
 	}
-	return fmt.Errorf("lockman: force release not yet implemented: %w", ErrNotImplemented)
+
+	driver, ok := client.backend.(interface {
+		ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error
+	})
+	if !ok {
+		return ErrBackendCapabilityRequired
+	}
+
+	return driver.ForceReleaseDefinition(ctx, d.stableID(), resourceKey)
 }
 
 func (d LockDefinition[T]) stableID() string {

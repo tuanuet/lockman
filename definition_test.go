@@ -2,8 +2,11 @@ package lockman
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/tuanuet/lockman/backend"
 )
 
 func TestDefineLockCreatesStableDefinitionID(t *testing.T) {
@@ -166,4 +169,113 @@ func TestDefineClaimShorthandCreatesImplicitPrivateDefinition(t *testing.T) {
 	if ucA.core.config.definitionRef.name != "order.claim" {
 		t.Fatalf("expected implicit definition name to match use case name, got %q", ucA.core.config.definitionRef.name)
 	}
+}
+
+func TestForceReleaseRequiresClient(t *testing.T) {
+	def := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+
+	err := def.ForceRelease(context.Background(), nil, "order-123")
+	if err == nil {
+		t.Fatal("expected ForceRelease to fail without a client")
+	}
+	if !errors.Is(err, ErrBackendRequired) {
+		t.Fatalf("expected ErrBackendRequired, got %v", err)
+	}
+}
+
+func TestForceReleaseRequiresBackendCapability(t *testing.T) {
+	def := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	client := &Client{backend: &noOpDriver{}}
+
+	err := def.ForceRelease(context.Background(), client, "order-123")
+	if err == nil {
+		t.Fatal("expected ForceRelease to fail when backend lacks force-release capability")
+	}
+	if !errors.Is(err, ErrBackendCapabilityRequired) {
+		t.Fatalf("expected ErrBackendCapabilityRequired, got %v", err)
+	}
+}
+
+func TestForceReleaseUsesSharedDefinitionID(t *testing.T) {
+	def := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	backend := &mockForceReleaseDriver{t: t, wantDefinitionID: def.stableID(), wantResourceKey: "order-123"}
+	client := &Client{backend: backend}
+
+	err := def.ForceRelease(context.Background(), client, "order-123")
+	if err != nil {
+		t.Fatalf("expected ForceRelease to succeed, got %v", err)
+	}
+	if !backend.called {
+		t.Fatal("expected ForceReleaseDefinition to be called on the backend")
+	}
+}
+
+func TestForceReleaseIsIdempotentWhenBackendSupportsIt(t *testing.T) {
+	def := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	backend := &mockForceReleaseDriver{t: t, wantDefinitionID: def.stableID(), wantResourceKey: "order-123", idempotent: true}
+	client := &Client{backend: backend}
+
+	err := def.ForceRelease(context.Background(), client, "order-123")
+	if err != nil {
+		t.Fatalf("expected first ForceRelease to succeed, got %v", err)
+	}
+
+	err = def.ForceRelease(context.Background(), client, "order-123")
+	if err != nil {
+		t.Fatalf("expected second ForceRelease to be idempotent, got %v", err)
+	}
+}
+
+type noOpDriver struct{}
+
+func (d *noOpDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, nil
+}
+func (d *noOpDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, nil
+}
+func (d *noOpDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
+	return nil
+}
+func (d *noOpDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{}, nil
+}
+func (d *noOpDriver) Ping(ctx context.Context) error {
+	return nil
+}
+
+type mockForceReleaseDriver struct {
+	t                *testing.T
+	wantDefinitionID string
+	wantResourceKey  string
+	idempotent       bool
+	called           bool
+	callCount        int
+}
+
+func (d *mockForceReleaseDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, nil
+}
+func (d *mockForceReleaseDriver) Renew(ctx context.Context, lease backend.LeaseRecord) (backend.LeaseRecord, error) {
+	return backend.LeaseRecord{}, nil
+}
+func (d *mockForceReleaseDriver) Release(ctx context.Context, lease backend.LeaseRecord) error {
+	return nil
+}
+func (d *mockForceReleaseDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{}, nil
+}
+func (d *mockForceReleaseDriver) Ping(ctx context.Context) error {
+	return nil
+}
+func (d *mockForceReleaseDriver) ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error {
+	d.called = true
+	d.callCount++
+	if definitionID != d.wantDefinitionID {
+		d.t.Fatalf("expected definitionID %q, got %q", d.wantDefinitionID, definitionID)
+	}
+	if resourceKey != d.wantResourceKey {
+		d.t.Fatalf("expected resourceKey %q, got %q", d.wantResourceKey, resourceKey)
+	}
+	return nil
 }
