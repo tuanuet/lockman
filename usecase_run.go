@@ -12,20 +12,6 @@ type RunUseCase[T any] struct {
 
 // DefineRunOn declares a typed run use case on top of a shared lock definition.
 func DefineRunOn[T any](name string, def LockDefinition[T], opts ...UseCaseOption) RunUseCase[T] {
-	cfg := useCaseConfig{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
-
-	if len(cfg.composite) > 0 {
-		return RunUseCase[T]{
-			core:    newUseCaseCore(name, useCaseKindRun, opts...),
-			binding: def.binding,
-		}
-	}
-
 	return RunUseCase[T]{
 		core:    newUseCaseCoreWithDefinition(name, useCaseKindRun, def.ref, opts...),
 		binding: def.binding,
