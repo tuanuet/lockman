@@ -902,3 +902,31 @@ func TestSharedDefinitionWithHoldAndClaimNormalizesToExecutionBoth(t *testing.T)
 		t.Fatalf("expected ExecutionBoth for claim+hold shared definition, got %v", defs[0].ExecutionKind)
 	}
 }
+
+func TestRunAndRunSharingOneDefinitionProducesSingleEngineDefinition(t *testing.T) {
+	reg := NewRegistry()
+	def := DefineLock("order.lock", BindResourceID("order", func(v string) string { return v }))
+	importUC := DefineRunOn("order.import", def)
+	deleteUC := DefineRunOn("order.delete", def)
+	mustRegisterUseCases(t, reg, importUC, deleteUC)
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition for run+run shared definition, got %d", len(defs))
+	}
+	if defs[0].ID != def.stableID() {
+		t.Fatalf("expected definition ID %q, got %q", def.stableID(), defs[0].ID)
+	}
+	if defs[0].ExecutionKind != definitions.ExecutionSync {
+		t.Fatalf("expected ExecutionSync for run+run shared definition, got %v", defs[0].ExecutionKind)
+	}
+}
