@@ -1039,3 +1039,187 @@ func TestSharedDefinitionRejectsConflictingWaitTimeoutValues(t *testing.T) {
 		t.Fatalf("expected WaitTimeout conflict error, got %v", err)
 	}
 }
+
+type compositeOrderInput struct {
+	OrderID string
+}
+
+func TestCompositeRunWithSharedDefinitionMembersBuildsProjectedKeys(t *testing.T) {
+	reg := NewRegistry()
+	contractDef := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+
+	orderUC := DefineCompositeRun("order.fulfill",
+		Member("primary", contractDef, func(in compositeOrderInput) string { return in.OrderID }),
+		Member("secondary", contractDef, func(in compositeOrderInput) string { return in.OrderID + "-sec" }),
+	)
+	if err := reg.Register(orderUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := orderUC.With(compositeOrderInput{OrderID: "123"})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var got []string
+	if err := client.Run(context.Background(), req, func(_ context.Context, lease Lease) error {
+		got = lease.ResourceKeys
+		return nil
+	}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resource keys, got %d", len(got))
+	}
+	if got[0] != "order:123" {
+		t.Fatalf("expected first resource key %q, got %q", "order:123", got[0])
+	}
+	if got[1] != "order:123-sec" {
+		t.Fatalf("expected second resource key %q, got %q", "order:123-sec", got[1])
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("expected exactly 1 engine definition (shared), got %d", len(defs))
+	}
+	if defs[0].ID != contractDef.stableID() {
+		t.Fatalf("expected shared definition ID %q, got %q", contractDef.stableID(), defs[0].ID)
+	}
+}
+
+func TestCompositeRunConflictsWithStandaloneUseCaseSharingMemberDefinition(t *testing.T) {
+	reg := NewRegistry()
+	contractDef := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+
+	compositeUC := DefineCompositeRun("order.fulfill",
+		Member("primary", contractDef, func(in compositeOrderInput) string { return in.OrderID }),
+	)
+	importUC := DefineRunOn("order.import", contractDef)
+
+	if err := reg.Register(compositeUC, importUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	// Acquire the composite first.
+	compositeReq, err := compositeUC.With(compositeOrderInput{OrderID: "123"})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var compositeHeld bool
+	compositeErr := client.Run(context.Background(), compositeReq, func(_ context.Context, lease Lease) error {
+		compositeHeld = true
+		// While composite holds, try to acquire the standalone on the same key.
+		importReq, importErr := importUC.With("123")
+		if importErr != nil {
+			t.Fatalf("import With returned error: %v", importErr)
+		}
+		importErr = client.Run(context.Background(), importReq, func(_ context.Context, lease Lease) error {
+			t.Fatal("expected standalone run to be rejected while composite holds same key")
+			return nil
+		})
+		if !errors.Is(importErr, ErrBusy) && !errors.Is(importErr, ErrOverlapRejected) {
+			t.Fatalf("expected ErrBusy or ErrOverlapRejected, got %v", importErr)
+		}
+		return nil
+	})
+	if compositeErr != nil {
+		t.Fatalf("composite Run returned error: %v", compositeErr)
+	}
+	if !compositeHeld {
+		t.Fatal("expected composite to acquire")
+	}
+}
+
+func TestCompositeRunRejectsMissingMemberProjection(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when member projection is nil")
+		}
+	}()
+
+	contractDef := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	var proj func(compositeOrderInput) string
+	_ = DefineCompositeRun("order.fulfill",
+		Member("primary", contractDef, proj),
+	)
+}
+
+func TestCompositeRunRejectsEmptyMemberName(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when member name is empty")
+		}
+	}()
+
+	contractDef := DefineLock("contract", BindResourceID("order", func(v string) string { return v }))
+	_ = DefineCompositeRun("order.fulfill",
+		Member("  ", contractDef, func(in compositeOrderInput) string { return in.OrderID }),
+	)
+}
+
+func TestLegacyCompositeOptionStillWorks(t *testing.T) {
+	reg := NewRegistry()
+	transferUC := DefineRun(
+		"transfer.run",
+		BindKey(func(in compositeOrderInput) string { return in.OrderID }),
+		Composite(
+			DefineCompositeMember("primary", BindResourceID("order", func(in compositeOrderInput) string { return in.OrderID })),
+			DefineCompositeMember("secondary", BindResourceID("order", func(in compositeOrderInput) string { return in.OrderID + "-sec" })),
+		),
+	)
+	if err := reg.Register(transferUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := transferUC.With(compositeOrderInput{OrderID: "123"})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var got []string
+	if err := client.Run(context.Background(), req, func(_ context.Context, lease Lease) error {
+		got = lease.ResourceKeys
+		return nil
+	}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resource keys, got %d", len(got))
+	}
+	if got[0] != "order:123" {
+		t.Fatalf("expected first resource key %q, got %q", "order:123", got[0])
+	}
+	if got[1] != "order:123-sec" {
+		t.Fatalf("expected second resource key %q, got %q", "order:123-sec", got[1])
+	}
+}

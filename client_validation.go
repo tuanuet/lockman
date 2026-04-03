@@ -117,6 +117,14 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 
 		memberIDs := make([]string, 0, len(useCase.config.composite))
 		for _, member := range useCase.config.composite {
+			if member.definitionID != "" {
+				if _, exists := plannedDefs[member.definitionID]; !exists {
+					return clientPlan{}, fmt.Errorf("lockman: composite member %q references unknown definition %q", member.name, member.definitionID)
+				}
+				memberIDs = append(memberIDs, member.definitionID)
+				continue
+			}
+
 			def, err := translateCompositeMemberDefinition(useCase, norm, member)
 			if err != nil {
 				return clientPlan{}, err
@@ -182,6 +190,16 @@ func collectPlannedDefinitions(
 	for _, uc := range useCases {
 		defID := resolveDefinitionID(uc)
 		if defID == "" {
+			// Check if this is a composite use case with shared-definition members.
+			for _, member := range uc.config.composite {
+				if member.definitionID != "" {
+					if definitionKinds[member.definitionID] == nil {
+						definitionKinds[member.definitionID] = make(map[useCaseKind]bool)
+					}
+					definitionKinds[member.definitionID][useCaseKindRun] = true
+					definitionUseCases[member.definitionID] = append(definitionUseCases[member.definitionID], uc)
+				}
+			}
 			continue
 		}
 

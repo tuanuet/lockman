@@ -19,6 +19,21 @@ func DefineRun[T any](name string, binding Binding[T], opts ...UseCaseOption) Ru
 			binding: binding,
 		}
 	}
+
+	// Check if Composite option is present - composite use cases don't create implicit definitions.
+	cfg := useCaseConfig{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	if len(cfg.composite) > 0 {
+		return RunUseCase[T]{
+			core:    newUseCaseCore(name, useCaseKindRun, opts...),
+			binding: binding,
+		}
+	}
+
 	def := DefineLock(name, binding)
 	return DefineRunOn(name, def, opts...)
 }

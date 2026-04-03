@@ -29,6 +29,9 @@ type claimRequest struct {
 // ResourceKeyInputKey is the canonical lock key input map key for normalized requests.
 const ResourceKeyInputKey = "resource_key"
 
+// DefinitionIDInputKey is the input map key carrying a shared definition ID for composite members.
+const DefinitionIDInputKey = "definition_id"
+
 const resourceKeyInputKey = ResourceKeyInputKey
 
 // ClaimDelivery carries normalized claim-delivery metadata.

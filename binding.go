@@ -33,15 +33,17 @@ type useCaseConfig struct {
 }
 
 type compositeMemberConfig struct {
-	name  string
-	rank  int
-	build func(any) (map[string]string, error)
+	name         string
+	rank         int
+	definitionID string
+	build        func(any) (map[string]string, error)
 }
 
 // CompositeMember describes one member of a composite run use case.
 type CompositeMember[T any] struct {
-	name    string
-	binding Binding[T]
+	name         string
+	definitionID string
+	build        func(T) (definitionID string, resourceKey string, err error)
 }
 
 // BindResourceID binds a single resource id and normalizes it to "resource:<id>".
@@ -115,42 +117,99 @@ func Strict() UseCaseOption {
 }
 
 // DefineCompositeMember declares one typed member for a composite run use case.
+// Deprecated: use Member(name, def, project) with a shared LockDefinition instead.
 func DefineCompositeMember[T any](name string, binding Binding[T]) CompositeMember[T] {
 	return CompositeMember[T]{
-		name:    strings.TrimSpace(name),
-		binding: binding,
+		name: strings.TrimSpace(name),
+		build: func(input T) (string, string, error) {
+			if binding.build == nil {
+				return "", "", errBindingFunctionRequired
+			}
+			resourceKey, err := binding.build(input)
+			if err != nil {
+				return "", "", err
+			}
+			return "", resourceKey, nil
+		},
+	}
+}
+
+// Member declares one composite member backed by a shared LockDefinition.
+// The project function transforms the composite input into the member's typed input.
+func Member[TInput any, TMember any](name string, def LockDefinition[TMember], project func(TInput) TMember) CompositeMember[TInput] {
+	if project == nil {
+		panic("lockman: member projection function is required")
+	}
+	if def.ref == nil || def.binding.build == nil {
+		panic("lockman: member definition and binding are required")
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		panic("lockman: member name is required")
+	}
+	defID := def.ref.id
+	return CompositeMember[TInput]{
+		name:         name,
+		definitionID: defID,
+		build: func(input TInput) (string, string, error) {
+			memberInput := project(input)
+			resourceKey, err := def.binding.build(memberInput)
+			if err != nil {
+				return "", "", err
+			}
+			return defID, resourceKey, nil
+		},
+	}
+}
+
+// DefineCompositeRun declares a composite synchronous run use case with shared-definition members.
+func DefineCompositeRun[T any](name string, members ...CompositeMember[T]) RunUseCase[T] {
+	return RunUseCase[T]{
+		core:    newUseCaseCoreWithComposite(name, members...),
+		binding: Binding[T]{},
 	}
 }
 
 // Composite marks a run use case as a composite run made of ordered members.
+// Deprecated: use DefineCompositeRun with Member(name, def, project) instead.
 func Composite[T any](members ...CompositeMember[T]) UseCaseOption {
 	return func(cfg *useCaseConfig) {
-		composite := make([]compositeMemberConfig, 0, len(members))
-		for index, member := range members {
-			member := member
-			composite = append(composite, compositeMemberConfig{
-				name: strings.TrimSpace(member.name),
-				rank: index + 1,
-				build: func(input any) (map[string]string, error) {
-					typed, ok := input.(T)
-					if !ok {
-						return nil, fmt.Errorf("lockman: composite member input type mismatch")
-					}
-					if member.binding.build == nil {
-						return nil, errBindingFunctionRequired
-					}
-					resourceKey, err := member.binding.build(typed)
-					if err != nil {
-						return nil, err
-					}
-					return map[string]string{
-						sdk.ResourceKeyInputKey: resourceKey,
-					}, nil
-				},
-			})
-		}
-		cfg.composite = composite
+		cfg.composite = buildCompositeMemberConfigs(members)
 	}
+}
+
+func buildCompositeMemberConfigs[T any](members []CompositeMember[T]) []compositeMemberConfig {
+	composite := make([]compositeMemberConfig, 0, len(members))
+	for index, member := range members {
+		member := member
+		composite = append(composite, compositeMemberConfig{
+			name:         strings.TrimSpace(member.name),
+			rank:         index + 1,
+			definitionID: member.definitionID,
+			build: func(input any) (map[string]string, error) {
+				typed, ok := input.(T)
+				if !ok {
+					return nil, fmt.Errorf("lockman: composite member input type mismatch")
+				}
+				if member.build == nil {
+					return nil, errBindingFunctionRequired
+				}
+				definitionID, resourceKey, err := member.build(typed)
+				if err != nil {
+					return nil, err
+				}
+				result := map[string]string{
+					sdk.ResourceKeyInputKey: resourceKey,
+				}
+				if definitionID != "" {
+					result[sdk.DefinitionIDInputKey] = definitionID
+				}
+				return result, nil
+			},
+		})
+	}
+	return composite
 }
 
 // OwnerID overrides the owner identity for one call.

@@ -57,6 +57,18 @@ func newUseCaseCoreWithDefinition(name string, kind useCaseKind, def *definition
 	}
 }
 
+func newUseCaseCoreWithComposite[T any](name string, members ...CompositeMember[T]) *useCaseCore {
+	cfg := useCaseConfig{
+		composite: buildCompositeMemberConfigs(members),
+	}
+
+	return &useCaseCore{
+		name:   strings.TrimSpace(name),
+		kind:   useCaseKindRun,
+		config: cfg,
+	}
+}
+
 type registeredUseCase interface {
 	sdkUseCase() *useCaseCore
 }
