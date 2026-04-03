@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-04-03
+
+- Split Redis contention benchmarks to distinguish same-owner and distinct-owner workloads:
+  - Keep `BenchmarkSyncLockLockmanRunRedisContention` as the same-owner case
+  - Add `BenchmarkSyncLockLockmanRunRedisContentionDistinctOwners` for independent-owner contention
+- Clarify performance comparisons against `redislock` by separating local same-owner guard effects from true multi-owner Redis contention
+
 ## [1.3.0] - 2026-04-03
 
 - Add definition-first shared lock authoring with `LockDefinition[T]` and explicit constructors:
