@@ -4,9 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Remove deprecated root-SDK shorthand constructors:
+## [1.4.0] - 2026-04-03
+
+- **Breaking Change**: Remove deprecated root-SDK shorthand constructors:
   - `DefineRun`, `DefineHold`, `DefineClaim` no longer exist
-  - Use `DefineLock`, `DefineRunOn`, `DefineHoldOn`, and `DefineClaimOn` instead
+  - Use `DefineLock` + `DefineRunOn`/`DefineHoldOn`/`DefineClaimOn` instead
+- Remove deprecated `Strict()` UseCaseOption - use `StrictDef()` DefinitionOption instead
+- Remove deprecated `DefineCompositeMember` and `Composite(...)` - use `advanced/composite.DefineLock` and `AttachRun` instead
+- Remove `advanced/strict.DefineRunOn` wrapper - use root API with `StrictDef()` instead
+- Align advanced composite with supported strict model - strict composite members are rejected
+- Update all examples, docs, and tests to use definition-first authoring only
 
 ## [1.3.1] - 2026-04-03
 
