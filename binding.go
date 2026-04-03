@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/tuanuet/lockman/internal/sdk"
 )
 
 var (
@@ -103,37 +101,6 @@ func Idempotent() UseCaseOption {
 	}
 }
 
-// Strict marks a run use case as requiring strict fenced execution.
-// Deprecated: use StrictDef() as a DefinitionOption instead.
-func Strict() UseCaseOption {
-	return func(cfg *useCaseConfig) {
-		if cfg.definitionRef == nil {
-			cfg.definitionRef = &definitionRef{
-				config: definitionConfig{strict: true},
-			}
-		}
-		cfg.definitionRef.config.strict = true
-	}
-}
-
-// DefineCompositeMember declares one typed member for a composite run use case.
-// Deprecated: use Member(name, def, project) with a shared LockDefinition instead.
-func DefineCompositeMember[T any](name string, binding Binding[T]) CompositeMember[T] {
-	return CompositeMember[T]{
-		name: strings.TrimSpace(name),
-		build: func(input T) (string, string, error) {
-			if binding.build == nil {
-				return "", "", errBindingFunctionRequired
-			}
-			resourceKey, err := binding.build(input)
-			if err != nil {
-				return "", "", err
-			}
-			return "", resourceKey, nil
-		},
-	}
-}
-
 // Member declares one composite member backed by a shared LockDefinition.
 // The project function transforms the composite input into the member's typed input.
 func Member[TInput any, TMember any](name string, def LockDefinition[TMember], project func(TInput) TMember) CompositeMember[TInput] {
@@ -174,47 +141,6 @@ func DefineCompositeRunWithOptions[T any](name string, opts []UseCaseOption, mem
 		core:    newUseCaseCoreWithComposite(name, members, opts...),
 		binding: Binding[T]{},
 	}
-}
-
-// Composite marks a run use case as a composite run made of ordered members.
-// Deprecated: use DefineCompositeRun with Member(name, def, project) instead.
-func Composite[T any](members ...CompositeMember[T]) UseCaseOption {
-	return func(cfg *useCaseConfig) {
-		cfg.composite = buildCompositeMemberConfigs(members)
-	}
-}
-
-func buildCompositeMemberConfigs[T any](members []CompositeMember[T]) []compositeMemberConfig {
-	composite := make([]compositeMemberConfig, 0, len(members))
-	for index, member := range members {
-		member := member
-		composite = append(composite, compositeMemberConfig{
-			name:         strings.TrimSpace(member.name),
-			rank:         index + 1,
-			definitionID: member.definitionID,
-			build: func(input any) (map[string]string, error) {
-				typed, ok := input.(T)
-				if !ok {
-					return nil, fmt.Errorf("lockman: composite member input type mismatch")
-				}
-				if member.build == nil {
-					return nil, errBindingFunctionRequired
-				}
-				definitionID, resourceKey, err := member.build(typed)
-				if err != nil {
-					return nil, err
-				}
-				result := map[string]string{
-					sdk.ResourceKeyInputKey: resourceKey,
-				}
-				if definitionID != "" {
-					result[sdk.DefinitionIDInputKey] = definitionID
-				}
-				return result, nil
-			},
-		})
-	}
-	return composite
 }
 
 // OwnerID overrides the owner identity for one call.

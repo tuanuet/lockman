@@ -13,11 +13,11 @@ func TestStrictPackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 	approveDef := lockman.DefineLock(
 		"order.strict-write",
 		lockman.BindResourceID("order", func(v string) string { return v }),
+		lockman.StrictDef(),
 	)
 	approve := DefineRunOn(
 		"order.strict-approve",
 		approveDef,
-		lockman.Strict(),
 	)
 	if err := reg.Register(approve); err != nil {
 		t.Fatalf("Register returned error: %v", err)

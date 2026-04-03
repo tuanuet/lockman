@@ -58,8 +58,37 @@ func newUseCaseCoreWithDefinition(name string, kind useCaseKind, def *definition
 }
 
 func newUseCaseCoreWithComposite[T any](name string, members []CompositeMember[T], opts ...UseCaseOption) *useCaseCore {
+	composite := make([]compositeMemberConfig, 0, len(members))
+	for index, member := range members {
+		member := member
+		composite = append(composite, compositeMemberConfig{
+			name:         strings.TrimSpace(member.name),
+			rank:         index + 1,
+			definitionID: member.definitionID,
+			build: func(input any) (map[string]string, error) {
+				typed, ok := input.(T)
+				if !ok {
+					return nil, fmt.Errorf("lockman: composite member input type mismatch")
+				}
+				if member.build == nil {
+					return nil, errBindingFunctionRequired
+				}
+				definitionID, resourceKey, err := member.build(typed)
+				if err != nil {
+					return nil, err
+				}
+				result := map[string]string{
+					sdk.ResourceKeyInputKey: resourceKey,
+				}
+				if definitionID != "" {
+					result[sdk.DefinitionIDInputKey] = definitionID
+				}
+				return result, nil
+			},
+		})
+	}
 	cfg := useCaseConfig{
-		composite: buildCompositeMemberConfigs(members),
+		composite: composite,
 	}
 	for _, opt := range opts {
 		if opt != nil {
