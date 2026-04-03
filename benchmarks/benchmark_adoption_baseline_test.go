@@ -31,10 +31,8 @@ func BenchmarkAdoptionRunContentionMemory(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("contention-%d", i)
-		uc := lockman.DefineRun[string](
-			"bench.run-contention",
-			lockman.BindResourceID("order", func(v string) string { return v }),
-		)
+		def := lockman.DefineLock("bench.run-contention", lockman.BindResourceID("order", func(v string) string { return v }))
+		uc := lockman.DefineRunOn[string]("bench.run-contention", def)
 
 		reg := lockman.NewRegistry()
 		registerBenchmarkRunUseCase(b, reg, uc)
@@ -220,12 +218,8 @@ func BenchmarkAdoptionCompositeMemory(b *testing.B) {
 }
 
 func BenchmarkAdoptionRenewalMemory(b *testing.B) {
-	uc := lockman.DefineClaim[string](
-		"bench.renewal",
-		lockman.BindResourceID("order", func(v string) string { return v }),
-		lockman.TTL(100*time.Millisecond),
-		lockman.Idempotent(),
-	)
+	def := lockman.DefineLock("bench.renewal", lockman.BindResourceID("order", func(v string) string { return v }))
+	uc := lockman.DefineClaimOn[string]("bench.renewal", def, lockman.TTL(100*time.Millisecond), lockman.Idempotent())
 	client := newBenchmarkClaimClient(b, uc)
 	defer client.Shutdown(context.Background())
 

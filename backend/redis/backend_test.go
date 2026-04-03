@@ -18,10 +18,8 @@ func TestNewBackendCanBeUsedWithRootClientOption(t *testing.T) {
 	defer redisServer.Close()
 
 	reg := lockman.NewRegistry()
-	approve := lockman.DefineRun[string](
-		"order.approve",
-		lockman.BindResourceID("order", func(v string) string { return v }),
-	)
+	def := lockman.DefineLock("order.approve", lockman.BindResourceID("order", func(v string) string { return v }))
+	approve := lockman.DefineRunOn[string]("order.approve", def)
 	if err := reg.Register(approve); err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}

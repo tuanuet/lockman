@@ -12,9 +12,10 @@ import (
 )
 
 func testHoldUseCaseHelper(name string) HoldUseCase[string] {
-	return DefineHold[string](
+	def := DefineLock(name, BindResourceID("order", func(v string) string { return v }))
+	return DefineHoldOn[string](
 		name,
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 		TTL(15*time.Minute),
 	)
 }

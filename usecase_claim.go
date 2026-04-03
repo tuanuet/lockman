@@ -11,18 +11,6 @@ type ClaimUseCase[T any] struct {
 	binding Binding[T]
 }
 
-// Deprecated: use DefineLock plus DefineClaimOn.
-func DefineClaim[T any](name string, binding Binding[T], opts ...UseCaseOption) ClaimUseCase[T] {
-	if strings.TrimSpace(name) == "" || binding.build == nil {
-		return ClaimUseCase[T]{
-			core:    newUseCaseCore(name, useCaseKindClaim, opts...),
-			binding: binding,
-		}
-	}
-	def := DefineLock(name, binding)
-	return DefineClaimOn(name, def, opts...)
-}
-
 // DefineClaimOn declares a typed claim use case on top of a shared lock definition.
 func DefineClaimOn[T any](name string, def LockDefinition[T], opts ...UseCaseOption) ClaimUseCase[T] {
 	return ClaimUseCase[T]{

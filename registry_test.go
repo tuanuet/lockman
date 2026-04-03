@@ -5,14 +5,9 @@ import "testing"
 func TestRegistryRejectsDuplicateUseCaseNames(t *testing.T) {
 	reg := NewRegistry()
 
-	a := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
-	b := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID("order", func(v string) string { return v }))
+	a := DefineRunOn[string]("order.approve", def)
+	b := DefineRunOn[string]("order.approve", def)
 
 	if err := reg.Register(a, b); err == nil {
 		t.Fatal("expected duplicate use case name rejection")
@@ -21,10 +16,8 @@ func TestRegistryRejectsDuplicateUseCaseNames(t *testing.T) {
 
 func TestRegistryRejectsEmptyUseCaseName(t *testing.T) {
 	reg := NewRegistry()
-	uc := DefineRun[string](
-		"   ",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineRunOn[string]("   ", def)
 
 	if err := reg.Register(uc); err == nil {
 		t.Fatal("expected empty use case name rejection")
@@ -34,10 +27,8 @@ func TestRegistryRejectsEmptyUseCaseName(t *testing.T) {
 func TestRegistryRejectsUseCaseFromDifferentRegistry(t *testing.T) {
 	regA := NewRegistry()
 	regB := NewRegistry()
-	uc := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	if err := regA.Register(uc); err != nil {
 		t.Fatalf("first register failed: %v", err)
@@ -50,14 +41,9 @@ func TestRegistryRejectsUseCaseFromDifferentRegistry(t *testing.T) {
 
 func TestRegistryRegisterIsAtomicOnFailure(t *testing.T) {
 	reg := NewRegistry()
-	valid := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
-	invalid := DefineRun[string](
-		"   ",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID("order", func(v string) string { return v }))
+	valid := DefineRunOn[string]("order.approve", def)
+	invalid := DefineRunOn[string]("   ", def)
 
 	if err := reg.Register(valid, invalid); err == nil {
 		t.Fatal("expected batch registration failure")

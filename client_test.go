@@ -83,9 +83,10 @@ func TestNewAllowsNonIdempotentClaimUseCaseWithoutIdempotencyStore(t *testing.T)
 
 func TestNewFailsWhenStrictUseCaseNeedsStrictBackendSupport(t *testing.T) {
 	reg := NewRegistry()
-	uc := DefineRun[string](
+	def := DefineLock("order.strict", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineRunOn[string](
 		"order.strict",
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 		Strict(),
 	)
 	mustRegisterUseCases(t, reg, uc)
@@ -125,9 +126,10 @@ func TestNewFailsWhenLineageUseCaseNeedsLineageBackendSupport(t *testing.T) {
 
 func TestNewFailsWhenHoldUseCaseUsesStrictMode(t *testing.T) {
 	reg := NewRegistry()
-	uc := DefineHold[string](
+	def := DefineLock("order.hold", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineHoldOn[string](
 		"order.hold",
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 		Strict(),
 	)
 	mustRegisterUseCases(t, reg, uc)
@@ -147,9 +149,10 @@ func TestNewFailsWhenHoldUseCaseUsesStrictMode(t *testing.T) {
 
 func TestNewFailsWhenHoldUseCaseUsesCompositeMode(t *testing.T) {
 	reg := NewRegistry()
-	uc := DefineHold[string](
+	def := DefineLock("order.hold", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineHoldOn[string](
 		"order.hold",
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 		Composite(
 			DefineCompositeMember(
 				"order.primary",
@@ -251,9 +254,10 @@ func TestMapEngineErrorPreservesOverlapRejected(t *testing.T) {
 }
 
 func testRunUseCase(name string) RunUseCase[string] {
-	return DefineRun[string](
+	def := DefineLock(name, BindResourceID("order", func(v string) string { return v }))
+	return DefineRunOn[string](
 		name,
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 	)
 }
 
@@ -262,9 +266,10 @@ func testClaimUseCase(name string, idempotent bool) ClaimUseCase[string] {
 	if idempotent {
 		opts = append(opts, Idempotent())
 	}
-	return DefineClaim[string](
+	def := DefineLock(name, BindResourceID("order", func(v string) string { return v }))
+	return DefineClaimOn[string](
 		name,
-		BindResourceID("order", func(v string) string { return v }),
+		def,
 		opts...,
 	)
 }
@@ -1179,9 +1184,10 @@ func TestCompositeRunRejectsEmptyMemberName(t *testing.T) {
 
 func TestLegacyCompositeOptionStillWorks(t *testing.T) {
 	reg := NewRegistry()
-	transferUC := DefineRun(
+	def := DefineLock("transfer.run", BindKey(func(in compositeOrderInput) string { return in.OrderID }))
+	transferUC := DefineRunOn(
 		"transfer.run",
-		BindKey(func(in compositeOrderInput) string { return in.OrderID }),
+		def,
 		Composite(
 			DefineCompositeMember("primary", BindResourceID("order", func(in compositeOrderInput) string { return in.OrderID })),
 			DefineCompositeMember("secondary", BindResourceID("order", func(in compositeOrderInput) string { return in.OrderID + "-sec" })),

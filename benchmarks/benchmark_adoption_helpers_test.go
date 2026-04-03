@@ -33,10 +33,8 @@ func registerBenchmarkHoldUseCase(b *testing.B, reg *lockman.Registry, uc lockma
 }
 
 func benchmarkRunUseCase(name string) lockman.RunUseCase[string] {
-	return lockman.DefineRun[string](
-		name,
-		lockman.BindResourceID("order", func(v string) string { return v }),
-	)
+	def := lockman.DefineLock(name, lockman.BindResourceID("order", func(v string) string { return v }))
+	return lockman.DefineRunOn[string](name, def)
 }
 
 func benchmarkClaimUseCase(name string, idempotent bool) lockman.ClaimUseCase[string] {
@@ -44,19 +42,13 @@ func benchmarkClaimUseCase(name string, idempotent bool) lockman.ClaimUseCase[st
 	if idempotent {
 		opts = append(opts, lockman.Idempotent())
 	}
-	return lockman.DefineClaim[string](
-		name,
-		lockman.BindResourceID("order", func(v string) string { return v }),
-		opts...,
-	)
+	def := lockman.DefineLock(name, lockman.BindResourceID("order", func(v string) string { return v }))
+	return lockman.DefineClaimOn[string](name, def, opts...)
 }
 
 func benchmarkHoldUseCase(name string) lockman.HoldUseCase[string] {
-	return lockman.DefineHold[string](
-		name,
-		lockman.BindResourceID("order", func(v string) string { return v }),
-		lockman.TTL(15*time.Minute),
-	)
+	def := lockman.DefineLock(name, lockman.BindResourceID("order", func(v string) string { return v }))
+	return lockman.DefineHoldOn[string](name, def, lockman.TTL(15*time.Minute))
 }
 
 func newBenchmarkRunClient(b *testing.B, uc lockman.RunUseCase[string]) (*lockman.Client, lockman.RunRequest) {

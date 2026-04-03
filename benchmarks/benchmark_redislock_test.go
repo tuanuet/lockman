@@ -114,11 +114,8 @@ func BenchmarkSyncLockLockmanRunRedisContention(b *testing.B) {
 
 	drv := backendredis.New(client, "")
 
-	uc := lockman.DefineRun[string](
-		"bench.lockman-run-redis-contention",
-		lockman.BindResourceID("order", func(v string) string { return v }),
-		lockman.WaitTimeout(2*time.Second),
-	)
+	def := lockman.DefineLock("bench.lockman-run-redis-contention", lockman.BindResourceID("order", func(v string) string { return v }))
+	uc := lockman.DefineRunOn[string]("bench.lockman-run-redis-contention", def, lockman.WaitTimeout(2*time.Second))
 	reg := lockman.NewRegistry()
 	registerBenchmarkRunUseCase(b, reg, uc)
 
@@ -178,11 +175,8 @@ func BenchmarkSyncLockLockmanRunRedisContentionDistinctOwners(b *testing.B) {
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				ownerID := fmt.Sprintf("bench-worker-%d-%p", p, pb)
-				workerUC := lockman.DefineRun[string](
-					"bench.lockman-run-redis-contention",
-					lockman.BindResourceID("order", func(v string) string { return v }),
-					lockman.WaitTimeout(2*time.Second),
-				)
+				workerDef := lockman.DefineLock("bench.lockman-run-redis-contention", lockman.BindResourceID("order", func(v string) string { return v }))
+				workerUC := lockman.DefineRunOn[string]("bench.lockman-run-redis-contention", workerDef, lockman.WaitTimeout(2*time.Second))
 				workerReg := lockman.NewRegistry()
 				registerBenchmarkRunUseCase(b, workerReg, workerUC)
 				workerClient, err := lockman.New(

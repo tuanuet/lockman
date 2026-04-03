@@ -2,7 +2,6 @@ package lockman
 
 import (
 	"fmt"
-	"strings"
 )
 
 // HoldHandle carries an opaque hold token.
@@ -19,18 +18,6 @@ func (h HoldHandle) Token() string {
 type HoldUseCase[T any] struct {
 	core    *useCaseCore
 	binding Binding[T]
-}
-
-// Deprecated: use DefineLock plus DefineHoldOn.
-func DefineHold[T any](name string, binding Binding[T], opts ...UseCaseOption) HoldUseCase[T] {
-	if strings.TrimSpace(name) == "" || binding.build == nil {
-		return HoldUseCase[T]{
-			core:    newUseCaseCore(name, useCaseKindHold, opts...),
-			binding: binding,
-		}
-	}
-	def := DefineLock(name, binding)
-	return DefineHoldOn(name, def, opts...)
 }
 
 // DefineHoldOn declares a typed hold use case on top of a shared lock definition.

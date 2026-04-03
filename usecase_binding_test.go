@@ -7,10 +7,8 @@ import (
 )
 
 func TestRunUseCaseWithBindsCanonicalResourceKey(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	req, err := uc.With("123")
 	if err != nil {
@@ -23,10 +21,8 @@ func TestRunUseCaseWithBindsCanonicalResourceKey(t *testing.T) {
 }
 
 func TestRunUseCaseWithRejectsEmptyBoundResourceID(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	_, err := uc.With("")
 	if err == nil {
@@ -48,10 +44,8 @@ func TestRunUseCaseWithRejectsInvalidResourcePrefix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			uc := DefineRun[string](
-				"order.approve",
-				BindResourceID(tc.resource, func(v string) string { return v }),
-			)
+			def := DefineLock("order.approve", BindResourceID(tc.resource, func(v string) string { return v }))
+			uc := DefineRunOn[string]("order.approve", def)
 
 			_, err := uc.With("123")
 			if err == nil {
@@ -62,10 +56,8 @@ func TestRunUseCaseWithRejectsInvalidResourcePrefix(t *testing.T) {
 }
 
 func TestRunUseCaseWithTrimsResourcePrefix(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindResourceID(" order ", func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindResourceID(" order ", func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	req, err := uc.With("123")
 	if err != nil {
@@ -77,10 +69,8 @@ func TestRunUseCaseWithTrimsResourcePrefix(t *testing.T) {
 }
 
 func TestBindKeyRejectsEmptyBoundKeyWithGenericError(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindKey(func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindKey(func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	_, err := uc.With("  ")
 	if err == nil {
@@ -92,10 +82,8 @@ func TestBindKeyRejectsEmptyBoundKeyWithGenericError(t *testing.T) {
 }
 
 func TestRunUseCaseWithNilBindResourceIDFunctionReturnsErrorNotPanic(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindResourceID[string]("order", nil),
-	)
+	def := DefineLock("order.approve", BindResourceID[string]("order", nil))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -113,10 +101,8 @@ func TestRunUseCaseWithNilBindResourceIDFunctionReturnsErrorNotPanic(t *testing.
 }
 
 func TestRunUseCaseWithNilBindKeyFunctionReturnsErrorNotPanic(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindKey[string](nil),
-	)
+	def := DefineLock("order.approve", BindKey[string](nil))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -134,10 +120,8 @@ func TestRunUseCaseWithNilBindKeyFunctionReturnsErrorNotPanic(t *testing.T) {
 }
 
 func TestRunUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
-	uc := DefineRun[string](
-		"order.approve",
-		BindKey(func(v string) string { return v }),
-	)
+	def := DefineLock("order.approve", BindKey(func(v string) string { return v }))
+	uc := DefineRunOn[string]("order.approve", def)
 
 	_, err := uc.With("key-1", OwnerID("   "))
 	if err == nil {
@@ -149,11 +133,8 @@ func TestRunUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
 }
 
 func TestClaimUseCaseWithRejectsInvalidDelivery(t *testing.T) {
-	uc := DefineClaim[string](
-		"order.process",
-		BindResourceID("order", func(v string) string { return v }),
-		Idempotent(),
-	)
+	def := DefineLock("order.process", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineClaimOn[string]("order.process", def, Idempotent())
 
 	cases := []struct {
 		name     string
@@ -197,10 +178,8 @@ func TestClaimUseCaseWithRejectsInvalidDelivery(t *testing.T) {
 }
 
 func TestClaimUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
-	uc := DefineClaim[string](
-		"order.process",
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock("order.process", BindResourceID("order", func(v string) string { return v }))
+	uc := DefineClaimOn[string]("order.process", def)
 
 	_, err := uc.With("123", Delivery{
 		MessageID:     "msg-1",

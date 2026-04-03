@@ -8,10 +8,8 @@ import (
 )
 
 func testHoldUseCase(name string) HoldUseCase[string] {
-	return DefineHold[string](
-		name,
-		BindResourceID("order", func(v string) string { return v }),
-	)
+	def := DefineLock(name, BindResourceID("order", func(v string) string { return v }))
+	return DefineHoldOn[string](name, def)
 }
 
 func TestHoldUseCaseWithBindsCanonicalResourceKey(t *testing.T) {
@@ -39,15 +37,14 @@ func TestHoldUseCaseWithRejectsEmptyBoundResourceID(t *testing.T) {
 }
 
 func TestHoldUseCaseWithRejectsNilBinding(t *testing.T) {
-	uc := DefineHold[string]("order.hold", Binding[string]{})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected DefineLock with nil binding to panic")
+		}
+	}()
 
-	_, err := uc.With("123")
-	if err == nil {
-		t.Fatal("expected nil binding to fail")
-	}
-	if err.Error() != "lockman: hold use case binding is required" {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	def := DefineLock("order.hold", Binding[string]{})
+	DefineHoldOn[string]("order.hold", def)
 }
 
 func TestHoldUseCaseWithRejectsEmptyOwnerOverride(t *testing.T) {
