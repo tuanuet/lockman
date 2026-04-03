@@ -55,7 +55,7 @@ func (m *Manager) ExecuteExclusive(
 		return lockerrors.ErrPolicyViolation
 	}
 
-	acquirePlan, err := m.buildAcquirePlan(def, req.KeyInput)
+	acquirePlan, err := m.buildAcquirePlan(def, req.ResourceKey, req.KeyInput)
 	if err != nil {
 		return err
 	}
@@ -258,8 +258,11 @@ func (m *Manager) getDefinition(id string) (definitions.LockDefinition, bool) {
 	return m.registry.Get(id)
 }
 
-func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, input map[string]string) (runtimeAcquirePlan, error) {
+func (m *Manager) buildAcquirePlan(def definitions.LockDefinition, resourceKey string, input map[string]string) (runtimeAcquirePlan, error) {
 	if !m.lineageDefs[def.ID] {
+		if resourceKey != "" {
+			return runtimeAcquirePlan{resourceKey: resourceKey}, nil
+		}
 		resourceKey, err := def.KeyBuilder.Build(input)
 		if err != nil {
 			return runtimeAcquirePlan{}, err

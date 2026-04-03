@@ -178,3 +178,15 @@ func TestRunMapsBusyError(t *testing.T) {
 		t.Fatalf("first Run returned error: %v", err)
 	}
 }
+
+func TestRunUseCaseWithCachesNormalizedUseCase(t *testing.T) {
+	uc := testRunUseCase("order.approve")
+	req, err := uc.With("123")
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	if req.cachedNormalized.DefinitionID() == "" {
+		t.Fatal("expected With to cache normalized use case definition id")
+	}
+}

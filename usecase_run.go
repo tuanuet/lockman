@@ -90,6 +90,7 @@ func (u RunUseCase[T]) With(input T, opts ...CallOption) (RunRequest, error) {
 		req.registryLink = u.core.registry.link
 		req.boundToRegistry = true
 	}
+	req.cachedNormalized = normalizeUseCase(u.core, map[string]int{}, req.registryLink)
 
 	return req, nil
 }

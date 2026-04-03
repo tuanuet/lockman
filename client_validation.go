@@ -22,6 +22,7 @@ type clientPlan struct {
 	hasClaimUseCases      bool
 	hasHoldUseCases       bool
 	definitionIDByUseCase map[string]string
+	lineageDefinitionIDs  map[string]bool
 }
 
 func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
@@ -153,6 +154,7 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	plan := clientPlan{
 		engineRegistry:        engineRegistry,
 		definitionIDByUseCase: definitionIDByUseCase,
+		lineageDefinitionIDs:  lineageDefinitionIDs(engineRegistry.Definitions()),
 	}
 	for _, useCase := range useCases {
 		if useCase.kind == useCaseKindRun {
@@ -167,6 +169,40 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	}
 
 	return plan, nil
+}
+
+func lineageDefinitionIDs(defs []definitions.LockDefinition) map[string]bool {
+	if len(defs) == 0 {
+		return map[string]bool{}
+	}
+
+	parentByID := make(map[string]string, len(defs))
+	marked := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		parent := strings.TrimSpace(def.ParentRef)
+		parentByID[def.ID] = parent
+		if parent != "" {
+			marked[def.ID] = true
+		}
+	}
+
+	changed := true
+	for changed {
+		changed = false
+		for id, isMarked := range marked {
+			if !isMarked {
+				continue
+			}
+			parent := parentByID[id]
+			if parent == "" || marked[parent] {
+				continue
+			}
+			marked[parent] = true
+			changed = true
+		}
+	}
+
+	return marked
 }
 
 type plannedDefinition struct {
@@ -605,9 +641,13 @@ func (c *Client) validateRunRequest(ctx context.Context, req RunRequest) (sdk.Ru
 	if len(req.compositeMemberInputs) > 0 {
 		return sdk.RunRequest{}, identity, nil
 	}
+	normalized := req.cachedNormalized
+	if normalized.DefinitionID() == "" {
+		normalized = normalizeUseCase(req.useCaseCore, map[string]int{}, req.registryLink)
+	}
 
 	return sdk.BindRunRequest(
-		normalizeUseCase(req.useCaseCore, map[string]int{}, req.registryLink),
+		normalized,
 		req.resourceKey,
 		identity.OwnerID,
 	), identity, nil

@@ -112,3 +112,18 @@ func TestTemplateKeyBuilderExposesTemplateMetadata(t *testing.T) {
 		t.Fatalf("unexpected field order: %#v", meta.Fields)
 	}
 }
+
+func TestTemplateKeyBuilderReplacesRepeatedPlaceholder(t *testing.T) {
+	builder, err := NewTemplateKeyBuilder("order:{order_id}:copy:{order_id}", []string{"order_id"})
+	if err != nil {
+		t.Fatalf("unexpected builder error: %v", err)
+	}
+
+	got, err := builder.Build(map[string]string{"order_id": "42"})
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if got != "order:42:copy:42" {
+		t.Fatalf("expected repeated placeholder replacement, got %q", got)
+	}
+}

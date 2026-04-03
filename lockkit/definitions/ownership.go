@@ -23,9 +23,12 @@ type RuntimeOverrides struct {
 // SyncLockRequest is the payload for synchronous acquire attempts.
 type SyncLockRequest struct {
 	DefinitionID string
-	KeyInput     map[string]string
-	Ownership    OwnershipMeta
-	Overrides    *RuntimeOverrides
+	// ResourceKey is an optional fast path for sync execution when caller already has a resolved key.
+	// When empty, runtime falls back to building from KeyInput through the definition key builder.
+	ResourceKey string
+	KeyInput    map[string]string
+	Ownership   OwnershipMeta
+	Overrides   *RuntimeOverrides
 }
 
 // MessageClaimRequest is the payload for asynchronous claimed execution.

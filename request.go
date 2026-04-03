@@ -24,6 +24,7 @@ type RunRequest struct {
 	compositeMemberInputs []map[string]string
 	ownerID               string
 	useCaseCore           *useCaseCore
+	cachedNormalized      sdk.UseCase
 	registryLink          sdk.RegistryLink
 	boundToRegistry       bool
 }

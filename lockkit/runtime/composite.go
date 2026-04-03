@@ -43,7 +43,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 			return lockerrors.ErrPolicyViolation
 		}
 
-		acquirePlan, memberErr := m.buildAcquirePlan(memberDef, req.MemberInputs[i])
+		acquirePlan, memberErr := m.buildAcquirePlan(memberDef, "", req.MemberInputs[i])
 		if memberErr != nil {
 			return memberErr
 		}

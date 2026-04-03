@@ -64,6 +64,51 @@ func TestExecuteExclusiveRunsCallbackWhenLockAcquired(t *testing.T) {
 	}
 }
 
+func TestExecuteExclusiveRunsCallbackWithDirectResourceKey(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "OrderLock",
+		Kind:          definitions.KindParent,
+		Resource:      "order",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("{resource_key}", []string{"resource_key"}),
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	called := false
+	err = mgr.ExecuteExclusive(context.Background(), definitions.SyncLockRequest{
+		DefinitionID: "OrderLock",
+		ResourceKey:  "order:123",
+		Ownership: definitions.OwnershipMeta{
+			ServiceName: "svc",
+			InstanceID:  "one",
+			HandlerName: "UpdateOrder",
+			OwnerID:     "svc:one",
+		},
+	}, func(ctx context.Context, lease definitions.LeaseContext) error {
+		called = true
+		if lease.ResourceKey != "order:123" {
+			t.Fatalf("unexpected resource key: %q", lease.ResourceKey)
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteExclusive returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected callback to run")
+	}
+}
+
 func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{

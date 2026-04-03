@@ -101,7 +101,7 @@ func (t *templateKeyBuilder) Build(input map[string]string) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("missing required field: %s", t.fields[0])
 		}
-		return strings.Replace(t.template, t.placeholders[0], value, 1), nil
+		return strings.ReplaceAll(t.template, t.placeholders[0], value), nil
 	}
 
 	// Multi-field: build replacer from pre-computed placeholders

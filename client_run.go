@@ -56,6 +56,10 @@ func (c *Client) Run(ctx context.Context, req RunRequest, fn func(context.Contex
 	}
 
 	translated := sdk.TranslateRun(normalized)
+	if c.plan.lineageDefinitionIDs != nil && !c.plan.lineageDefinitionIDs[translated.DefinitionID] {
+		translated.ResourceKey = translated.KeyInput[sdk.ResourceKeyInputKey]
+		translated.KeyInput = nil
+	}
 	translated.Ownership.ServiceName = identity.Service
 	translated.Ownership.InstanceID = identity.Instance
 

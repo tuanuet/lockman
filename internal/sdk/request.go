@@ -46,6 +46,16 @@ type RunRequest struct {
 	internal runRequest
 }
 
+// DefinitionID returns the normalized low-level definition identifier.
+func (r RunRequest) DefinitionID() string {
+	return string(r.internal.useCaseID)
+}
+
+// ResourceKey returns the normalized resource key.
+func (r RunRequest) ResourceKey() string {
+	return r.internal.resourceKey
+}
+
 // ClaimRequest is a normalized claim request used by package lockman internals.
 type ClaimRequest struct {
 	internal claimRequest
