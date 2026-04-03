@@ -10,8 +10,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/tuanuet/lockman"
-	"github.com/tuanuet/lockman/advanced/strict"
+	lockman "github.com/tuanuet/lockman"
 	lockredis "github.com/tuanuet/lockman/backend/redis"
 )
 
@@ -22,9 +21,10 @@ type writeInput struct {
 var strictWriteDef = lockman.DefineLock(
 	"order.strict-write",
 	lockman.BindResourceID("order", func(in writeInput) string { return in.OrderID }),
+	lockman.StrictDef(),
 )
 
-var strictWrite = strict.DefineRunOn("order.strict-write", strictWriteDef)
+var strictWrite = lockman.DefineRunOn("order.strict-write", strictWriteDef)
 
 func main() {
 	client, err := redisClientFromEnv()

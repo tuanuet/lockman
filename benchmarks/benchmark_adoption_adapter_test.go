@@ -10,7 +10,6 @@ import (
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/advanced/composite"
-	"github.com/tuanuet/lockman/advanced/strict"
 	backendredis "github.com/tuanuet/lockman/backend/redis"
 	idempotencyredis "github.com/tuanuet/lockman/idempotency/redis"
 )
@@ -96,8 +95,9 @@ func BenchmarkAdoptionStrictRedis(b *testing.B) {
 	strictDef := lockman.DefineLock(
 		"bench.strict-redis",
 		lockman.BindResourceID("order", func(v string) string { return v }),
+		lockman.StrictDef(),
 	)
-	uc := strict.DefineRunOn("bench.strict-redis", strictDef)
+	uc := lockman.DefineRunOn("bench.strict-redis", strictDef)
 	reg := lockman.NewRegistry()
 	if err := reg.Register(uc); err != nil {
 		b.Fatalf("Register returned error: %v", err)

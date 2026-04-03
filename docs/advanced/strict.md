@@ -11,12 +11,13 @@ Use `github.com/tuanuet/lockman/advanced/strict` when a synchronous critical sec
 ## Public Shape
 
 ```go
-approveDef := lockman.DefineLock(
+strictDef := lockman.DefineLock(
 	"order.strict-write",
 	lockman.BindResourceID("order", func(in Input) string { return in.OrderID }),
+	lockman.StrictDef(),
 )
 
-approve := strict.DefineRunOn("order.strict-write", approveDef)
+approve := lockman.DefineRunOn("order.strict-write", strictDef)
 ```
 
 The resulting use case still runs through the normal root client:

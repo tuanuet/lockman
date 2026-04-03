@@ -8,7 +8,6 @@ import (
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/advanced/composite"
-	"github.com/tuanuet/lockman/advanced/strict"
 	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
@@ -125,8 +124,9 @@ func BenchmarkAdoptionStrictMemory(b *testing.B) {
 	strictDef := lockman.DefineLock(
 		"bench.strict",
 		lockman.BindResourceID("order", func(v string) string { return v }),
+		lockman.StrictDef(),
 	)
-	uc := strict.DefineRunOn("bench.strict", strictDef)
+	uc := lockman.DefineRunOn("bench.strict", strictDef)
 	reg := lockman.NewRegistry()
 	if err := reg.Register(uc); err != nil {
 		b.Fatalf("Register returned error: %v", err)
