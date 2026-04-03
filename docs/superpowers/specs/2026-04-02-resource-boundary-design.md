@@ -49,23 +49,33 @@ deleteUC := contract.Variant("delete")
 - Variants register as independent usecases in the registry (unique name)
 - `Variant` is generic: `func (d *Definition[T]) Variant(name string, opts ...UseCaseOption) RunUseCase[T]`
 
-#### 3. Composite with Variants
+#### Composite with Variants
 
 Use the existing `Composite()` option — variants work naturally as composite members:
 
 ```go
-settingUC := lockman.DefineRun("setting", settingBinding)
+// All composite members must share the same input type T
+type SyncInput struct {
+    OrderID   string
+    SettingID string
+}
+
 syncUC := lockman.DefineRun("sync", syncBinding,
     lockman.Composite(
-        lockman.DefineCompositeMember("setting", settingBinding),
-        lockman.DefineCompositeMember("import", contract.Binding()),  // variant binding = base binding
+        lockman.DefineCompositeMember("setting", func(i SyncInput) map[string]string {
+            return map[string]string{"setting_id": i.SettingID}
+        }),
+        lockman.DefineCompositeMember("import", func(i SyncInput) map[string]string {
+            return map[string]string{"order_id": i.OrderID}
+        }),
     ),
 )
 ```
 
-- Composite members use `DefineCompositeMember` with the variant's inherited binding
-- The `Definition` exposes its binding via `Binding() Binding[T]` method
+- Composite members use `DefineCompositeMember` with binding functions that extract the relevant key from the shared input type
+- The `Definition` exposes its binding via `Binding() Binding[T]` method for use in non-composite scenarios
 - Composite atomicity works naturally
+- **Type constraint:** All composite members must share the same `T` as the parent usecase — enforced at compile time
 
 #### 4. Lineage with Variants
 
@@ -312,7 +322,30 @@ func newUseCaseCoreWithConfig(name string, kind useCaseKind, cfg useCaseConfig) 
 }
 ```
 
-#### normalizeUseCase Change
+#### Same-Definition Lineage Enforcement
+
+In `buildClientPlan`, after building `normalizedByName`, check for same-definition lineage:
+
+```go
+for _, useCase := range useCases {
+    parentName := strings.TrimSpace(useCase.config.lineageParent)
+    if parentName == "" {
+        continue
+    }
+    parent, ok := cfg.registry.byName[parentName]
+    if !ok {
+        continue // will be caught by existing lineage parent validation
+    }
+    if useCase.config.definitionID != "" &&
+        useCase.config.definitionID == parent.config.definitionID {
+        return clientPlan{}, fmt.Errorf(
+            "lockman: use case %q cannot use lineage parent %q — both share the same definition",
+            useCase.name, parentName)
+    }
+}
+```
+
+This check runs after all usecases are registered, before engine registry construction.
 
 In `client_validation.go`, when creating `sdk.UseCase`, pass the shared `definitionID`:
 
@@ -354,12 +387,27 @@ func NewUseCaseWithID(name string, definitionID string, kind UseCaseKind, reqs C
 
 #### Backend Change
 
-Add `ForceReleaseDefinition` to `backend.Driver` interface:
+Add `ForceReleaseDriver` as an **optional interface** (following the existing `StrictDriver`/`LineageDriver` pattern):
 
 ```go
-type Driver interface {
-    // ... existing methods ...
+// backend/contracts.go — new optional interface, NOT added to Driver
+type ForceReleaseDriver interface {
     ForceReleaseDefinition(ctx context.Context, definitionID, resourceKey string) error
+}
+```
+
+`Definition.ForceRelease` type-asserts:
+
+```go
+func (d *Definition[T]) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
+    if client == nil {
+        return fmt.Errorf("lockman: client is required")
+    }
+    fr, ok := client.backend.(ForceReleaseDriver)
+    if !ok {
+        return fmt.Errorf("lockman: backend does not support force release")
+    }
+    return fr.ForceReleaseDefinition(ctx, d.id, resourceKey)
 }
 ```
 
@@ -389,7 +437,7 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 | `registry.go` | New: newUseCaseCoreWithConfig function |
 | `client_validation.go` | Modify: normalizeUseCase passes definitionID to SDK |
 | `internal/sdk/usecase.go` | Modify: Add NewUseCaseWithID function |
-| `backend/contracts.go` | Modify: Add ForceReleaseDefinition to Driver interface |
+| `backend/contracts.go` | New: ForceReleaseDriver optional interface |
 | `backend/redis/driver.go` | Modify: Implement ForceReleaseDefinition (includes lineage key cleanup) |
 | `definition_test.go` | New: unit tests for Definition + Variant API |
 | `examples/core/definition-variant/main.go` | New: example usage |
