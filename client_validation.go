@@ -25,6 +25,18 @@ type clientPlan struct {
 	lineageDefinitionIDs  map[string]bool
 }
 
+func findDefinitionStrict(reg *Registry, id string) bool {
+	if reg == nil {
+		return false
+	}
+	for _, defRef := range reg.findDefinitionRefs() {
+		if defRef.id == id || defRef.name == id {
+			return defRef.config.strict
+		}
+	}
+	return false
+}
+
 func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 	if cfg.registry == nil {
 		return clientPlan{}, ErrRegistryRequired
@@ -57,8 +69,16 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 				return clientPlan{}, fmt.Errorf("lockman: hold use case %q does not support composite mode", useCase.name)
 			}
 		}
-		if len(useCase.config.composite) > 0 && useCaseIsStrict(useCase) {
-			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
+		if len(useCase.config.composite) > 0 {
+			if useCaseIsStrict(useCase) {
+				return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict mode", useCase.name)
+			}
+			// Check if any composite member is from a strict definition
+			for _, member := range useCase.config.composite {
+				if member.memberIsStrict {
+					return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict member %q", useCase.name, member.name)
+				}
+			}
 		}
 		parentName := strings.TrimSpace(useCase.config.lineageParent)
 		if parentName == "" {
@@ -83,7 +103,7 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 		return clientPlan{}, wrapCapabilityError(useCases, childCounts, err)
 	}
 
-	plannedDefs, err := collectPlannedDefinitions(useCases, normalizedByName, cfg.registry.link)
+	plannedDefs, err := collectPlannedDefinitions(useCases, normalizedByName, cfg.registry.link, cfg.registry)
 	if err != nil {
 		return clientPlan{}, err
 	}
@@ -117,10 +137,14 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 		}
 
 		memberIDs := make([]string, 0, len(useCase.config.composite))
+		hasStrictMember := false
 		for _, member := range useCase.config.composite {
 			if member.definitionID != "" {
-				if _, exists := plannedDefs[member.definitionID]; !exists {
-					return clientPlan{}, fmt.Errorf("lockman: composite member %q references unknown definition %q", member.name, member.definitionID)
+				// Check if this member definition is strict by checking any use case that uses this definition
+				// If any use case with this definition ID is strict, then it's a strict definition
+				if isDefinitionStrict(useCases, member.definitionID) {
+					hasStrictMember = true
+					break
 				}
 				memberIDs = append(memberIDs, member.definitionID)
 				continue
@@ -134,6 +158,10 @@ func buildClientPlan(cfg *clientConfig) (clientPlan, error) {
 				return clientPlan{}, fmt.Errorf("lockman: register composite member %q for use case %q: %w", member.name, useCase.name, err)
 			}
 			memberIDs = append(memberIDs, def.ID)
+		}
+
+		if hasStrictMember {
+			return clientPlan{}, fmt.Errorf("lockman: composite use case %q does not support strict members", useCase.name)
 		}
 
 		if err := engineRegistry.RegisterComposite(definitions.CompositeDefinition{
@@ -214,6 +242,7 @@ func collectPlannedDefinitions(
 	useCases []*useCaseCore,
 	normalizedByName map[string]sdk.UseCase,
 	link sdk.RegistryLink,
+	reg *Registry,
 ) (map[string]plannedDefinition, error) {
 	definitionKinds := make(map[string]map[useCaseKind]bool)
 	definitionUseCases := make(map[string][]*useCaseCore)
@@ -223,16 +252,65 @@ func collectPlannedDefinitions(
 	definitionIdempotent := make(map[string]bool)
 	definitionLineage := make(map[string]string)
 
+	// Build a map of definition names to their strictness from all definitions in the system
+	// This includes both top-level use case definitions and composite member definitions
+	allDefinitionsStrict := make(map[string]bool)
+	for _, uc := range useCases {
+		defID := resolveDefinitionID(uc)
+		if defID != "" && useCaseIsStrict(uc) {
+			allDefinitionsStrict[defID] = true
+		}
+		// For composite use cases, also check if the composite use case itself or its members are strict
+		for _, member := range uc.config.composite {
+			if member.definitionID != "" && useCaseIsStrict(uc) {
+				allDefinitionsStrict[member.definitionID] = true
+			}
+		}
+	}
+
+	// First pass: collect all definition IDs from composite member references
 	for _, uc := range useCases {
 		defID := resolveDefinitionID(uc)
 		if defID == "" {
-			// Check if this is a composite use case with shared-definition members.
 			for _, member := range uc.config.composite {
 				if member.definitionID != "" {
 					if definitionKinds[member.definitionID] == nil {
 						definitionKinds[member.definitionID] = make(map[useCaseKind]bool)
 					}
 					definitionKinds[member.definitionID][useCaseKindRun] = true
+				}
+			}
+			continue
+		}
+		if definitionKinds[defID] == nil {
+			definitionKinds[defID] = make(map[useCaseKind]bool)
+		}
+	}
+
+	// Second pass: determine strictness from all definitions
+	for _, uc := range useCases {
+		defID := resolveDefinitionID(uc)
+		if defID != "" {
+			if useCaseIsStrict(uc) {
+				definitionStrict[defID] = true
+			}
+			continue
+		}
+		for _, member := range uc.config.composite {
+			if member.definitionID != "" {
+				if useCaseIsStrict(uc) {
+					definitionStrict[member.definitionID] = true
+				}
+			}
+		}
+	}
+
+	// Third pass: collect use case associations and other metadata
+	for _, uc := range useCases {
+		defID := resolveDefinitionID(uc)
+		if defID == "" {
+			for _, member := range uc.config.composite {
+				if member.definitionID != "" {
 					definitionUseCases[member.definitionID] = append(definitionUseCases[member.definitionID], uc)
 					if uc.config.ttl > 0 {
 						if definitionTTLValues[member.definitionID] == nil {
@@ -257,9 +335,6 @@ func collectPlannedDefinitions(
 		definitionKinds[defID][uc.kind] = true
 		definitionUseCases[defID] = append(definitionUseCases[defID], uc)
 
-		if useCaseIsStrict(uc) {
-			definitionStrict[defID] = true
-		}
 		if uc.config.ttl > 0 {
 			if definitionTTLValues[defID] == nil {
 				definitionTTLValues[defID] = make(map[time.Duration][]string)
@@ -387,6 +462,10 @@ func executionKindForDefinition(kinds map[useCaseKind]bool) definitions.Executio
 	hasClaim := kinds[useCaseKindClaim]
 	hasHold := kinds[useCaseKindHold]
 
+	if hasRun && hasClaim {
+		return definitions.ExecutionBoth
+	}
+
 	if hasClaim {
 		return definitions.ExecutionBoth
 	}
@@ -394,6 +473,55 @@ func executionKindForDefinition(kinds map[useCaseKind]bool) definitions.Executio
 		return definitions.ExecutionSync
 	}
 	return definitions.ExecutionSync
+}
+
+func isDefinitionStrict(useCases []*useCaseCore, definitionID string) bool {
+	for _, uc := range useCases {
+		// Check composite members
+		for _, member := range uc.config.composite {
+			if member.definitionID == definitionID {
+				// Check if this member is from a strict definition
+				if isUseCaseUsingStrictDefinition(useCases, uc, definitionID) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isUseCaseUsingStrictDefinition(useCases []*useCaseCore, uc *useCaseCore, definitionID string) bool {
+	if useCaseIsStrict(uc) {
+		return true
+	}
+	for _, otherUC := range useCases {
+		otherDefID := resolveDefinitionID(otherUC)
+		if otherDefID == definitionID && useCaseIsStrict(otherUC) {
+			return true
+		}
+		for _, member := range otherUC.config.composite {
+			if member.definitionID == definitionID && useCaseIsStrict(otherUC) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func collectCompositeMemberDefinitions(useCases []*useCaseCore) map[string]bool {
+	result := make(map[string]bool)
+	for _, uc := range useCases {
+		defID := resolveDefinitionID(uc)
+		if defID != "" && useCaseIsStrict(uc) {
+			result[defID] = true
+		}
+		for _, member := range uc.config.composite {
+			if member.definitionID != "" && useCaseIsStrict(uc) {
+				result[member.definitionID] = true
+			}
+		}
+	}
+	return result
 }
 
 func resolveDefinitionID(uc *useCaseCore) string {

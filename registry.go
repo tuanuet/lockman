@@ -62,9 +62,10 @@ func newUseCaseCoreWithComposite[T any](name string, members []CompositeMember[T
 	for index, member := range members {
 		member := member
 		composite = append(composite, compositeMemberConfig{
-			name:         strings.TrimSpace(member.name),
-			rank:         index + 1,
-			definitionID: member.definitionID,
+			name:           strings.TrimSpace(member.name),
+			rank:           index + 1,
+			definitionID:   member.definitionID,
+			memberIsStrict: member.isStrict,
 			build: func(input any) (map[string]string, error) {
 				typed, ok := input.(T)
 				if !ok {
@@ -109,15 +110,19 @@ type registeredUseCase interface {
 
 // Registry holds centrally registered SDK use cases.
 type Registry struct {
-	byName map[string]*useCaseCore
-	link   sdk.RegistryLink
+	byName    map[string]*useCaseCore
+	byDefName map[string]*definitionRef
+	byDefID   map[string]*definitionRef
+	link      sdk.RegistryLink
 }
 
 // NewRegistry creates an empty use-case registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		byName: make(map[string]*useCaseCore),
-		link:   sdk.NewRegistryLink(),
+		byName:    make(map[string]*useCaseCore),
+		byDefName: make(map[string]*definitionRef),
+		byDefID:   make(map[string]*definitionRef),
+		link:      sdk.NewRegistryLink(),
 	}
 }
 
@@ -169,6 +174,21 @@ func (r *Registry) Register(useCases ...registeredUseCase) error {
 	for _, core := range planned {
 		r.byName[core.name] = core
 		core.registry = r
+		defRef := definitionRefForUseCase(core)
+		if defRef != nil {
+			if defRef.id != "" {
+				if r.byDefID == nil {
+					r.byDefID = make(map[string]*definitionRef)
+				}
+				r.byDefID[defRef.id] = defRef
+			}
+			if defRef.name != "" {
+				if r.byDefName == nil {
+					r.byDefName = make(map[string]*definitionRef)
+				}
+				r.byDefName[defRef.name] = defRef
+			}
+		}
 	}
 	return nil
 }
@@ -189,6 +209,50 @@ func (r *Registry) registeredUseCases() []*useCaseCore {
 		useCases = append(useCases, r.byName[name])
 	}
 	return useCases
+}
+
+func (r *Registry) findDefinition(id string) *definitionRef {
+	if r == nil {
+		return nil
+	}
+	if r.byDefID != nil {
+		if def, exists := r.byDefID[id]; exists {
+			return def
+		}
+	}
+	if r.byDefName != nil {
+		if def, exists := r.byDefName[id]; exists {
+			return def
+		}
+	}
+	for _, core := range r.byName {
+		if core.definition != nil && (core.definition.id == id || core.definition.name == id) {
+			return core.definition
+		}
+		if core.config.definitionRef != nil && (core.config.definitionRef.id == id || core.config.definitionRef.name == id) {
+			return core.config.definitionRef
+		}
+	}
+	return nil
+}
+
+func (r *Registry) findDefinitionRefs() []*definitionRef {
+	if r == nil {
+		return nil
+	}
+	refs := make([]*definitionRef, 0)
+	seen := make(map[*definitionRef]bool)
+	for _, core := range r.byName {
+		if core.definition != nil && !seen[core.definition] {
+			refs = append(refs, core.definition)
+			seen[core.definition] = true
+		}
+		if core.config.definitionRef != nil && !seen[core.config.definitionRef] {
+			refs = append(refs, core.config.definitionRef)
+			seen[core.config.definitionRef] = true
+		}
+	}
+	return refs
 }
 
 func definitionIDForUseCase(core *useCaseCore) string {

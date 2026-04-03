@@ -72,6 +72,23 @@ func (d LockDefinition[T]) DefinitionID() string {
 	return d.ref.name
 }
 
+// Config returns the lock definition configuration.
+func (d LockDefinition[T]) Config() DefinitionConfig {
+	return DefinitionConfig{
+		Strict: d.ref.config.strict,
+	}
+}
+
+// Ref returns the internal definition reference.
+func (d LockDefinition[T]) Ref() *definitionRef {
+	return d.ref
+}
+
+// DefinitionConfig holds configuration for a lock definition.
+type DefinitionConfig struct {
+	Strict bool
+}
+
 // ForceRelease forcibly releases a lock held under this definition.
 func (d LockDefinition[T]) ForceRelease(ctx context.Context, client *Client, resourceKey string) error {
 	if client == nil {
