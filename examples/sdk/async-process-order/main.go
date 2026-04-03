@@ -20,9 +20,14 @@ type processInput struct {
 	OrderID string
 }
 
-var processOrder = lockman.DefineClaim[processInput](
-	"order.process",
+var orderDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in processInput) string { return in.OrderID }),
+)
+
+var processOrder = lockman.DefineClaimOn(
+	"order.process",
+	orderDef,
 	lockman.Idempotent(),
 )
 

@@ -18,10 +18,12 @@ type approveInput struct {
 	OrderID string
 }
 
-var approveOrder = lockman.DefineRun[approveInput](
-	"order.approve",
+var orderDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in approveInput) string { return in.OrderID }),
 )
+
+var approveOrder = lockman.DefineRunOn("order.approve", orderDef)
 
 func main() {
 	client, err := redisClientFromEnv()

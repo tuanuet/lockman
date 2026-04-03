@@ -17,9 +17,14 @@ type shipmentInput struct {
 	ShipmentID string
 }
 
-var shipmentAggregateLock = lockman.DefineRun[shipmentInput](
-	"ShipmentAggregateLock",
+var shipmentDef = lockman.DefineLock(
+	"shipment",
 	lockman.BindResourceID("shipment", func(in shipmentInput) string { return in.ShipmentID }),
+)
+
+var shipmentAggregateLock = lockman.DefineRunOn(
+	"ShipmentAggregateLock",
+	shipmentDef,
 	lockman.TTL(30*time.Second),
 )
 

@@ -17,14 +17,16 @@ type approvalInput struct {
 	OrderID string
 }
 
-var orderApprovalSync = lockman.DefineRun[approvalInput](
-	"OrderApprovalSync",
+var orderApprovalDef = lockman.DefineLock(
+	"order",
 	lockman.BindResourceID("order", func(in approvalInput) string { return in.OrderID }),
 )
 
-var orderApprovalAsync = lockman.DefineClaim[approvalInput](
+var orderApprovalSync = lockman.DefineRunOn("OrderApprovalSync", orderApprovalDef)
+
+var orderApprovalAsync = lockman.DefineClaimOn(
 	"OrderApprovalAsync",
-	lockman.BindResourceID("order", func(in approvalInput) string { return in.OrderID }),
+	orderApprovalDef,
 	lockman.Idempotent(),
 )
 
