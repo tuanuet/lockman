@@ -20,10 +20,14 @@ var errInvalidScriptResponse = errors.New("redis driver: invalid script response
 
 // Driver implements the lock driver contract with Redis-backed lease records.
 type Driver struct {
-	client     goredis.UniversalClient
-	keyPrefix  string
-	encodedIDs map[string]string // definitionID → base64-encoded segment
-	now        func() time.Time
+	client                 goredis.UniversalClient
+	keyPrefix              string
+	encodedIDs             map[string]string // definitionID → base64-encoded segment
+	leaseKeyPrefixes       map[string]string
+	strictFenceKeyPrefixes map[string]string
+	strictTokenKeyPrefixes map[string]string
+	lineageKeyPrefixes     map[string]string
+	now                    func() time.Time
 }
 
 // NewDriver constructs a Redis-backed lock driver.
@@ -436,19 +440,19 @@ func (d *Driver) ForceReleaseDefinition(ctx context.Context, definitionID, resou
 }
 
 func (d *Driver) buildLeaseKey(definitionID, resourceKey string) string {
-	return d.keyPrefix + ":" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
+	return d.keyPrefixFor(d.cachedLeaseKeyPrefix, &d.leaseKeyPrefixes, definitionID) + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildStrictFenceCounterKey(definitionID, resourceKey string) string {
-	return d.keyPrefix + ":fence:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
+	return d.keyPrefixFor(d.cachedStrictFenceKeyPrefix, &d.strictFenceKeyPrefixes, definitionID) + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildStrictTokenKey(definitionID, resourceKey string) string {
-	return d.keyPrefix + ":strict-token:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
+	return d.keyPrefixFor(d.cachedStrictTokenKeyPrefix, &d.strictTokenKeyPrefixes, definitionID) + encodeSegment(resourceKey)
 }
 
 func (d *Driver) buildLineageKey(definitionID, resourceKey string) string {
-	return d.keyPrefix + ":lineage:" + d.encodeDefinitionID(definitionID) + ":" + encodeSegment(resourceKey)
+	return d.keyPrefixFor(d.cachedLineageKeyPrefix, &d.lineageKeyPrefixes, definitionID) + encodeSegment(resourceKey)
 }
 
 func (d *Driver) lineageAcquireKeys(req backend.LineageAcquireRequest) []string {
@@ -538,8 +542,20 @@ func (d *Driver) CacheDefinitionIDs(ids []string) {
 	if d.encodedIDs == nil {
 		d.encodedIDs = make(map[string]string, len(ids))
 	}
+	if d.leaseKeyPrefixes == nil {
+		d.leaseKeyPrefixes = make(map[string]string, len(ids))
+	}
+	if d.strictFenceKeyPrefixes == nil {
+		d.strictFenceKeyPrefixes = make(map[string]string, len(ids))
+	}
+	if d.strictTokenKeyPrefixes == nil {
+		d.strictTokenKeyPrefixes = make(map[string]string, len(ids))
+	}
+	if d.lineageKeyPrefixes == nil {
+		d.lineageKeyPrefixes = make(map[string]string, len(ids))
+	}
 	for _, id := range ids {
-		d.encodedIDs[id] = encodeSegment(id)
+		d.cacheDefinitionID(id)
 	}
 }
 
@@ -547,7 +563,12 @@ func (d *Driver) cacheDefinitionID(id string) {
 	if d.encodedIDs == nil {
 		d.encodedIDs = make(map[string]string)
 	}
-	d.encodedIDs[id] = encodeSegment(id)
+	encoded := encodeSegment(id)
+	d.encodedIDs[id] = encoded
+	d.cachedLeaseKeyPrefix(id, encoded)
+	d.cachedStrictFenceKeyPrefix(id, encoded)
+	d.cachedStrictTokenKeyPrefix(id, encoded)
+	d.cachedLineageKeyPrefix(id, encoded)
 }
 
 func (d *Driver) encodeDefinitionID(id string) string {
@@ -560,6 +581,56 @@ func (d *Driver) encodeDefinitionID(id string) string {
 		return encoded
 	}
 	return encodeSegment(id)
+}
+
+func (d *Driver) keyPrefixFor(
+	build func(string, string) string,
+	cache *map[string]string,
+	definitionID string,
+) string {
+	if *cache != nil {
+		if prefix, ok := (*cache)[definitionID]; ok {
+			return prefix
+		}
+	}
+	encoded := d.encodeDefinitionID(definitionID)
+	return build(definitionID, encoded)
+}
+
+func (d *Driver) cachedLeaseKeyPrefix(definitionID, encoded string) string {
+	if d.leaseKeyPrefixes == nil {
+		d.leaseKeyPrefixes = make(map[string]string)
+	}
+	prefix := d.keyPrefix + ":" + encoded + ":"
+	d.leaseKeyPrefixes[definitionID] = prefix
+	return prefix
+}
+
+func (d *Driver) cachedStrictFenceKeyPrefix(definitionID, encoded string) string {
+	if d.strictFenceKeyPrefixes == nil {
+		d.strictFenceKeyPrefixes = make(map[string]string)
+	}
+	prefix := d.keyPrefix + ":fence:" + encoded + ":"
+	d.strictFenceKeyPrefixes[definitionID] = prefix
+	return prefix
+}
+
+func (d *Driver) cachedStrictTokenKeyPrefix(definitionID, encoded string) string {
+	if d.strictTokenKeyPrefixes == nil {
+		d.strictTokenKeyPrefixes = make(map[string]string)
+	}
+	prefix := d.keyPrefix + ":strict-token:" + encoded + ":"
+	d.strictTokenKeyPrefixes[definitionID] = prefix
+	return prefix
+}
+
+func (d *Driver) cachedLineageKeyPrefix(definitionID, encoded string) string {
+	if d.lineageKeyPrefixes == nil {
+		d.lineageKeyPrefixes = make(map[string]string)
+	}
+	prefix := d.keyPrefix + ":lineage:" + encoded + ":"
+	d.lineageKeyPrefixes[definitionID] = prefix
+	return prefix
 }
 
 func parsePresenceResult(raw interface{}) (bool, string, time.Duration, error) {

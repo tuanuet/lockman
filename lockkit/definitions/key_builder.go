@@ -2,6 +2,7 @@ package definitions
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -32,6 +33,12 @@ type templateKeyBuilder struct {
 	template     string
 	fields       []string
 	placeholders []string // pre-computed: "{field_name}"
+	segments     []templateSegment
+}
+
+type templateSegment struct {
+	literal    string
+	fieldIndex int
 }
 
 // NewTemplateKeyBuilder returns a KeyBuilder that fills placeholders from the provided template.
@@ -68,10 +75,47 @@ func NewTemplateKeyBuilder(template string, fields []string) (KeyBuilder, error)
 	for i, field := range ordered {
 		placeholders[i] = "{" + field + "}"
 	}
+	type placeholderMatch struct {
+		start      int
+		end        int
+		fieldIndex int
+	}
+	matches := make([]placeholderMatch, 0, len(placeholders))
+	for i, placeholder := range placeholders {
+		searchFrom := 0
+		for {
+			idx := strings.Index(template[searchFrom:], placeholder)
+			if idx < 0 {
+				break
+			}
+			start := searchFrom + idx
+			matches = append(matches, placeholderMatch{
+				start:      start,
+				end:        start + len(placeholder),
+				fieldIndex: i,
+			})
+			searchFrom = start + len(placeholder)
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("template missing placeholder for field %s", placeholder)
+		}
+	}
+	slices.SortFunc(matches, func(a, b placeholderMatch) int {
+		return a.start - b.start
+	})
+	segments := make([]templateSegment, 0, len(matches)*2+1)
+	last := 0
+	for _, match := range matches {
+		segments = append(segments, templateSegment{literal: template[last:match.start], fieldIndex: -1})
+		segments = append(segments, templateSegment{fieldIndex: match.fieldIndex})
+		last = match.end
+	}
+	segments = append(segments, templateSegment{literal: template[last:], fieldIndex: -1})
 	return &templateKeyBuilder{
 		template:     template,
 		fields:       fieldsCopy,
 		placeholders: placeholders,
+		segments:     segments,
 	}, nil
 }
 
@@ -105,15 +149,30 @@ func (t *templateKeyBuilder) Build(input map[string]string) (string, error) {
 	}
 
 	// Multi-field: build replacer from pre-computed placeholders
-	replacements := make([]string, 0, len(t.fields)*2)
+	values := make([]string, len(t.fields))
+	totalLen := 0
 	for i, field := range t.fields {
 		value, ok := input[field]
 		if !ok {
 			return "", fmt.Errorf("missing required field: %s", field)
 		}
-		replacements = append(replacements, t.placeholders[i], value)
+		values[i] = value
+		totalLen += len(value)
 	}
-	return strings.NewReplacer(replacements...).Replace(t.template), nil
+	for _, segment := range t.segments {
+		totalLen += len(segment.literal)
+	}
+
+	var b strings.Builder
+	b.Grow(totalLen)
+	for _, segment := range t.segments {
+		if segment.fieldIndex >= 0 {
+			b.WriteString(values[segment.fieldIndex])
+			continue
+		}
+		b.WriteString(segment.literal)
+	}
+	return b.String(), nil
 }
 
 func (t *templateKeyBuilder) TemplateMetadata() TemplateBuilderMetadata {

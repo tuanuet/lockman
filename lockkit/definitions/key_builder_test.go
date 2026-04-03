@@ -127,3 +127,25 @@ func TestTemplateKeyBuilderReplacesRepeatedPlaceholder(t *testing.T) {
 		t.Fatalf("expected repeated placeholder replacement, got %q", got)
 	}
 }
+
+func TestTemplateKeyBuilderBuildMultiFieldRepeatedPlaceholders(t *testing.T) {
+	builder, err := NewTemplateKeyBuilder(
+		"tenant:{tenant_id}:order:{order_id}:copy:{order_id}",
+		[]string{"tenant_id", "order_id"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected builder error: %v", err)
+	}
+
+	got, err := builder.Build(map[string]string{
+		"tenant_id": "acme",
+		"order_id":  "42",
+	})
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+
+	if got != "tenant:acme:order:42:copy:42" {
+		t.Fatalf("unexpected build result: %q", got)
+	}
+}
