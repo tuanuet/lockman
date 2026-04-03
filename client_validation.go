@@ -234,6 +234,18 @@ func collectPlannedDefinitions(
 					}
 					definitionKinds[member.definitionID][useCaseKindRun] = true
 					definitionUseCases[member.definitionID] = append(definitionUseCases[member.definitionID], uc)
+					if uc.config.ttl > 0 {
+						if definitionTTLValues[member.definitionID] == nil {
+							definitionTTLValues[member.definitionID] = make(map[time.Duration][]string)
+						}
+						definitionTTLValues[member.definitionID][uc.config.ttl] = append(definitionTTLValues[member.definitionID][uc.config.ttl], uc.name)
+					}
+					if uc.config.wait > 0 {
+						if definitionWaitValues[member.definitionID] == nil {
+							definitionWaitValues[member.definitionID] = make(map[time.Duration][]string)
+						}
+						definitionWaitValues[member.definitionID][uc.config.wait] = append(definitionWaitValues[member.definitionID][uc.config.wait], uc.name)
+					}
 				}
 			}
 			continue

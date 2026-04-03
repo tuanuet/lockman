@@ -93,10 +93,11 @@ func BenchmarkAdoptionStrictRedis(b *testing.B) {
 
 	drv := backendredis.New(client, "")
 
-	uc := strict.DefineRun[string](
+	strictDef := lockman.DefineLock(
 		"bench.strict-redis",
 		lockman.BindResourceID("order", func(v string) string { return v }),
 	)
+	uc := strict.DefineRunOn("bench.strict-redis", strictDef)
 	reg := lockman.NewRegistry()
 	if err := reg.Register(uc); err != nil {
 		b.Fatalf("Register returned error: %v", err)
@@ -139,10 +140,10 @@ func BenchmarkAdoptionCompositeRedis(b *testing.B) {
 
 	drv := backendredis.New(client, "")
 
-	uc := composite.DefineRun[compositeInput]("bench.composite-redis",
-		composite.DefineMember("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A })),
-		composite.DefineMember("beta", lockman.BindResourceID("beta", func(in compositeInput) string { return in.B })),
-	)
+	alphaDef := lockman.DefineLock("alpha", lockman.BindResourceID("alpha", func(in compositeInput) string { return in.A }))
+	betaDef := lockman.DefineLock("beta", lockman.BindResourceID("beta", func(in compositeInput) string { return in.B }))
+	compositeDef := composite.DefineLock("bench.composite-redis", alphaDef, betaDef)
+	uc := composite.AttachRun("bench.composite-redis", compositeDef)
 
 	reg := lockman.NewRegistry()
 	if err := reg.Register(uc); err != nil {

@@ -17,14 +17,20 @@ type transferInput struct {
 
 func TestCompositePackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 	reg := lockman.NewRegistry()
-	transfer := DefineRunWithOptions(
-		"transfer.run",
-		[]lockman.UseCaseOption{
-			lockman.TTL(5 * time.Second),
-		},
-		DefineMember("account", lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID })),
-		DefineMember("ledger", lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID })),
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
 	)
+	ledgerDef := lockman.DefineLock(
+		"ledger",
+		lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		accountDef,
+		ledgerDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
 	if err := reg.Register(transfer); err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
@@ -63,12 +69,20 @@ func TestCompositePackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 
 func TestCompositePackageRejectsStrictCompositeRuns(t *testing.T) {
 	reg := lockman.NewRegistry()
-	transfer := DefineRunWithOptions(
-		"transfer.strict",
-		[]lockman.UseCaseOption{lockman.Strict()},
-		DefineMember("account", lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID })),
-		DefineMember("ledger", lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID })),
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
 	)
+	ledgerDef := lockman.DefineLock(
+		"ledger",
+		lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		accountDef,
+		ledgerDef,
+	)
+	transfer := AttachRun("transfer.strict", transferDef, lockman.Strict())
 	if err := reg.Register(transfer); err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}

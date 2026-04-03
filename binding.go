@@ -165,8 +165,13 @@ func Member[TInput any, TMember any](name string, def LockDefinition[TMember], p
 
 // DefineCompositeRun declares a composite synchronous run use case with shared-definition members.
 func DefineCompositeRun[T any](name string, members ...CompositeMember[T]) RunUseCase[T] {
+	return DefineCompositeRunWithOptions(name, nil, members...)
+}
+
+// DefineCompositeRunWithOptions declares a composite synchronous run use case with shared-definition members and run options.
+func DefineCompositeRunWithOptions[T any](name string, opts []UseCaseOption, members ...CompositeMember[T]) RunUseCase[T] {
 	return RunUseCase[T]{
-		core:    newUseCaseCoreWithComposite(name, members...),
+		core:    newUseCaseCoreWithComposite(name, members, opts...),
 		binding: Binding[T]{},
 	}
 }

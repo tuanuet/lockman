@@ -22,14 +22,19 @@ type transferInput struct {
 	LedgerID  string
 }
 
-var transferFunds = composite.DefineRunWithOptions(
-	"transfer.run",
-	[]lockman.UseCaseOption{
-		lockman.TTL(5 * time.Second),
-	},
-	composite.DefineMember("account", lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID })),
-	composite.DefineMember("ledger", lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID })),
+var accountDef = lockman.DefineLock(
+	"account",
+	lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
 )
+
+var ledgerDef = lockman.DefineLock(
+	"ledger",
+	lockman.BindResourceID("ledger", func(in transferInput) string { return in.LedgerID }),
+)
+
+var transferFundsDef = composite.DefineLock("transfer", accountDef, ledgerDef)
+
+var transferFunds = composite.AttachRun("transfer.run", transferFundsDef, lockman.TTL(5*time.Second))
 
 func main() {
 	client, err := redisClientFromEnv()
