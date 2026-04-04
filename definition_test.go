@@ -197,3 +197,33 @@ func (d *mockForceReleaseDriver) ForceReleaseDefinition(ctx context.Context, def
 	}
 	return nil
 }
+
+func TestFailIfHeldDefSetsDefinitionConfig(t *testing.T) {
+	def := DefineLock("order", BindResourceID("order", func(v string) string { return v }), FailIfHeldDef())
+
+	cfg := def.Config()
+	if !cfg.FailIfHeld {
+		t.Fatal("expected FailIfHeld to be true when using FailIfHeldDef()")
+	}
+}
+
+func TestFailIfHeldDefCanBeCombinedWithStrictDef(t *testing.T) {
+	def := DefineLock("order", BindResourceID("order", func(v string) string { return v }), StrictDef(), FailIfHeldDef())
+
+	cfg := def.Config()
+	if !cfg.Strict {
+		t.Fatal("expected Strict to be true")
+	}
+	if !cfg.FailIfHeld {
+		t.Fatal("expected FailIfHeld to be true when combined with StrictDef()")
+	}
+}
+
+func TestDefinitionConfigDefaultsFailIfHeldToFalse(t *testing.T) {
+	def := DefineLock("order", BindResourceID("order", func(v string) string { return v }))
+
+	cfg := def.Config()
+	if cfg.FailIfHeld {
+		t.Fatal("expected FailIfHeld to default to false")
+	}
+}

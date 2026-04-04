@@ -9,7 +9,8 @@ import (
 type DefinitionOption func(*definitionConfig)
 
 type definitionConfig struct {
-	strict bool
+	strict     bool
+	failIfHeld bool
 }
 
 type definitionRef struct {
@@ -62,6 +63,13 @@ func StrictDef() DefinitionOption {
 	}
 }
 
+// FailIfHeldDef marks a lock definition to fail immediately if the lock is already held.
+func FailIfHeldDef() DefinitionOption {
+	return func(cfg *definitionConfig) {
+		cfg.failIfHeld = true
+	}
+}
+
 // stableDefinitionID returns a name-based stable identifier.
 func stableDefinitionID(name string) string {
 	return name
@@ -75,7 +83,8 @@ func (d LockDefinition[T]) DefinitionID() string {
 // Config returns the lock definition configuration.
 func (d LockDefinition[T]) Config() DefinitionConfig {
 	return DefinitionConfig{
-		Strict: d.ref.config.strict,
+		Strict:     d.ref.config.strict,
+		FailIfHeld: d.ref.config.failIfHeld,
 	}
 }
 
@@ -86,7 +95,8 @@ func (d LockDefinition[T]) Ref() *definitionRef {
 
 // DefinitionConfig holds configuration for a lock definition.
 type DefinitionConfig struct {
-	Strict bool
+	Strict     bool
+	FailIfHeld bool
 }
 
 // ForceRelease forcibly releases a lock held under this definition.
