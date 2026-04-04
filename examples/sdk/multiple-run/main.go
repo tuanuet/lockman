@@ -61,14 +61,14 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	req2, _ := batchProcess.With(batchOrderInput{OrderID: "2"})
 	req3, _ := batchProcess.With(batchOrderInput{OrderID: "3"})
 
-	if err := client.RunMultiple(context.Background(), func(_ context.Context, lease lockman.Lease) error {
+	if err := client.RunMultiple(context.Background(), []lockman.RunRequest{req1, req2, req3}, func(_ context.Context, lease lockman.Lease) error {
 		joined := strings.Join(lease.ResourceKeys, ",")
 		if _, err := fmt.Fprintf(out, "batch locked: %s\n", joined); err != nil {
 			return err
 		}
 		_, err := fmt.Fprintf(out, "lease ttl: %s\n", lease.LeaseTTL)
 		return err
-	}, []lockman.RunRequest{req1, req2, req3}); err != nil {
+	}); err != nil {
 		return err
 	}
 

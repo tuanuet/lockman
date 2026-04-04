@@ -37,10 +37,10 @@ req1, _ := batchUC.With(BatchInput{OrderID: "1"})
 req2, _ := batchUC.With(BatchInput{OrderID: "2"})
 req3, _ := batchUC.With(BatchInput{OrderID: "3"})
 
-err := client.RunMultiple(ctx, func(ctx context.Context, lease lockman.Lease) error {
+err := client.RunMultiple(ctx, []lockman.RunRequest{req1, req2, req3}, func(ctx context.Context, lease lockman.Lease) error {
     // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
     return processBatch(ctx, lease.ResourceKeys)
-}, []lockman.RunRequest{req1, req2, req3})
+})
 ```
 
 ### Behavior

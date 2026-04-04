@@ -16,8 +16,8 @@ const maxMultipleKeys = 100
 // All requests must belong to the same use case and be built via RunUseCase.With.
 func (c *Client) RunMultiple(
 	ctx context.Context,
-	fn func(ctx context.Context, lease Lease) error,
 	requests []RunRequest,
+	fn func(ctx context.Context, lease Lease) error,
 ) error {
 	if c == nil {
 		return fmt.Errorf("lockman: client is nil")

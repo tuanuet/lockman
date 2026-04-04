@@ -41,10 +41,10 @@ func TestRunMultipleAcquiresAllKeys(t *testing.T) {
 	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
 
 	var gotKeys []string
-	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), []RunRequest{req1, req2, req3}, func(ctx context.Context, lease Lease) error {
 		gotKeys = append([]string(nil), lease.ResourceKeys...)
 		return nil
-	}, []RunRequest{req1, req2, req3})
+	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -82,10 +82,10 @@ func TestRunMultipleAllOrNothing(t *testing.T) {
 	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
 
 	called := false
-	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), []RunRequest{req1, req2, req3}, func(ctx context.Context, lease Lease) error {
 		called = true
 		return nil
-	}, []RunRequest{req1, req2, req3})
+	})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -120,9 +120,9 @@ func TestRunMultipleRejectsEmptyRequests(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), []RunRequest{}, func(ctx context.Context, lease Lease) error {
 		return nil
-	}, []RunRequest{})
+	})
 
 	if err == nil {
 		t.Fatal("expected error for empty requests")
@@ -154,9 +154,9 @@ func TestRunMultipleRejectsDuplicateKeys(t *testing.T) {
 	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
 	req2, _ := batchUC.With(batchOrderInput{OrderID: "1"})
 
-	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), []RunRequest{req1, req2}, func(ctx context.Context, lease Lease) error {
 		return nil
-	}, []RunRequest{req1, req2})
+	})
 
 	if err == nil {
 		t.Fatal("expected error for duplicate keys")
@@ -187,7 +187,7 @@ func TestRunMultipleRejectsNilCallback(t *testing.T) {
 
 	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
 
-	err = client.RunMultiple(context.Background(), nil, []RunRequest{req1})
+	err = client.RunMultiple(context.Background(), []RunRequest{req1}, nil)
 
 	if err == nil {
 		t.Fatal("expected error for nil callback")
