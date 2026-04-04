@@ -680,6 +680,116 @@ func (d *failingCompositeDriver) releasedKeys() []string {
 	return append([]string(nil), d.released...)
 }
 
+func TestExecuteCompositeExclusiveFailsPreconditionBeforeAnyAcquire(t *testing.T) {
+	reg := newFailIfHeldCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+
+	holder, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+	compositeMgr, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- holder.ExecuteExclusive(context.Background(), failIfHeldSyncRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	callbackCalled := false
+	err = compositeMgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		callbackCalled = true
+		return nil
+	})
+
+	if !errors.Is(err, lockerrors.ErrPreconditionFailed) {
+		t.Fatalf("expected ErrPreconditionFailed, got %v", err)
+	}
+	if callbackCalled {
+		t.Fatal("callback should not run when precondition fails")
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("fail-if-held holder returned error: %v", err)
+	}
+}
+
+func newFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "FailIfHeldMember",
+		Kind:             definitions.KindParent,
+		Resource:         "account",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		Rank:             10,
+		CheckOnlyAllowed: true,
+		FailIfHeld:       true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("account:{account_id}", []string{"account_id"}),
+	}); err != nil {
+		t.Fatalf("register FailIfHeldMember failed: %v", err)
+	}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:            "NormalMember",
+		Kind:          definitions.KindParent,
+		Resource:      "ledger",
+		Mode:          definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:      30 * time.Second,
+		Rank:          20,
+		KeyBuilder:    definitions.MustTemplateKeyBuilder("ledger:{ledger_id}", []string{"ledger_id"}),
+	}); err != nil {
+		t.Fatalf("register NormalMember failed: %v", err)
+	}
+
+	if err := reg.RegisterComposite(definitions.CompositeDefinition{
+		ID:               "FailIfHeldComposite",
+		Members:          []string{"FailIfHeldMember", "NormalMember"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   2,
+		ExecutionKind:    definitions.ExecutionSync,
+	}); err != nil {
+		t.Fatalf("register FailIfHeldComposite failed: %v", err)
+	}
+
+	return reg
+}
+
+func failIfHeldCompositeRequest() definitions.CompositeLockRequest {
+	return definitions.CompositeLockRequest{
+		DefinitionID: "FailIfHeldComposite",
+		MemberInputs: []map[string]string{
+			{"account_id": "acct-123"},
+			{"ledger_id": "ledger-456"},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:composite"},
+	}
+}
+
+func failIfHeldSyncRequest() definitions.SyncLockRequest {
+	return definitions.SyncLockRequest{
+		DefinitionID: "FailIfHeldMember",
+		KeyInput:     map[string]string{"account_id": "acct-123"},
+		Ownership:    definitions.OwnershipMeta{OwnerID: "svc:holder"},
+	}
+}
+
 func TestExecuteCompositeExclusiveEmitsBridgeEvents(t *testing.T) {
 	reg := newCompositeRegistry(t)
 	driver := testkit.NewMemoryDriver()

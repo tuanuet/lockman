@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	stdErrors "errors"
+	"fmt"
 	"time"
 
 	"github.com/tuanuet/lockman/lockkit/definitions"
@@ -37,6 +38,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 	memberDefs := make([]definitions.LockDefinition, len(compositeDef.Members))
 	memberKeys := make([]string, len(compositeDef.Members))
 	memberPlans := make(map[compositePlanKey][]runtimeAcquirePlan, len(compositeDef.Members))
+	memberKeyInputs := make(map[string]map[string]string, len(compositeDef.Members))
 	for i, memberID := range compositeDef.Members {
 		memberDef, memberOk := m.getDefinition(memberID)
 		if !memberOk {
@@ -52,6 +54,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 		memberKeys[i] = acquirePlan.resourceKey
 		key := compositePlanKey{definitionID: memberDef.ID, resourceKey: acquirePlan.resourceKey}
 		memberPlans[key] = append(memberPlans[key], acquirePlan)
+		memberKeyInputs[memberDef.ID] = req.MemberInputs[i]
 	}
 
 	plan, err := policy.CanonicalizeMembers(memberDefs, memberKeys)
@@ -60,6 +63,31 @@ func (m *Manager) ExecuteCompositeExclusive(
 	}
 	if err := rejectCompositeOverlap(plan); err != nil {
 		return err
+	}
+
+	for _, member := range plan {
+		if !member.Definition.FailIfHeld {
+			continue
+		}
+		keyInput := memberKeyInputs[member.Definition.ID]
+		status, checkErr := m.CheckPresence(ctx, definitions.PresenceCheckRequest{
+			DefinitionID: member.Definition.ID,
+			KeyInput:     keyInput,
+			Ownership:    req.Ownership,
+		})
+		if checkErr != nil {
+			return checkErr
+		}
+		if status.State == definitions.PresenceHeld {
+			return fmt.Errorf("lockman: composite member %q is held by %q: %w", member.ResourceKey, status.OwnerID, lockerrors.ErrPreconditionFailed)
+		}
+	}
+
+	acquiringCount := 0
+	for _, member := range plan {
+		if !member.Definition.FailIfHeld {
+			acquiringCount++
+		}
 	}
 
 	waitConfigs := make([]waitConfig, len(plan))
@@ -81,8 +109,12 @@ func (m *Manager) ExecuteCompositeExclusive(
 		}
 	}()
 
-	guardKeys := make([]guardKey, 0, len(plan))
+	guardKeys := make([]guardKey, 0, acquiringCount)
+	guardIndex := make(map[string]int, acquiringCount)
 	for _, member := range plan {
+		if member.Definition.FailIfHeld {
+			continue
+		}
 		key := guardKey{
 			definitionID: member.Definition.ID,
 			resourceKey:  member.ResourceKey,
@@ -91,6 +123,7 @@ func (m *Manager) ExecuteCompositeExclusive(
 		if _, loaded := m.active.LoadOrStore(key, guardEntry{state: guardPending}); loaded {
 			return lockerrors.ErrReentrantAcquire
 		}
+		guardIndex[member.Definition.ID+member.ResourceKey] = len(guardKeys)
 		guardKeys = append(guardKeys, key)
 	}
 	guardInstalled := true
@@ -136,6 +169,9 @@ func (m *Manager) ExecuteCompositeExclusive(
 	}()
 
 	for i, member := range plan {
+		if member.Definition.FailIfHeld {
+			continue
+		}
 		acquirePlan, ok := popCompositeAcquirePlan(memberPlans, member.Definition.ID, member.ResourceKey)
 		if !ok {
 			return lockerrors.ErrPolicyViolation
@@ -176,7 +212,11 @@ func (m *Manager) ExecuteCompositeExclusive(
 			member: member,
 			held:   lease,
 		})
-		m.active.Store(guardKeys[i], guardEntry{state: guardHeld})
+		guardIdx, ok := guardIndex[member.Definition.ID+member.ResourceKey]
+		if !ok {
+			return lockerrors.ErrPolicyViolation
+		}
+		m.active.Store(guardKeys[guardIdx], guardEntry{state: guardHeld})
 		m.activeCounter(member.Definition.ID).Add(1)
 		m.recordActiveLocks(ctx, member.Definition.ID)
 	}
