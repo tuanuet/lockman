@@ -790,6 +790,167 @@ func failIfHeldSyncRequest() definitions.SyncLockRequest {
 	}
 }
 
+func TestExecuteCompositeExclusiveExcludesFailIfHeldMembersFromLeaseContext(t *testing.T) {
+	reg := newFailIfHeldCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	mgr, err := NewManager(reg, driver, nil)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	var gotLease definitions.LeaseContext
+	err = mgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		gotLease = lease
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	if len(gotLease.ResourceKeys) != 1 {
+		t.Fatalf("expected 1 resource key (normal member only), got %d: %v", len(gotLease.ResourceKeys), gotLease.ResourceKeys)
+	}
+	if gotLease.ResourceKeys[0] != "ledger:ledger-456" {
+		t.Fatalf("expected resource key 'ledger:ledger-456', got %q", gotLease.ResourceKeys[0])
+	}
+	if gotLease.LeaseTTL == 0 {
+		t.Fatal("expected non-zero LeaseTTL from acquired member")
+	}
+	if gotLease.LeaseDeadline.IsZero() {
+		t.Fatal("expected non-zero LeaseDeadline from acquired member")
+	}
+}
+
+func TestExecuteCompositeExclusiveDoesNotTrackFailIfHeldMembersAsActive(t *testing.T) {
+	reg := newFailIfHeldCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	rec := &countingRecorder{}
+	mgr, err := NewManager(reg, driver, rec)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	err = mgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	activeCounts := rec.activeCounts()
+	if len(activeCounts) < 1 {
+		t.Fatalf("expected at least 1 active lock recording, got %d", len(activeCounts))
+	}
+	maxCount := 0
+	for _, c := range activeCounts {
+		if c > maxCount {
+			maxCount = c
+		}
+	}
+	if maxCount != 1 {
+		t.Fatalf("expected max active count of 1 (normal member only), got %d from %v", maxCount, activeCounts)
+	}
+}
+
+func TestExecuteCompositeExclusiveAllowsAllPreconditionsComposite(t *testing.T) {
+	reg := newAllFailIfHeldCompositeRegistry(t)
+	driver := testkit.NewMemoryDriver()
+	rec := &countingRecorder{}
+	mgr, err := NewManager(reg, driver, rec)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	var gotLease definitions.LeaseContext
+	callbackCalled := false
+	err = mgr.ExecuteCompositeExclusive(context.Background(), allFailIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		callbackCalled = true
+		gotLease = lease
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ExecuteCompositeExclusive returned error: %v", err)
+	}
+	if !callbackCalled {
+		t.Fatal("callback should be called when all preconditions pass")
+	}
+
+	if len(gotLease.ResourceKeys) != 0 {
+		t.Fatalf("expected empty ResourceKeys for all-FailIfHeld composite, got %v", gotLease.ResourceKeys)
+	}
+	if gotLease.LeaseTTL != 0 {
+		t.Fatalf("expected zero LeaseTTL for all-FailIfHeld composite, got %v", gotLease.LeaseTTL)
+	}
+	if !gotLease.LeaseDeadline.IsZero() {
+		t.Fatalf("expected zero LeaseDeadline for all-FailIfHeld composite, got %v", gotLease.LeaseDeadline)
+	}
+
+	activeCounts := rec.activeCounts()
+	if len(activeCounts) != 0 {
+		t.Fatalf("expected no active lock recordings for all-FailIfHeld composite, got %d: %v", len(activeCounts), activeCounts)
+	}
+}
+
+func newAllFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+
+	reg := registry.New()
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "PreconditionAccount",
+		Kind:             definitions.KindParent,
+		Resource:         "account",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		Rank:             10,
+		CheckOnlyAllowed: true,
+		FailIfHeld:       true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("account:{account_id}", []string{"account_id"}),
+	}); err != nil {
+		t.Fatalf("register PreconditionAccount failed: %v", err)
+	}
+	if err := reg.Register(definitions.LockDefinition{
+		ID:               "PreconditionLedger",
+		Kind:             definitions.KindParent,
+		Resource:         "ledger",
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         30 * time.Second,
+		Rank:             20,
+		CheckOnlyAllowed: true,
+		FailIfHeld:       true,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("ledger:{ledger_id}", []string{"ledger_id"}),
+	}); err != nil {
+		t.Fatalf("register PreconditionLedger failed: %v", err)
+	}
+
+	if err := reg.RegisterComposite(definitions.CompositeDefinition{
+		ID:               "AllPreconditionsComposite",
+		Members:          []string{"PreconditionAccount", "PreconditionLedger"},
+		OrderingPolicy:   definitions.OrderingCanonical,
+		AcquirePolicy:    definitions.AcquireAllOrNothing,
+		EscalationPolicy: definitions.EscalationReject,
+		ModeResolution:   definitions.ModeResolutionHomogeneous,
+		MaxMemberCount:   2,
+		ExecutionKind:    definitions.ExecutionSync,
+	}); err != nil {
+		t.Fatalf("register AllPreconditionsComposite failed: %v", err)
+	}
+
+	return reg
+}
+
+func allFailIfHeldCompositeRequest() definitions.CompositeLockRequest {
+	return definitions.CompositeLockRequest{
+		DefinitionID: "AllPreconditionsComposite",
+		MemberInputs: []map[string]string{
+			{"account_id": "acct-123"},
+			{"ledger_id": "ledger-456"},
+		},
+		Ownership: definitions.OwnershipMeta{OwnerID: "svc:composite"},
+	}
+}
+
 func TestExecuteCompositeExclusiveEmitsBridgeEvents(t *testing.T) {
 	reg := newCompositeRegistry(t)
 	driver := testkit.NewMemoryDriver()
