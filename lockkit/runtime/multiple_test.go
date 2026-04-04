@@ -250,13 +250,16 @@ func TestExecuteMultipleExclusiveCanonicalOrder(t *testing.T) {
 func TestExecuteMultipleExclusiveRejectsStrictDefinition(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
-		ID:            "order",
-		Kind:          definitions.KindParent,
-		Resource:      "order",
-		Mode:          definitions.ModeStrict,
-		ExecutionKind: definitions.ExecutionSync,
-		LeaseTTL:      5 * time.Second,
-		KeyBuilder:    definitions.MustTemplateKeyBuilder("{resource_key}", []string{"resource_key"}),
+		ID:                   "order",
+		Kind:                 definitions.KindParent,
+		Resource:             "order",
+		Mode:                 definitions.ModeStrict,
+		ExecutionKind:        definitions.ExecutionAsync,
+		LeaseTTL:             5 * time.Second,
+		KeyBuilder:           definitions.MustTemplateKeyBuilder("{resource_key}", []string{"resource_key"}),
+		BackendFailurePolicy: definitions.BackendFailClosed,
+		FencingRequired:      true,
+		IdempotencyRequired:  true,
 	}
 	if err := reg.Register(def); err != nil {
 		t.Fatal(err)
