@@ -9,9 +9,22 @@ type Definition[T any] struct {
 
 // DefineLock declares one composite lock boundary from child lock definitions.
 func DefineLock[T any](name string, defs ...lockman.LockDefinition[T]) Definition[T] {
+	if len(defs) == 0 {
+		panic("lockman: composite lock requires at least one definition")
+	}
+
+	seen := make(map[string]struct{}, len(defs))
+	for _, def := range defs {
+		id := def.DefinitionID()
+		if _, exists := seen[id]; exists {
+			panic("lockman: duplicate composite definition " + id)
+		}
+		seen[id] = struct{}{}
+	}
+
 	members := make([]lockman.CompositeMember[T], 0, len(defs))
 	for _, def := range defs {
-		members = append(members, lockman.MemberWithStrict[T](def.DefinitionID(), def, def.Config().Strict, func(in T) T { return in }))
+		members = append(members, lockman.Member[T](def.DefinitionID(), def, func(in T) T { return in }))
 	}
 	return Definition[T]{
 		members: members,

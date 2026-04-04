@@ -1065,3 +1065,26 @@ func TestCompositeRunWithSharedDefinitionMembersBuildsProjectedKeys(t *testing.T
 		t.Fatalf("expected shared definition ID %q, got %q", contractDef.stableID(), defs[0].ID)
 	}
 }
+
+func TestCompositeAuthoringPropagatesFailIfHeldToUseCaseConfig(t *testing.T) {
+	type transferInput struct {
+		AccountID string
+	}
+	parentDef := DefineLock(
+		"account",
+		BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+		FailIfHeldDef(),
+	)
+	member := Member("account", parentDef, func(in transferInput) transferInput { return in })
+	transfer := DefineCompositeRun("transfer.run", member)
+
+	if transfer.core == nil {
+		t.Fatal("expected non-nil use case core")
+	}
+	if len(transfer.core.config.composite) != 1 {
+		t.Fatalf("expected 1 composite member, got %d", len(transfer.core.config.composite))
+	}
+	if !transfer.core.config.composite[0].failIfHeld {
+		t.Fatal("expected failIfHeld to be true on composite member config")
+	}
+}

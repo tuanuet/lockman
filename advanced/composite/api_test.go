@@ -67,6 +67,36 @@ func TestCompositePackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 	}
 }
 
+func TestDefineLockPanicsOnEmptyComposite(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when defining composite lock with zero members")
+		}
+	}()
+	type input struct{}
+	DefineLock[input]("empty")
+}
+
+func TestDefineLockPanicsOnDuplicateDefinitions(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when defining composite lock with duplicate definitions")
+		}
+	}()
+	type input struct {
+		AccountID string
+	}
+	def := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in input) string { return in.AccountID }),
+	)
+	DefineLock(
+		"duplicate",
+		def,
+		def,
+	)
+}
+
 func TestCompositePackageRejectsStrictCompositeRuns(t *testing.T) {
 	reg := lockman.NewRegistry()
 	strictAccountDef := lockman.DefineLock(

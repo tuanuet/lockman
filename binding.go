@@ -35,6 +35,7 @@ type compositeMemberConfig struct {
 	rank           int
 	definitionID   string
 	memberIsStrict bool
+	failIfHeld     bool
 	build          func(any) (map[string]string, error)
 }
 
@@ -43,6 +44,7 @@ type CompositeMember[T any] struct {
 	name         string
 	definitionID string
 	isStrict     bool
+	failIfHeld   bool
 	build        func(T) (definitionID string, resourceKey string, err error)
 }
 
@@ -106,11 +108,16 @@ func Idempotent() UseCaseOption {
 // Member declares one composite member backed by a shared LockDefinition.
 // The project function transforms the composite input into the member's typed input.
 func Member[TInput any, TMember any](name string, def LockDefinition[TMember], project func(TInput) TMember) CompositeMember[TInput] {
-	return MemberWithStrict(name, def, def.Config().Strict, project)
+	return MemberWithFlags(name, def, def.Config().Strict, def.Config().FailIfHeld, project)
 }
 
 // MemberWithStrict declares one composite member with explicit strictness.
 func MemberWithStrict[TInput any, TMember any](name string, def LockDefinition[TMember], isStrict bool, project func(TInput) TMember) CompositeMember[TInput] {
+	return MemberWithFlags(name, def, isStrict, def.Config().FailIfHeld, project)
+}
+
+// MemberWithFlags declares one composite member with explicit strictness and fail-if-held flags.
+func MemberWithFlags[TInput any, TMember any](name string, def LockDefinition[TMember], isStrict bool, failIfHeld bool, project func(TInput) TMember) CompositeMember[TInput] {
 	if project == nil {
 		panic("lockman: member projection function is required")
 	}
@@ -127,6 +134,7 @@ func MemberWithStrict[TInput any, TMember any](name string, def LockDefinition[T
 		name:         name,
 		definitionID: defID,
 		isStrict:     isStrict,
+		failIfHeld:   failIfHeld,
 		build: func(input TInput) (string, string, error) {
 			memberInput := project(input)
 			resourceKey, err := def.binding.build(memberInput)

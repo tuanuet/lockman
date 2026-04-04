@@ -66,6 +66,7 @@ func newUseCaseCoreWithComposite[T any](name string, members []CompositeMember[T
 			rank:           index + 1,
 			definitionID:   member.definitionID,
 			memberIsStrict: member.isStrict,
+			failIfHeld:     member.failIfHeld,
 			build: func(input any) (map[string]string, error) {
 				typed, ok := input.(T)
 				if !ok {
