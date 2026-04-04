@@ -346,6 +346,45 @@ func TestExecuteMultipleExclusiveRejectsStrictDefinition(t *testing.T) {
 	}
 }
 
+func TestExecuteMultipleExclusiveAggregatesMinTTL(t *testing.T) {
+	reg := registry.New()
+	def := definitions.LockDefinition{
+		ID:         "order",
+		Kind:       definitions.KindParent,
+		Resource:   "order",
+		Mode:       definitions.ModeStandard,
+		ExecutionKind: definitions.ExecutionSync,
+		LeaseTTL:   5 * time.Second,
+		KeyBuilder: definitions.MustTemplateKeyBuilder("{resource_key}", []string{"resource_key"}),
+	}
+	if err := reg.Register(def); err != nil {
+		t.Fatal(err)
+	}
+
+	drv := &mockMultipleDriver{}
+	mgr := newTestMultipleManager(t, reg, drv)
+
+	req := definitions.MultipleLockRequest{
+		DefinitionID: "order",
+		Keys:         []string{"order:1", "order:2"},
+		Ownership: definitions.OwnershipMeta{
+			OwnerID: "test-owner",
+		},
+	}
+
+	var gotTTL time.Duration
+	err := mgr.ExecuteMultipleExclusive(context.Background(), req, func(ctx context.Context, lc definitions.LeaseContext) error {
+		gotTTL = lc.LeaseTTL
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotTTL != 5*time.Second {
+		t.Fatalf("expected TTL 5s, got %v", gotTTL)
+	}
+}
+
 // mockMultipleDriver is a test double for backend.Driver
 type mockMultipleDriver struct {
 	failOnKey    string
@@ -380,8 +419,8 @@ func (d *mockMultipleDriver) Release(ctx context.Context, rec backend.LeaseRecor
 	return nil
 }
 
-func (d *mockMultipleDriver) CheckPresence(ctx context.Context, definitionID, resourceKey string) (definitions.PresenceStatus, error) {
-	return definitions.PresenceStatus{State: definitions.PresenceNotHeld}, nil
+func (d *mockMultipleDriver) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{Present: false}, nil
 }
 
 func (d *mockMultipleDriver) Ping(ctx context.Context) error {
@@ -957,8 +996,8 @@ func (d *trackingMultipleBackend) Release(ctx context.Context, rec backend.Lease
 	return nil
 }
 
-func (d *trackingMultipleBackend) CheckPresence(ctx context.Context, definitionID, resourceKey string) (definitions.PresenceStatus, error) {
-	return definitions.PresenceStatus{State: definitions.PresenceNotHeld}, nil
+func (d *trackingMultipleBackend) CheckPresence(ctx context.Context, req backend.PresenceRequest) (backend.PresenceRecord, error) {
+	return backend.PresenceRecord{Present: false}, nil
 }
 
 func (d *trackingMultipleBackend) Ping(ctx context.Context) error {
@@ -1056,6 +1095,12 @@ func (c *Client) RunMultiple(
 
 // HoldMultiple acquires multiple keys of the same definition atomically and returns
 // a single HoldHandle that manages all acquired keys.
+//
+// Note: HoldMultiple uses the hold manager's direct acquire path (same as single-key Hold),
+// not the runtime engine. The hold manager's Acquire already supports ResourceKeys (plural)
+// via DetachedAcquireRequest. This means HoldMultiple does not get reentrancy guards or
+// canonical ordering from the engine — it relies on the hold manager's backend-level
+// atomicity. For strong ordering/guard guarantees, use RunMultiple instead.
 func (c *Client) HoldMultiple(
 	ctx context.Context,
 	uc HoldUseCase[T],
@@ -1124,7 +1169,7 @@ func (c *Client) validateRunUseCase(ctx context.Context, uc RunUseCase[T]) (Iden
 	if uc.core == nil {
 		return Identity{}, ErrUseCaseNotFound
 	}
-	if !uc.core.boundToRegistry {
+	if uc.core.registry == nil {
 		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.core.name, ErrUseCaseNotFound)
 	}
 	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.core.registry.link) {
@@ -1138,7 +1183,7 @@ func (c *Client) validateHoldUseCase(ctx context.Context, uc HoldUseCase[T]) (Id
 	if uc.core == nil {
 		return Identity{}, ErrUseCaseNotFound
 	}
-	if !uc.core.boundToRegistry {
+	if uc.core.registry == nil {
 		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.core.name, ErrUseCaseNotFound)
 	}
 	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.core.registry.link) {
