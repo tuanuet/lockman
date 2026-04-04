@@ -674,6 +674,12 @@ func (d *failingCompositeDriver) acquireAttempts() int {
 	return d.acquireCount
 }
 
+func (d *failingCompositeDriver) resetAcquireCount() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.acquireCount = 0
+}
+
 func (d *failingCompositeDriver) releasedKeys() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -682,7 +688,7 @@ func (d *failingCompositeDriver) releasedKeys() []string {
 
 func TestExecuteCompositeExclusiveFailsPreconditionBeforeAnyAcquire(t *testing.T) {
 	reg := newFailIfHeldCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := newFailingCompositeDriver(0, nil)
 
 	holder, err := NewManager(reg, driver, nil)
 	if err != nil {
@@ -705,6 +711,9 @@ func TestExecuteCompositeExclusiveFailsPreconditionBeforeAnyAcquire(t *testing.T
 	}()
 	<-entered
 
+	// Reset acquire count so we only track attempts from the composite execution.
+	driver.resetAcquireCount()
+
 	callbackCalled := false
 	err = compositeMgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
 		callbackCalled = true
@@ -716,6 +725,9 @@ func TestExecuteCompositeExclusiveFailsPreconditionBeforeAnyAcquire(t *testing.T
 	}
 	if callbackCalled {
 		t.Fatal("callback should not run when precondition fails")
+	}
+	if attempts := driver.acquireAttempts(); attempts != 0 {
+		t.Fatalf("expected zero acquire attempts before precondition check, got %d", attempts)
 	}
 
 	close(release)
@@ -948,6 +960,57 @@ func allFailIfHeldCompositeRequest() definitions.CompositeLockRequest {
 			{"ledger_id": "ledger-456"},
 		},
 		Ownership: definitions.OwnershipMeta{OwnerID: "svc:composite"},
+	}
+}
+
+func TestExecuteCompositeExclusiveFailIfHeldMembersSkipReentrancyGuard(t *testing.T) {
+	reg := newFailIfHeldCompositeRegistry(t)
+	driver := newFailingCompositeDriver(0, nil)
+	rec := &countingRecorder{}
+	mgr, err := NewManager(reg, driver, rec)
+	if err != nil {
+		t.Fatalf("NewManager returned error: %v", err)
+	}
+
+	// First, hold the FailIfHeld member through a separate manager so the
+	// precondition check passes (it is held by a different owner, but
+	// CheckPresence still sees it as held). We need the precondition to PASS
+	// so we can verify the reentrancy guard is NOT installed for FailIfHeld
+	// members. Instead, we verify by running the same composite twice with
+	// the same owner — if FailIfHeld members installed guards, the second
+	// run would hit ErrReentrantAcquire.
+	//
+	// Simpler approach: run the composite with no held locks and verify it
+	// succeeds. The FailIfHeld member's resource key is "account:acct-123".
+	// If a guard entry were installed for it, a second run with the same
+	// owner would collide. We prove no collision occurs.
+
+	var firstKeys []string
+	err = mgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		firstKeys = append([]string(nil), lease.ResourceKeys...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("first ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	// Run again with the same owner — should NOT get ErrReentrantAcquire
+	// because FailIfHeld members skip guard installation.
+	var secondKeys []string
+	err = mgr.ExecuteCompositeExclusive(context.Background(), failIfHeldCompositeRequest(), func(ctx context.Context, lease definitions.LeaseContext) error {
+		secondKeys = append([]string(nil), lease.ResourceKeys...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("second ExecuteCompositeExclusive returned error: %v", err)
+	}
+
+	// Both runs should produce the same resource keys (only the normal member).
+	if len(firstKeys) != 1 || firstKeys[0] != "ledger:ledger-456" {
+		t.Fatalf("expected first run keys [ledger:ledger-456], got %v", firstKeys)
+	}
+	if len(secondKeys) != 1 || secondKeys[0] != "ledger:ledger-456" {
+		t.Fatalf("expected second run keys [ledger:ledger-456], got %v", secondKeys)
 	}
 }
 

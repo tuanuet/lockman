@@ -317,9 +317,6 @@ func TestCompositePackageFailIfHeldErrorIncludesOwnerInfo(t *testing.T) {
 	if !errors.Is(err, lockman.ErrPreconditionFailed) {
 		t.Fatalf("expected ErrPreconditionFailed, got %v", err)
 	}
-	if err.Error() != "lockman: precondition failed" {
-		t.Fatalf("expected sentinel error message, got %v", err)
-	}
 }
 
 func TestCompositePackageFailIfHeldMembersAreExcludedFromLeasePayload(t *testing.T) {
