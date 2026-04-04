@@ -58,6 +58,14 @@ type CompositeClaimRequest struct {
 	Overrides      *RuntimeOverrides
 }
 
+// MultipleLockRequest is the payload for synchronous multiple-key acquire attempts.
+type MultipleLockRequest struct {
+	DefinitionID string
+	Keys         []string
+	Ownership    OwnershipMeta
+	Overrides    *RuntimeOverrides
+}
+
 // PresenceCheckRequest asks whether a lock key is currently held.
 type PresenceCheckRequest struct {
 	DefinitionID string
