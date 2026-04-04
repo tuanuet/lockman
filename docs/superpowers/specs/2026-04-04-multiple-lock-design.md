@@ -46,27 +46,30 @@ This means:
 ```go
 func (c *Client) RunMultiple(
     ctx context.Context,
-    uc RunUseCase[T],
-    fn func(ctx context.Context, lease LeaseContext) error,
-    input T,
-    keys []string,
+    requests []RunRequest,
+    fn func(ctx context.Context, lease Lease) error,
 ) error
 ```
+
+**Design Decision:** `RunMultiple` accepts `[]RunRequest` instead of raw `[]string` keys. Each request is built via `RunUseCase.With(input)`, ensuring keys go through the definition's `KeyBuilder` for type safety. All requests must belong to the same use case.
 
 Usage:
 
 ```go
 orderDef := lockman.DefineLock(
     "order",
-    lockman.BindKey(func(o Order) string { return o.ID }),
+    lockman.BindResourceID("order", func(o Order) string { return o.ID }),
 )
 batchUC := lockman.DefineRunOn("batch_process", orderDef)
 
-err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.LeaseContext) error {
+req1, _ := batchUC.With(Order{ID: "1"})
+req2, _ := batchUC.With(Order{ID: "2"})
+req3, _ := batchUC.With(Order{ID: "3"})
+
+err := client.RunMultiple(ctx, []lockman.RunRequest{req1, req2, req3}, func(ctx context.Context, lease lockman.Lease) error {
     // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
-    // All 3 keys are locked. Execute batch operation.
     return processBatch(ctx, lease.ResourceKeys)
-}, input, []string{"order:1", "order:2", "order:3"})
+})
 ```
 
 ### HoldMultiple
@@ -74,27 +77,29 @@ err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.
 ```go
 func (c *Client) HoldMultiple(
     ctx context.Context,
-    uc HoldUseCase[T],
-    input T,
-    keys []string,
+    requests []HoldRequest,
 ) (HoldHandle, error)
 ```
 
-The `input T` parameter is used for use case routing and observability (use case name, definition lookup). The `keys []string` parameter bypasses the binding function — keys are provided directly because the caller already knows which resources to lock. This is consistent with the design intent: multiple key sets are dynamic at call time, not derivable from a single input value.
+**Design Decision:** `HoldMultiple` accepts `[]HoldRequest` instead of raw `[]string` keys. Each request is built via `HoldUseCase.With(input)`, ensuring keys go through the definition's `KeyBuilder` for type safety. All requests must belong to the same use case.
 
 Usage:
 
 ```go
 slotDef := lockman.DefineLock(
     "warehouse_slot",
-    lockman.BindKey(func(r SlotRequest) string { return r.SlotID }),
+    lockman.BindResourceID("slot", func(r SlotRequest) string { return r.SlotID }),
 )
 holdUC := lockman.DefineHoldOn("reserve_slots", slotDef)
 
-handle, err := client.HoldMultiple(ctx, holdUC, input, []string{"slot:A", "slot:B", "slot:C"})
+req1, _ := holdUC.With(SlotRequest{SlotID: "A"})
+req2, _ := holdUC.With(SlotRequest{SlotID: "B"})
+req3, _ := holdUC.With(SlotRequest{SlotID: "C"})
+
+handle, err := client.HoldMultiple(ctx, []lockman.HoldRequest{req1, req2, req3})
 // All 3 slots locked. Handle manages renewal for all of them.
 // ... manual workflow steps ...
-client.Forfeit(ctx, handle) // Releases all 3 keys
+client.Forfeit(ctx, holdUC.ForfeitWith(handle.Token())) // Releases all 3 keys
 ```
 
 ### Forfeit
@@ -145,12 +150,12 @@ Same acquisition flow as RunMultiple, but:
 
 ## Validation Rules
 
-1. Keys must be non-empty
-2. Keys must have no duplicates
-3. Definition must not be strict — returns `ErrBackendCapabilityRequired` at client method level (consistent with how `Run` rejects strict when backend doesn't support it)
-4. Definition must not be composite (a composite definition cannot be used with Multiple)
-5. Input must bind cleanly to each key via the definition's binding function
-6. Key count must not exceed 100 — returns error if exceeded (prevents accidental large acquisitions)
+1. Requests slice must be non-empty
+2. All requests must belong to the same use case
+3. No duplicate resource keys across requests
+4. Definition must not be strict — returns `ErrBackendCapabilityRequired` at client method level
+5. Definition must not be composite (a composite definition cannot be used with Multiple)
+6. Request count must not exceed 100 — returns error if exceeded (prevents accidental large acquisitions)
 
 ## Internal Engine
 

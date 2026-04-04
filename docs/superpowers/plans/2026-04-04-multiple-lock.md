@@ -680,6 +680,8 @@ git commit -m "feat: add ExecuteMultipleExclusive engine for multi-key same-defi
 
 Create `client_multiple_test.go`:
 
+**API Design Decision:** `RunMultiple` accepts `[]RunRequest` and `HoldMultiple` accepts `[]HoldRequest` (not `[]string`). This ensures type safety — keys are built through the definition's `KeyBuilder` via `uc.With(input)`, bypassing raw key strings. All requests must belong to the same use case.
+
 ```go
 package lockman
 
@@ -690,8 +692,6 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
-	"github.com/tuanuet/lockman/idempotency"
-	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
 type batchOrderInput struct {
@@ -715,18 +715,21 @@ func TestRunMultipleAcquiresAllKeys(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "test-worker"}),
 		WithBackend(drv),
-		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Shutdown(context.Background())
 
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
+
 	var gotKeys []string
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		gotKeys = append([]string(nil), lease.ResourceKeys...)
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:2", "order:3"})
+	}, []RunRequest{req1, req2, req3})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -753,18 +756,21 @@ func TestRunMultipleAllOrNothing(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "test-worker"}),
 		WithBackend(drv),
-		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Shutdown(context.Background())
 
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
+
 	called := false
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		called = true
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:2", "order:3"})
+	}, []RunRequest{req1, req2, req3})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -777,7 +783,7 @@ func TestRunMultipleAllOrNothing(t *testing.T) {
 	}
 }
 
-func TestRunMultipleRejectsEmptyKeys(t *testing.T) {
+func TestRunMultipleRejectsEmptyRequests(t *testing.T) {
 	orderDef := DefineLock(
 		"order",
 		BindResourceID("order", func(in batchOrderInput) string { return in.OrderID }),
@@ -799,12 +805,12 @@ func TestRunMultipleRejectsEmptyKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		return nil
-	}, batchOrderInput{}, []string{})
+	}, []RunRequest{})
 
 	if err == nil {
-		t.Fatal("expected error for empty keys")
+		t.Fatal("expected error for empty requests")
 	}
 }
 
@@ -830,9 +836,12 @@ func TestRunMultipleRejectsDuplicateKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:1"})
+	}, []RunRequest{req1, req2})
 
 	if err == nil {
 		t.Fatal("expected error for duplicate keys")
@@ -861,7 +870,9 @@ func TestRunMultipleRejectsNilCallback(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, nil, batchOrderInput{}, []string{"order:1"})
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+
+	err = client.RunMultiple(context.Background(), nil, []RunRequest{req1})
 
 	if err == nil {
 		t.Fatal("expected error for nil callback")
@@ -891,7 +902,11 @@ func TestHoldMultipleAcquiresAllKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	handle, err := client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{"slot:1", "slot:2", "slot:3"})
+	req1, _ := holdUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := holdUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := holdUC.With(batchOrderInput{OrderID: "3"})
+
+	handle, err := client.HoldMultiple(context.Background(), []HoldRequest{req1, req2, req3})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -924,7 +939,10 @@ func TestHoldMultipleForfeitReleasesAllKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	handle, err := client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{"slot:1", "slot:2"})
+	req1, _ := holdUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := holdUC.With(batchOrderInput{OrderID: "2"})
+
+	handle, err := client.HoldMultiple(context.Background(), []HoldRequest{req1, req2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +953,7 @@ func TestHoldMultipleForfeitReleasesAllKeys(t *testing.T) {
 	}
 }
 
-func TestHoldMultipleRejectsEmptyKeys(t *testing.T) {
+func TestHoldMultipleRejectsEmptyRequests(t *testing.T) {
 	slotDef := DefineLock(
 		"slot",
 		BindResourceID("slot", func(in batchOrderInput) string { return in.OrderID }),
@@ -957,10 +975,10 @@ func TestHoldMultipleRejectsEmptyKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	_, err = client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{})
+	_, err = client.HoldMultiple(context.Background(), []HoldRequest{})
 
 	if err == nil {
-		t.Fatal("expected error for empty keys")
+		t.Fatal("expected error for empty requests")
 	}
 }
 
@@ -1020,6 +1038,8 @@ Expected: FAIL — `RunMultiple` and `HoldMultiple` do not exist
 
 - [ ] **Step 1: Create client_multiple.go**
 
+**API Design:** `RunMultiple` accepts `[]RunRequest` and `HoldMultiple` accepts `[]HoldRequest`. This ensures type safety — keys are built through the definition's `KeyBuilder` via `uc.With(input)`. All requests must belong to the same use case. Go doesn't allow generic methods on non-generic receivers (`*Client`), so we use the concrete request types instead of generics.
+
 ```go
 package lockman
 
@@ -1035,12 +1055,12 @@ const maxMultipleKeys = 100
 
 // RunMultiple acquires multiple keys of the same definition atomically (all-or-nothing)
 // and executes the callback after all keys are acquired.
+//
+// All requests must belong to the same use case and be built via RunUseCase.With.
 func (c *Client) RunMultiple(
 	ctx context.Context,
-	uc RunUseCase[T],
+	requests []RunRequest,
 	fn func(ctx context.Context, lease Lease) error,
-	input T,
-	keys []string,
 ) error {
 	if c == nil {
 		return fmt.Errorf("lockman: client is nil")
@@ -1052,19 +1072,16 @@ func (c *Client) RunMultiple(
 		return ErrShuttingDown
 	}
 
-	if err := validateMultipleKeys(keys); err != nil {
-		return err
-	}
-
-	identity, err := c.validateRunUseCase(ctx, uc)
+	keys, uc, identity, err := c.extractRunRequests(ctx, requests)
 	if err != nil {
 		return err
 	}
+
 	if c.runtime == nil {
 		return ErrUseCaseNotFound
 	}
 
-	definitionID := c.plan.definitionIDByUseCase[uc.core.name]
+	definitionID := c.plan.definitionIDByUseCase[uc.name]
 	if definitionID == "" {
 		return ErrUseCaseNotFound
 	}
@@ -1075,14 +1092,14 @@ func (c *Client) RunMultiple(
 		Ownership: definitions.OwnershipMeta{
 			ServiceName: identity.Service,
 			InstanceID:  identity.Instance,
-			HandlerName: uc.core.name,
+			HandlerName: uc.name,
 			OwnerID:     identity.OwnerID,
 		},
 	}
 
 	err = c.runtime.ExecuteMultipleExclusive(ctx, multipleReq, func(ctx context.Context, lease definitions.LeaseContext) error {
 		return fn(ctx, Lease{
-			UseCase:      uc.core.name,
+			UseCase:      uc.name,
 			ResourceKeys: append([]string(nil), lease.ResourceKeys...),
 			LeaseTTL:     lease.LeaseTTL,
 			Deadline:     lease.LeaseDeadline,
@@ -1096,6 +1113,8 @@ func (c *Client) RunMultiple(
 // HoldMultiple acquires multiple keys of the same definition atomically and returns
 // a single HoldHandle that manages all acquired keys.
 //
+// All requests must belong to the same use case and be built via HoldUseCase.With.
+//
 // Note: HoldMultiple uses the hold manager's direct acquire path (same as single-key Hold),
 // not the runtime engine. The hold manager's Acquire already supports ResourceKeys (plural)
 // via DetachedAcquireRequest. This means HoldMultiple does not get reentrancy guards or
@@ -1103,9 +1122,7 @@ func (c *Client) RunMultiple(
 // atomicity. For strong ordering/guard guarantees, use RunMultiple instead.
 func (c *Client) HoldMultiple(
 	ctx context.Context,
-	uc HoldUseCase[T],
-	input T,
-	keys []string,
+	requests []HoldRequest,
 ) (HoldHandle, error) {
 	if c == nil {
 		return HoldHandle{}, fmt.Errorf("lockman: client is nil")
@@ -1114,19 +1131,16 @@ func (c *Client) HoldMultiple(
 		return HoldHandle{}, ErrShuttingDown
 	}
 
-	if err := validateMultipleKeys(keys); err != nil {
-		return HoldHandle{}, err
-	}
-
-	identity, err := c.validateHoldUseCase(ctx, uc)
+	keys, uc, identity, err := c.extractHoldRequests(ctx, requests)
 	if err != nil {
 		return HoldHandle{}, err
 	}
+
 	if c.holds == nil {
 		return HoldHandle{}, ErrUseCaseNotFound
 	}
 
-	definitionID := c.plan.definitionIDByUseCase[uc.core.name]
+	definitionID := c.plan.definitionIDByUseCase[uc.name]
 	if definitionID == "" {
 		return HoldHandle{}, ErrUseCaseNotFound
 	}
@@ -1148,46 +1162,87 @@ func (c *Client) HoldMultiple(
 	return HoldHandle{token: token}, nil
 }
 
-func validateMultipleKeys(keys []string) error {
-	if len(keys) == 0 {
-		return fmt.Errorf("lockman: keys must not be empty")
+func (c *Client) extractRunRequests(ctx context.Context, requests []RunRequest) ([]string, *useCaseCore, Identity, error) {
+	if len(requests) == 0 {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not be empty")
 	}
-	if len(keys) > maxMultipleKeys {
-		return fmt.Errorf("lockman: keys must not exceed %d", maxMultipleKeys)
+	if len(requests) > maxMultipleKeys {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not exceed %d", maxMultipleKeys)
 	}
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
+
+	keys := make([]string, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	var uc *useCaseCore
+	for i, req := range requests {
+		if req.useCaseCore == nil {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: request %d has no use case", i)
+		}
+		if uc == nil {
+			uc = req.useCaseCore
+		} else if uc != req.useCaseCore {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: all requests must belong to the same use case")
+		}
+		key := req.resourceKey
 		if _, ok := seen[key]; ok {
-			return fmt.Errorf("lockman: duplicate key %q", key)
+			return nil, nil, Identity{}, fmt.Errorf("lockman: duplicate key %q", key)
 		}
 		seen[key] = struct{}{}
+		keys[i] = key
 	}
-	return nil
+
+	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	if err != nil {
+		return nil, nil, Identity{}, err
+	}
+
+	return keys, uc, identity, nil
 }
 
-func (c *Client) validateRunUseCase(ctx context.Context, uc RunUseCase[T]) (Identity, error) {
-	if uc.core == nil {
-		return Identity{}, ErrUseCaseNotFound
+func (c *Client) extractHoldRequests(ctx context.Context, requests []HoldRequest) ([]string, *useCaseCore, Identity, error) {
+	if len(requests) == 0 {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not be empty")
 	}
-	if uc.core.registry == nil {
-		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.core.name, ErrUseCaseNotFound)
-	}
-	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.core.registry.link) {
-		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", uc.core.name, ErrRegistryMismatch)
+	if len(requests) > maxMultipleKeys {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not exceed %d", maxMultipleKeys)
 	}
 
-	return c.resolveIdentity(ctx, "")
+	keys := make([]string, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	var uc *useCaseCore
+	for i, req := range requests {
+		if req.useCaseCore == nil {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: request %d has no use case", i)
+		}
+		if uc == nil {
+			uc = req.useCaseCore
+		} else if uc != req.useCaseCore {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: all requests must belong to the same use case")
+		}
+		key := req.resourceKey
+		if _, ok := seen[key]; ok {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: duplicate key %q", key)
+		}
+		seen[key] = struct{}{}
+		keys[i] = key
+	}
+
+	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	if err != nil {
+		return nil, nil, Identity{}, err
+	}
+
+	return keys, uc, identity, nil
 }
 
-func (c *Client) validateHoldUseCase(ctx context.Context, uc HoldUseCase[T]) (Identity, error) {
-	if uc.core == nil {
+func (c *Client) validateRegisteredUseCase(ctx context.Context, uc *useCaseCore) (Identity, error) {
+	if uc == nil {
 		return Identity{}, ErrUseCaseNotFound
 	}
-	if uc.core.registry == nil {
-		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.core.name, ErrUseCaseNotFound)
+	if uc.registry == nil {
+		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.name, ErrUseCaseNotFound)
 	}
-	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.core.registry.link) {
-		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", uc.core.name, ErrRegistryMismatch)
+	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.registry.link) {
+		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", uc.name, ErrRegistryMismatch)
 	}
 
 	return c.resolveIdentity(ctx, "")
@@ -1283,16 +1338,18 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	}
 	defer client.Shutdown(context.Background())
 
-	keys := []string{"order:1", "order:2", "order:3"}
+	req1, _ := batchProcess.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchProcess.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchProcess.With(batchOrderInput{OrderID: "3"})
 
-	if err := client.RunMultiple(context.Background(), batchProcess, func(_ context.Context, lease lockman.Lease) error {
+	if err := client.RunMultiple(context.Background(), []lockman.RunRequest{req1, req2, req3}, func(_ context.Context, lease lockman.Lease) error {
 		joined := strings.Join(lease.ResourceKeys, ",")
 		if _, err := fmt.Fprintf(out, "batch locked: %s\n", joined); err != nil {
 			return err
 		}
 		_, err := fmt.Fprintf(out, "lease ttl: %s\n", lease.LeaseTTL)
 		return err
-	}, batchOrderInput{}, keys); err != nil {
+	}); err != nil {
 		return err
 	}
 
@@ -1347,6 +1404,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
@@ -1395,14 +1453,16 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	}
 	defer client.Shutdown(context.Background())
 
-	keys := []string{"slot:A", "slot:B", "slot:C"}
+	req1, _ := reserveSlots.With(reserveInput{SlotID: "A"})
+	req2, _ := reserveSlots.With(reserveInput{SlotID: "B"})
+	req3, _ := reserveSlots.With(reserveInput{SlotID: "C"})
 
-	handle, err := client.HoldMultiple(context.Background(), reserveSlots, reserveInput{}, keys)
+	handle, err := client.HoldMultiple(context.Background(), []lockman.HoldRequest{req1, req2, req3})
 	if err != nil {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(out, "hold keys: %s\n", keys); err != nil {
+	if _, err := fmt.Fprintf(out, "hold keys: %s\n", []string{req1.ResourceKey(), req2.ResourceKey(), req3.ResourceKey()}); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "hold token: %s\n", handle.Token()); err != nil {
@@ -1484,6 +1544,8 @@ Use multiple lock when you need exclusive access to several resources of the **s
 
 Acquires multiple keys, runs a callback, then releases all keys.
 
+All requests are built via `RunUseCase.With` — keys go through the definition's `KeyBuilder` for type safety.
+
 ```go
 orderDef := lockman.DefineLock(
     "order",
@@ -1491,10 +1553,14 @@ orderDef := lockman.DefineLock(
 )
 batchUC := lockman.DefineRunOn("batch_process", orderDef)
 
-err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.Lease) error {
+req1, _ := batchUC.With(BatchInput{OrderID: "1"})
+req2, _ := batchUC.With(BatchInput{OrderID: "2"})
+req3, _ := batchUC.With(BatchInput{OrderID: "3"})
+
+err := client.RunMultiple(ctx, func(ctx context.Context, lease lockman.Lease) error {
     // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
     return processBatch(ctx, lease.ResourceKeys)
-}, input, []string{"order:1", "order:2", "order:3"})
+}, []lockman.RunRequest{req1, req2, req3})
 ```
 
 ### Behavior
@@ -1503,10 +1569,13 @@ err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.
 - **Canonical ordering**: keys are sorted alphabetically before acquisition (prevents deadlocks)
 - **Overlap rejection**: if any key overlaps with existing locks, the entire operation is rejected
 - **Max keys**: 100 keys per call
+- **Same use case**: all requests must belong to the same use case
 
 ## HoldMultiple
 
 Acquires multiple keys and returns a single `HoldHandle`. Keys remain locked until `Forfeit` is called.
+
+All requests are built via `HoldUseCase.With` — keys go through the definition's `KeyBuilder` for type safety.
 
 ```go
 slotDef := lockman.DefineLock(
@@ -1515,7 +1584,11 @@ slotDef := lockman.DefineLock(
 )
 holdUC := lockman.DefineHoldOn("reserve_slots", slotDef)
 
-handle, err := client.HoldMultiple(ctx, holdUC, input, []string{"slot:A", "slot:B", "slot:C"})
+req1, _ := holdUC.With(ReserveInput{SlotID: "A"})
+req2, _ := holdUC.With(ReserveInput{SlotID: "B"})
+req3, _ := holdUC.With(ReserveInput{SlotID: "C"})
+
+handle, err := client.HoldMultiple(ctx, []lockman.HoldRequest{req1, req2, req3})
 // ... manual workflow steps ...
 client.Forfeit(ctx, holdUC.ForfeitWith(handle.Token()))
 ```
@@ -1526,14 +1599,16 @@ client.Forfeit(ctx, holdUC.ForfeitWith(handle.Token()))
 - Single `HoldHandle` manages all keys
 - Renewal is handled by the hold manager for all keys
 - `Forfeit` releases all keys at once
+- Same use case: all requests must belong to the same use case
 
 ## Validation
 
 | Condition | Error |
 |---|---|
-| Empty keys list | `keys must not be empty` |
+| Empty requests list | `requests must not be empty` |
 | Duplicate keys | `duplicate key "..."` |
-| More than 100 keys | `keys must not exceed 100` |
+| More than 100 requests | `requests must not exceed 100` |
+| Mixed use cases | `all requests must belong to the same use case` |
 | Strict definition | `lockman: backend lacks required capability` |
 | Use case not registered | `lockman: use case not found` |
 | Registry mismatch | `lockman: use case does not belong to this registry` |
