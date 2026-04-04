@@ -137,6 +137,29 @@ Multiple lock: [`docs/multiple-lock.md`](docs/multiple-lock.md)
 
 See [`SKILL.md`](SKILL.md) for a comprehensive reference of all features, APIs, error sentinels, patterns, and example catalog.
 
+## Benchmarks
+
+Contention benchmarks on Apple M4, miniredis-backed (3-run average):
+
+| Benchmark | Parallelism | ns/op | B/op | allocs/op |
+|-----------|:-----------:|------:|-----:|----------:|
+| **redislock** `Obtain` | 1 | 660,380 | 2,141,529 | 8,982 |
+| **lockman** `Run` (distinct owners) | 1 | 219,573 | 221,509 | 1,400 |
+| **redislock** `Obtain` | 4 | 2,013,508 | 7,783,079 | 32,757 |
+| **lockman** `Run` (distinct owners) | 4 | 278,870 | 277,788 | 2,799 |
+| **redislock** `Obtain` | 16 | 5,770,038 | 26,750,397 | 112,706 |
+| **lockman** `Run` (distinct owners) | 16 | 906,055 | 533,817 | 9,114 |
+
+`lockman` is **3–7× faster** and uses **6–50× less memory** than direct `redislock` under contention, while keeping allocations an order of magnitude lower.
+
+Run the benchmarks yourself:
+
+```bash
+go test -run '^$' -bench 'BenchmarkSyncLock(Redislock|Lockman)Run' -benchmem ./benchmarks
+```
+
+See [`docs/benchmarks.md`](docs/benchmarks.md) for methodology and environment notes.
+
 ## Status
 
 The root SDK path `github.com/tuanuet/lockman` is the stable entry point for synchronous and asynchronous use-case locking. Adapter modules are versioned as nested Go modules with their own module-path tags.
