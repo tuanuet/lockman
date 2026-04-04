@@ -56,14 +56,16 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	}
 	defer client.Shutdown(context.Background())
 
-	keys := []string{"slot:A", "slot:B", "slot:C"}
+	req1, _ := reserveSlots.With(reserveInput{SlotID: "A"})
+	req2, _ := reserveSlots.With(reserveInput{SlotID: "B"})
+	req3, _ := reserveSlots.With(reserveInput{SlotID: "C"})
 
-	handle, err := client.HoldMultiple(context.Background(), reserveSlots, reserveInput{}, keys)
+	handle, err := client.HoldMultiple(context.Background(), []lockman.HoldRequest{req1, req2, req3})
 	if err != nil {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(out, "hold keys: %s\n", keys); err != nil {
+	if _, err := fmt.Fprintf(out, "hold keys: %s\n", []string{req1.ResourceKey(), req2.ResourceKey(), req3.ResourceKey()}); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "hold token: %s\n", handle.Token()); err != nil {

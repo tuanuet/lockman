@@ -12,12 +12,12 @@ const maxMultipleKeys = 100
 
 // RunMultiple acquires multiple keys of the same definition atomically (all-or-nothing)
 // and executes the callback after all keys are acquired.
+//
+// All requests must belong to the same use case and be built via RunUseCase.With.
 func (c *Client) RunMultiple(
 	ctx context.Context,
-	uc registeredUseCase,
 	fn func(ctx context.Context, lease Lease) error,
-	input any,
-	keys []string,
+	requests []RunRequest,
 ) error {
 	if c == nil {
 		return fmt.Errorf("lockman: client is nil")
@@ -29,24 +29,16 @@ func (c *Client) RunMultiple(
 		return ErrShuttingDown
 	}
 
-	if err := validateMultipleKeys(keys); err != nil {
-		return err
-	}
-
-	core := uc.sdkUseCase()
-	if core == nil {
-		return ErrUseCaseNotFound
-	}
-
-	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	keys, uc, identity, err := c.extractRunRequests(ctx, requests)
 	if err != nil {
 		return err
 	}
+
 	if c.runtime == nil {
 		return ErrUseCaseNotFound
 	}
 
-	definitionID := c.plan.definitionIDByUseCase[core.name]
+	definitionID := c.plan.definitionIDByUseCase[uc.name]
 	if definitionID == "" {
 		return ErrUseCaseNotFound
 	}
@@ -57,14 +49,14 @@ func (c *Client) RunMultiple(
 		Ownership: definitions.OwnershipMeta{
 			ServiceName: identity.Service,
 			InstanceID:  identity.Instance,
-			HandlerName: core.name,
+			HandlerName: uc.name,
 			OwnerID:     identity.OwnerID,
 		},
 	}
 
 	err = c.runtime.ExecuteMultipleExclusive(ctx, multipleReq, func(ctx context.Context, lease definitions.LeaseContext) error {
 		return fn(ctx, Lease{
-			UseCase:      core.name,
+			UseCase:      uc.name,
 			ResourceKeys: append([]string(nil), lease.ResourceKeys...),
 			LeaseTTL:     lease.LeaseTTL,
 			Deadline:     lease.LeaseDeadline,
@@ -78,6 +70,8 @@ func (c *Client) RunMultiple(
 // HoldMultiple acquires multiple keys of the same definition atomically and returns
 // a single HoldHandle that manages all acquired keys.
 //
+// All requests must belong to the same use case and be built via HoldUseCase.With.
+//
 // Note: HoldMultiple uses the hold manager's direct acquire path (same as single-key Hold),
 // not the runtime engine. The hold manager's Acquire already supports ResourceKeys (plural)
 // via DetachedAcquireRequest. This means HoldMultiple does not get reentrancy guards or
@@ -85,9 +79,7 @@ func (c *Client) RunMultiple(
 // atomicity. For strong ordering/guard guarantees, use RunMultiple instead.
 func (c *Client) HoldMultiple(
 	ctx context.Context,
-	uc registeredUseCase,
-	input any,
-	keys []string,
+	requests []HoldRequest,
 ) (HoldHandle, error) {
 	if c == nil {
 		return HoldHandle{}, fmt.Errorf("lockman: client is nil")
@@ -96,24 +88,16 @@ func (c *Client) HoldMultiple(
 		return HoldHandle{}, ErrShuttingDown
 	}
 
-	if err := validateMultipleKeys(keys); err != nil {
-		return HoldHandle{}, err
-	}
-
-	core := uc.sdkUseCase()
-	if core == nil {
-		return HoldHandle{}, ErrUseCaseNotFound
-	}
-
-	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	keys, uc, identity, err := c.extractHoldRequests(ctx, requests)
 	if err != nil {
 		return HoldHandle{}, err
 	}
+
 	if c.holds == nil {
 		return HoldHandle{}, ErrUseCaseNotFound
 	}
 
-	definitionID := c.plan.definitionIDByUseCase[core.name]
+	definitionID := c.plan.definitionIDByUseCase[uc.name]
 	if definitionID == "" {
 		return HoldHandle{}, ErrUseCaseNotFound
 	}
@@ -135,33 +119,87 @@ func (c *Client) HoldMultiple(
 	return HoldHandle{token: token}, nil
 }
 
-func validateMultipleKeys(keys []string) error {
-	if len(keys) == 0 {
-		return fmt.Errorf("lockman: keys must not be empty")
+func (c *Client) extractRunRequests(ctx context.Context, requests []RunRequest) ([]string, *useCaseCore, Identity, error) {
+	if len(requests) == 0 {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not be empty")
 	}
-	if len(keys) > maxMultipleKeys {
-		return fmt.Errorf("lockman: keys must not exceed %d", maxMultipleKeys)
+	if len(requests) > maxMultipleKeys {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not exceed %d", maxMultipleKeys)
 	}
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
+
+	keys := make([]string, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	var uc *useCaseCore
+	for i, req := range requests {
+		if req.useCaseCore == nil {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: request %d has no use case", i)
+		}
+		if uc == nil {
+			uc = req.useCaseCore
+		} else if uc != req.useCaseCore {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: all requests must belong to the same use case")
+		}
+		key := req.resourceKey
 		if _, ok := seen[key]; ok {
-			return fmt.Errorf("lockman: duplicate key %q", key)
+			return nil, nil, Identity{}, fmt.Errorf("lockman: duplicate key %q", key)
 		}
 		seen[key] = struct{}{}
+		keys[i] = key
 	}
-	return nil
+
+	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	if err != nil {
+		return nil, nil, Identity{}, err
+	}
+
+	return keys, uc, identity, nil
 }
 
-func (c *Client) validateRegisteredUseCase(ctx context.Context, uc registeredUseCase) (Identity, error) {
-	core := uc.sdkUseCase()
-	if core == nil {
+func (c *Client) extractHoldRequests(ctx context.Context, requests []HoldRequest) ([]string, *useCaseCore, Identity, error) {
+	if len(requests) == 0 {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not be empty")
+	}
+	if len(requests) > maxMultipleKeys {
+		return nil, nil, Identity{}, fmt.Errorf("lockman: requests must not exceed %d", maxMultipleKeys)
+	}
+
+	keys := make([]string, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	var uc *useCaseCore
+	for i, req := range requests {
+		if req.useCaseCore == nil {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: request %d has no use case", i)
+		}
+		if uc == nil {
+			uc = req.useCaseCore
+		} else if uc != req.useCaseCore {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: all requests must belong to the same use case")
+		}
+		key := req.resourceKey
+		if _, ok := seen[key]; ok {
+			return nil, nil, Identity{}, fmt.Errorf("lockman: duplicate key %q", key)
+		}
+		seen[key] = struct{}{}
+		keys[i] = key
+	}
+
+	identity, err := c.validateRegisteredUseCase(ctx, uc)
+	if err != nil {
+		return nil, nil, Identity{}, err
+	}
+
+	return keys, uc, identity, nil
+}
+
+func (c *Client) validateRegisteredUseCase(ctx context.Context, uc *useCaseCore) (Identity, error) {
+	if uc == nil {
 		return Identity{}, ErrUseCaseNotFound
 	}
-	if core.registry == nil {
-		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", core.name, ErrUseCaseNotFound)
+	if uc.registry == nil {
+		return Identity{}, fmt.Errorf("lockman: use case %q is not registered: %w", uc.name, ErrUseCaseNotFound)
 	}
-	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, core.registry.link) {
-		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", core.name, ErrRegistryMismatch)
+	if c.registry == nil || sdk.RegistryLinkMismatch(c.registry.link, uc.registry.link) {
+		return Identity{}, fmt.Errorf("lockman: use case %q belongs to a different registry: %w", uc.name, ErrRegistryMismatch)
 	}
 
 	return c.resolveIdentity(ctx, "")

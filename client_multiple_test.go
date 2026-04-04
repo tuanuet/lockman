@@ -36,11 +36,15 @@ func TestRunMultipleAcquiresAllKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
+
 	var gotKeys []string
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		gotKeys = append([]string(nil), lease.ResourceKeys...)
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:2", "order:3"})
+	}, []RunRequest{req1, req2, req3})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,11 +77,15 @@ func TestRunMultipleAllOrNothing(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchUC.With(batchOrderInput{OrderID: "3"})
+
 	called := false
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		called = true
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:2", "order:3"})
+	}, []RunRequest{req1, req2, req3})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -90,7 +98,7 @@ func TestRunMultipleAllOrNothing(t *testing.T) {
 	}
 }
 
-func TestRunMultipleRejectsEmptyKeys(t *testing.T) {
+func TestRunMultipleRejectsEmptyRequests(t *testing.T) {
 	orderDef := DefineLock(
 		"order",
 		BindResourceID("order", func(in batchOrderInput) string { return in.OrderID }),
@@ -112,12 +120,12 @@ func TestRunMultipleRejectsEmptyKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		return nil
-	}, batchOrderInput{}, []string{})
+	}, []RunRequest{})
 
 	if err == nil {
-		t.Fatal("expected error for empty keys")
+		t.Fatal("expected error for empty requests")
 	}
 }
 
@@ -143,9 +151,12 @@ func TestRunMultipleRejectsDuplicateKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, func(ctx context.Context, lease Lease) error {
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+
+	err = client.RunMultiple(context.Background(), func(ctx context.Context, lease Lease) error {
 		return nil
-	}, batchOrderInput{}, []string{"order:1", "order:1"})
+	}, []RunRequest{req1, req2})
 
 	if err == nil {
 		t.Fatal("expected error for duplicate keys")
@@ -174,7 +185,9 @@ func TestRunMultipleRejectsNilCallback(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	err = client.RunMultiple(context.Background(), batchUC, nil, batchOrderInput{}, []string{"order:1"})
+	req1, _ := batchUC.With(batchOrderInput{OrderID: "1"})
+
+	err = client.RunMultiple(context.Background(), nil, []RunRequest{req1})
 
 	if err == nil {
 		t.Fatal("expected error for nil callback")
@@ -204,7 +217,11 @@ func TestHoldMultipleAcquiresAllKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	handle, err := client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{"slot:1", "slot:2", "slot:3"})
+	req1, _ := holdUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := holdUC.With(batchOrderInput{OrderID: "2"})
+	req3, _ := holdUC.With(batchOrderInput{OrderID: "3"})
+
+	handle, err := client.HoldMultiple(context.Background(), []HoldRequest{req1, req2, req3})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -237,7 +254,10 @@ func TestHoldMultipleForfeitReleasesAllKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	handle, err := client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{"slot:1", "slot:2"})
+	req1, _ := holdUC.With(batchOrderInput{OrderID: "1"})
+	req2, _ := holdUC.With(batchOrderInput{OrderID: "2"})
+
+	handle, err := client.HoldMultiple(context.Background(), []HoldRequest{req1, req2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +268,7 @@ func TestHoldMultipleForfeitReleasesAllKeys(t *testing.T) {
 	}
 }
 
-func TestHoldMultipleRejectsEmptyKeys(t *testing.T) {
+func TestHoldMultipleRejectsEmptyRequests(t *testing.T) {
 	slotDef := DefineLock(
 		"slot",
 		BindResourceID("slot", func(in batchOrderInput) string { return in.OrderID }),
@@ -270,10 +290,10 @@ func TestHoldMultipleRejectsEmptyKeys(t *testing.T) {
 	}
 	defer client.Shutdown(context.Background())
 
-	_, err = client.HoldMultiple(context.Background(), holdUC, batchOrderInput{}, []string{})
+	_, err = client.HoldMultiple(context.Background(), []HoldRequest{})
 
 	if err == nil {
-		t.Fatal("expected error for empty keys")
+		t.Fatal("expected error for empty requests")
 	}
 }
 

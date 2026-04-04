@@ -57,16 +57,18 @@ func run(out io.Writer, redisClient goredis.UniversalClient) error {
 	}
 	defer client.Shutdown(context.Background())
 
-	keys := []string{"order:1", "order:2", "order:3"}
+	req1, _ := batchProcess.With(batchOrderInput{OrderID: "1"})
+	req2, _ := batchProcess.With(batchOrderInput{OrderID: "2"})
+	req3, _ := batchProcess.With(batchOrderInput{OrderID: "3"})
 
-	if err := client.RunMultiple(context.Background(), batchProcess, func(_ context.Context, lease lockman.Lease) error {
+	if err := client.RunMultiple(context.Background(), func(_ context.Context, lease lockman.Lease) error {
 		joined := strings.Join(lease.ResourceKeys, ",")
 		if _, err := fmt.Fprintf(out, "batch locked: %s\n", joined); err != nil {
 			return err
 		}
 		_, err := fmt.Fprintf(out, "lease ttl: %s\n", lease.LeaseTTL)
 		return err
-	}, batchOrderInput{}, keys); err != nil {
+	}, []lockman.RunRequest{req1, req2, req3}); err != nil {
 		return err
 	}
 
