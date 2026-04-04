@@ -102,6 +102,7 @@ type LockDefinition struct {
 	FencingRequired      bool
 	IdempotencyRequired  bool
 	CheckOnlyAllowed     bool
+	FailIfHeld           bool
 	Rank                 int
 	ParentRef            string
 	OverlapPolicy        OverlapPolicy

@@ -1088,3 +1088,47 @@ func TestCompositeAuthoringPropagatesFailIfHeldToUseCaseConfig(t *testing.T) {
 		t.Fatal("expected failIfHeld to be true on composite member config")
 	}
 }
+
+func TestCompositeTranslationSetsFailIfHeldFlags(t *testing.T) {
+	reg := NewRegistry()
+	parentDef := DefineLock("parent", BindResourceID("order", func(v string) string { return v }))
+	failIfHeldDef := DefineLock("precondition", BindResourceID("order", func(v string) string { return v }), FailIfHeldDef())
+
+	type input struct {
+		OrderID string
+	}
+	orderUC := DefineCompositeRun("order.process",
+		Member("parent", parentDef, func(in input) string { return in.OrderID }),
+		Member("precondition", failIfHeldDef, func(in input) string { return in.OrderID }),
+	)
+	if err := reg.Register(orderUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := New(
+		WithRegistry(reg),
+		WithIdentity(Identity{OwnerID: "owner-1"}),
+		WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	defs := client.plan.engineRegistry.Definitions()
+
+	var foundPreconditionDef bool
+	for _, def := range defs {
+		if strings.Contains(def.ID, "precondition") {
+			foundPreconditionDef = true
+			if !def.FailIfHeld {
+				t.Fatalf("expected precondition member definition to have FailIfHeld=true, got false")
+			}
+			if !def.CheckOnlyAllowed {
+				t.Fatalf("expected precondition member definition to have CheckOnlyAllowed=true, got false")
+			}
+		}
+	}
+	if !foundPreconditionDef {
+		t.Fatal("expected to find precondition member definition in engine registry")
+	}
+}

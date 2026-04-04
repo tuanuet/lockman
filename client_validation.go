@@ -251,6 +251,7 @@ func collectPlannedDefinitions(
 	definitionWaitValues := make(map[string]map[time.Duration][]string)
 	definitionIdempotent := make(map[string]bool)
 	definitionLineage := make(map[string]string)
+	definitionFailIfHeld := make(map[string]bool)
 
 	// Build a map of definition names to their strictness from all definitions in the system
 	// This includes both top-level use case definitions and composite member definitions
@@ -323,6 +324,9 @@ func collectPlannedDefinitions(
 							definitionWaitValues[member.definitionID] = make(map[time.Duration][]string)
 						}
 						definitionWaitValues[member.definitionID][uc.config.wait] = append(definitionWaitValues[member.definitionID][uc.config.wait], uc.name)
+					}
+					if member.failIfHeld {
+						definitionFailIfHeld[member.definitionID] = true
 					}
 				}
 			}
@@ -407,6 +411,10 @@ func collectPlannedDefinitions(
 			def.Mode = definitions.ModeStrict
 			def.FencingRequired = true
 			def.BackendFailurePolicy = definitions.BackendFailClosed
+		}
+		if definitionFailIfHeld[defID] {
+			def.FailIfHeld = true
+			def.CheckOnlyAllowed = true
 		}
 
 		if parentName := definitionLineage[defID]; parentName != "" {
@@ -644,15 +652,17 @@ func translateCompositeMemberDefinition(
 	}
 
 	return definitions.LockDefinition{
-		ID:            compositeMemberDefinitionID(normalized.DefinitionID(), member.name),
-		Kind:          definitions.KindParent,
-		Resource:      member.name,
-		Mode:          definitions.ModeStandard,
-		ExecutionKind: definitions.ExecutionSync,
-		LeaseTTL:      ttl,
-		WaitTimeout:   useCase.config.wait,
-		Rank:          member.rank,
-		KeyBuilder:    definitions.MustTemplateKeyBuilder("{"+sdk.ResourceKeyInputKey+"}", []string{sdk.ResourceKeyInputKey}),
+		ID:               compositeMemberDefinitionID(normalized.DefinitionID(), member.name),
+		Kind:             definitions.KindParent,
+		Resource:         member.name,
+		Mode:             definitions.ModeStandard,
+		ExecutionKind:    definitions.ExecutionSync,
+		LeaseTTL:         ttl,
+		WaitTimeout:      useCase.config.wait,
+		Rank:             member.rank,
+		FailIfHeld:       member.failIfHeld,
+		CheckOnlyAllowed: member.failIfHeld,
+		KeyBuilder:       definitions.MustTemplateKeyBuilder("{"+sdk.ResourceKeyInputKey+"}", []string{sdk.ResourceKeyInputKey}),
 	}, nil
 }
 
