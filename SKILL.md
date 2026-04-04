@@ -33,6 +33,7 @@ Creates a shared lock definition. The definition owns the lock identity and bind
 
 **Options:**
 - `StrictDef()` — marks the definition as requiring strict fenced execution (fencing tokens)
+- `FailIfHeldDef()` — marks the definition to fail composite execution immediately if already held (check-only precondition)
 
 ### 2.2 Execution Surfaces
 
@@ -56,11 +57,16 @@ func DefineCompositeRunWithOptions[T any](name string, opts []UseCaseOption, mem
 
 **Member builders:**
 ```go
-func Member[TInput, TMember](def LockDefinition[TMember], keyFn func(TInput) string) CompositeMember[TInput]
-func MemberWithStrict[TInput, TMember](def LockDefinition[TMember], keyFn func(TInput) string) CompositeMember[TInput]
+func Member[TInput, TMember](name string, def LockDefinition[TMember], project func(TInput) TMember) CompositeMember[TInput]
+func MemberWithStrict[TInput, TMember](name string, def LockDefinition[TMember], isStrict bool, project func(TInput) TMember) CompositeMember[TInput]
 ```
 
 Use when a single operation must hold multiple resources together atomically.
+
+**Fail-if-held members:** mark a definition with `FailIfHeldDef()` to make it a check-only precondition.
+The composite checks all `FailIfHeld` members before any acquire. If any is held, the composite returns
+`ErrPreconditionFailed` without acquiring other members. Check-only members are excluded from the callback
+`Lease.ResourceKeys`, guard tracking, and active-lock metrics.
 
 ### 2.4 Binding Helpers
 
@@ -256,6 +262,7 @@ Use `errors.Is()` for sentinel compatibility. Never string-match error messages.
 | `ErrBackendCapabilityRequired` | Operation needs backend capability not present |
 | `ErrIdempotencyRequired` | Claim use case needs idempotency store |
 | `ErrNotImplemented` | Feature not implemented in this backend |
+| `ErrPreconditionFailed` | Composite fail-if-held member is already held |
 
 ### Lower-level sentinels (internal/adapters)
 
@@ -300,8 +307,8 @@ Use when a single operation must atomically lock multiple resources together.
 ```go
 uc := lockman.DefineCompositeRun(
     "transfer",
-    lockman.Member(fromDef, func(in TransferInput) string { return in.FromID }),
-    lockman.Member(toDef, func(in TransferInput) string { return in.ToID }),
+    lockman.Member("from", fromDef, func(in TransferInput) TransferInput { return in }),
+    lockman.Member("to", toDef, func(in TransferInput) TransferInput { return in }),
 )
 ```
 
@@ -309,6 +316,27 @@ uc := lockman.DefineCompositeRun(
 - Composite execution acquires all members atomically
 - Example: [`examples/core/sync-composite-lock`](examples/core/sync-composite-lock)
 - Docs: [`docs/advanced/composite.md`](docs/advanced/composite.md)
+
+**Fail-if-held members:** mark a definition with `FailIfHeldDef()` to make it a check-only precondition:
+
+```go
+preconditionDef := lockman.DefineLock(
+    "precondition",
+    lockman.BindResourceID("account", func(in Input) string { return in.AccountID }),
+    lockman.FailIfHeldDef(),
+)
+
+uc := lockman.DefineCompositeRun(
+    "transfer",
+    lockman.Member("check", preconditionDef, func(in Input) Input { return in }),
+    lockman.Member("to", toDef, func(in Input) Input { return in }),
+)
+```
+
+- Check-only members are verified before any acquire begins
+- Returns `ErrPreconditionFailed` if any check-only member is held
+- Check-only members excluded from callback `Lease.ResourceKeys`, guard tracking, and active-lock metrics
+- `FailIfHeldDef()` can be combined with `StrictDef()` on the same definition
 
 ### 5.3 Lineage and Overlap Rules
 

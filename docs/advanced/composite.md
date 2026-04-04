@@ -38,6 +38,32 @@ err := client.Run(ctx, req, func(ctx context.Context, lease lockman.Lease) error
 })
 ```
 
+## Fail-If-Held Members
+
+Mark a member definition with `lockman.FailIfHeldDef()` to turn it into a check-only
+precondition. The composite will abort immediately with `lockman.ErrPreconditionFailed`
+if that resource is already held, without acquiring any other members.
+
+```go
+preconditionDef := lockman.DefineLock(
+	"precondition",
+	lockman.BindResourceID("account", func(in Input) string { return in.AccountID }),
+	lockman.FailIfHeldDef(),
+)
+
+ledgerDef := lockman.DefineLock(
+	"ledger",
+	lockman.BindResourceID("ledger", func(in Input) string { return in.LedgerID }),
+)
+
+transferDef := composite.DefineLock("transfer", preconditionDef, ledgerDef)
+```
+
+- `FailIfHeldDef()` members are checked before any acquire begins
+- If a check-only member is held, the composite returns `ErrPreconditionFailed`
+- Check-only members are excluded from the callback `Lease.ResourceKeys`, guard tracking, and active-lock metrics
+- `FailIfHeldDef()` can be combined with `StrictDef()` on the same definition
+
 Runnable examples:
 
 - Workspace SDK mirror: [`examples/sdk/sync-transfer-funds`](../../examples/sdk/sync-transfer-funds)

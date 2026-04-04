@@ -27,6 +27,7 @@ Public SDK errors are meant to tell you what to do next.
 - `lockman.ErrShuttingDown`: the client is shutting down
 - `lockman.ErrLeaseLost`: the lease was lost before the callback completed
 - `lockman.ErrInvariantRejected`: a runtime invariant rejected the execution
+- `lockman.ErrPreconditionFailed`: a composite fail-if-held member is already held
 
 If you are seeing lower-level internal engine errors in application code, you are below the default SDK surface. Public-interface workspace examples live under `examples/sdk/`, lower-level scenario examples live under `examples/core/`, and published adapter-backed runnable copies still live in the adapter modules.
 
