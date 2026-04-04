@@ -9,7 +9,7 @@ Comprehensive reference for the `lockman` Go SDK. Use this when implementing, de
 lockman uses a **definition-first** model:
 
 ```
-LockDefinition  →  Execution Surface(s)  →  Registry  →  Client  →  Run/Hold/Claim
+LockDefinition  →  Execution Surface(s)  →  Registry  →  Client  →  Run/Hold/Claim/RunMultiple/HoldMultiple
    (boundary)        (Run/Hold/Claim)         (wire)      (exec)     (execute)
 ```
 
@@ -17,7 +17,7 @@ LockDefinition  →  Execution Surface(s)  →  Registry  →  Client  →  Run/
 2. **DefineRunOn / DefineHoldOn / DefineClaimOn** — attach execution surfaces to that boundary
 3. **Registry** — register all use cases centrally at startup
 4. **Client** — construct with backend + identity + optional adapters
-5. **Execute** — call `Run`, `Hold`, `Claim`, or `Forfeit` through the client
+5. **Execute** — call `Run`, `Hold`, `Claim`, `RunMultiple`, `HoldMultiple`, or `Forfeit` through the client
 
 ---
 
@@ -97,7 +97,9 @@ func New(opts ...ClientOption) (*Client, error)
 
 ```go
 func (c *Client) Run(ctx context.Context, req RunRequest, fn func(context.Context, Lease) error) error
+func (c *Client) RunMultiple(ctx context.Context, requests []RunRequest, fn func(context.Context, Lease) error) error
 func (c *Client) Hold(ctx context.Context, req HoldRequest) (HoldHandle, error)
+func (c *Client) HoldMultiple(ctx context.Context, requests []HoldRequest) (HoldHandle, error)
 func (c *Client) Claim(ctx context.Context, req ClaimRequest, fn func(context.Context, Claim) error) error
 func (c *Client) Forfeit(ctx context.Context, req ForfeitRequest) error
 func (c *Client) Shutdown(ctx context.Context) error
@@ -182,6 +184,50 @@ err := client.Claim(ctx, req, func(ctx context.Context, claim lockman.Claim) err
     return processOrder(ctx)
 })
 ```
+
+### RunMultiple (batch sync on same definition)
+
+Use when you need to lock multiple keys of the **same definition** atomically (all-or-nothing). All requests are built via `RunUseCase.With` for type safety.
+
+```go
+req1, _ := batchUC.With(BatchInput{OrderID: "1"})
+req2, _ := batchUC.With(BatchInput{OrderID: "2"})
+req3, _ := batchUC.With(BatchInput{OrderID: "3"})
+
+err := client.RunMultiple(ctx, []lockman.RunRequest{req1, req2, req3}, func(ctx context.Context, lease lockman.Lease) error {
+    // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
+    return processBatch(ctx, lease.ResourceKeys)
+})
+```
+
+- **All-or-nothing**: if any key fails, all previously acquired keys are released
+- **Canonical ordering**: keys sorted alphabetically before acquisition (prevents deadlocks)
+- **Same use case**: all requests must belong to the same use case
+- **Max 100 requests** per call
+- Example: [`examples/sdk/multiple-run`](examples/sdk/multiple-run)
+- Docs: [`docs/multiple-lock.md`](docs/multiple-lock.md)
+
+### HoldMultiple (batch hold on same definition)
+
+Use when you need to hold multiple keys of the **same definition** across manual workflow steps. All requests are built via `HoldUseCase.With` for type safety.
+
+```go
+req1, _ := holdUC.With(ReserveInput{SlotID: "A"})
+req2, _ := holdUC.With(ReserveInput{SlotID: "B"})
+req3, _ := holdUC.With(ReserveInput{SlotID: "C"})
+
+handle, err := client.HoldMultiple(ctx, []lockman.HoldRequest{req1, req2, req3})
+token := handle.Token()
+
+// Later: Forfeit releases all keys
+err = client.Forfeit(ctx, holdUC.ForfeitWith(token))
+```
+
+- Same all-or-nothing acquisition as `RunMultiple`
+- Single `HoldHandle` manages all keys
+- Renewal handled by hold manager for all keys
+- Example: [`examples/sdk/multiple-hold`](examples/sdk/multiple-hold)
+- Docs: [`docs/multiple-lock.md`](docs/multiple-lock.md)
 
 ---
 
@@ -292,6 +338,41 @@ outcome, err := guard.ClassifyExistingRowUpdate(ctx, rowStatus)
 - Adapter: [`guard/postgres`](guard/postgres) with `ScanExistingRowStatus` and `ClassifyExistingRowUpdate`
 - Docs: [`docs/advanced/guard.md`](docs/advanced/guard.md)
 
+### 5.5 Multiple Lock (RunMultiple / HoldMultiple)
+
+Use when you need to acquire **multiple keys of the same definition** atomically.
+
+```go
+orderDef := lockman.DefineLock(
+    "order",
+    lockman.BindResourceID("order", func(in BatchInput) string { return in.OrderID }),
+)
+batchUC := lockman.DefineRunOn("batch_process", orderDef)
+
+req1, _ := batchUC.With(BatchInput{OrderID: "1"})
+req2, _ := batchUC.With(BatchInput{OrderID: "2"})
+req3, _ := batchUC.With(BatchInput{OrderID: "3"})
+
+err := client.RunMultiple(ctx, []lockman.RunRequest{req1, req2, req3}, func(ctx context.Context, lease lockman.Lease) error {
+    // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
+    return processBatch(ctx, lease.ResourceKeys)
+})
+```
+
+**vs Composite:**
+
+| | Composite | Multiple |
+|---|---|---|
+| Definitions | N different definitions | 1 definition |
+| Keys | 1 key per definition | N keys, same definition |
+| Key count | Fixed at definition time | Dynamic at call time |
+
+- All keys acquired in canonical (sorted) order
+- All-or-nothing: partial failure releases all acquired keys
+- `HoldMultiple` returns single `HoldHandle` for all keys
+- Examples: [`examples/sdk/multiple-run`](examples/sdk/multiple-run), [`examples/sdk/multiple-hold`](examples/sdk/multiple-hold)
+- Docs: [`docs/multiple-lock.md`](docs/multiple-lock.md)
+
 ---
 
 ## 6. Adapter Modules
@@ -397,7 +478,9 @@ The public SDK translates into internal `lockkit` execution engines:
 | Public surface | Internal engine | Path |
 |---------------|-----------------|------|
 | `Run` | `lockkit/runtime.Manager` — sync exclusive execution | `lockkit/runtime` |
+| `RunMultiple` | `lockkit/runtime.Manager.ExecuteMultipleExclusive` — multi-key same-definition | `lockkit/runtime/multiple.go` |
 | `Hold` | `lockkit/holds.Manager` — detached acquire/release | `lockkit/holds` |
+| `HoldMultiple` | `lockkit/holds.Manager.Acquire` — multi-key via hold manager | `lockkit/holds` |
 | `Claim` | `lockkit/workers.Manager` — async claim with renewal loop | `lockkit/workers` |
 | Definitions | `lockkit/definitions` — canonical lock models | `lockkit/definitions` |
 | Registry | `lockkit/registry` — storage + validation | `lockkit/registry` |
@@ -426,6 +509,8 @@ The public SDK translates into internal `lockkit` execution engines:
 | `sync-transfer-funds` | Multi-resource sync lock (transfer semantics) |
 | `sync-fenced-write` | Strict fenced execution on SDK path |
 | `observability-basic` | Observability + inspect wiring |
+| `multiple-run` | Batch multi-key same-definition acquire (RunMultiple) |
+| `multiple-hold` | Batch multi-key same-definition hold (HoldMultiple) |
 
 ### Core examples (`examples/core/`) — deeper follow-up
 

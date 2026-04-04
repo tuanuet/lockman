@@ -8,6 +8,7 @@ From `v1.3.0`, the public SDK story is definition-first:
 2. attach one or more execution surfaces to it
 3. register centrally
 4. call `Run`, `Hold`, or `Claim`
+5. call `RunMultiple` or `HoldMultiple` for batch operations on the same definition
 
 ## Why lockman
 
@@ -78,7 +79,9 @@ The smallest runnable version: [`examples/sdk/shared-lock-definition`](examples/
 | Surface | When to use | Example |
 |---------|-------------|---------|
 | `Run` | Synchronous critical sections (request/response, job orchestration) | [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order) |
+| `RunMultiple` | Batch sync operations on multiple keys of the same definition | [`examples/sdk/multiple-run`](examples/sdk/multiple-run) |
 | `Hold` | Retain a manual lock across steps (approval windows, admin holds) | [`examples/sdk/manual-hold`](examples/sdk/manual-hold) |
+| `HoldMultiple` | Batch hold on multiple keys of the same definition | [`examples/sdk/multiple-hold`](examples/sdk/multiple-hold) |
 | `Claim` | Async delivery with idempotency (retry/redelivery dedup) | [`examples/sdk/async-process-order`](examples/sdk/async-process-order) |
 
 ## Examples
@@ -93,6 +96,8 @@ Start with `examples/sdk` (workspace mirrors of the public SDK interface):
 - [`examples/sdk/parent-lock-over-composite`](examples/sdk/parent-lock-over-composite) – parent lock vs composite
 - [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds) – multi-resource sync lock
 - [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write) – strict fenced execution
+- [`examples/sdk/multiple-run`](examples/sdk/multiple-run) – batch multi-key same-definition acquire
+- [`examples/sdk/multiple-hold`](examples/sdk/multiple-hold) – batch multi-key same-definition hold
 - [`examples/sdk/observability-basic`](examples/sdk/observability-basic) – observability + inspection
 
 Deeper follow-up examples live in `examples/core`. Published adapter copies run from adapter module roots without build tags:
@@ -125,6 +130,8 @@ LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examp
 - [`docs/benchmarks.md`](docs/benchmarks.md)
 
 Advanced: [`docs/advanced/composite.md`](docs/advanced/composite.md) · [`docs/advanced/strict.md`](docs/advanced/strict.md) · [`docs/advanced/lineage.md`](docs/advanced/lineage.md) · [`docs/advanced/guard.md`](docs/advanced/guard.md)
+
+Multiple lock: [`docs/multiple-lock.md`](docs/multiple-lock.md)
 
 ## For AI Agents
 
