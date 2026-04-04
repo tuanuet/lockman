@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-04-04
+
+- Add `RunMultiple` and `HoldMultiple` client methods for acquiring multiple locks on the same definition in a single call:
+  - `RunMultiple(ctx, []RunRequest, fn)` executes a function after acquiring all specified keys
+  - `HoldMultiple(ctx, []HoldRequest)` acquires multiple locks and returns a releaser handle
+  - New `ExecuteMultipleExclusive` engine for multi-key same-definition acquire
+- Add examples for multiple lock usage:
+  - `examples/sdk/multiple-run`
+  - `examples/sdk/multiple-hold`
+- Add `docs/multiple-lock.md` with full documentation for multiple lock patterns
+- Update README and SKILL.md with multiple lock coverage
+
 ## [1.4.0] - 2026-04-03
 
 - **Breaking Change**: Remove deprecated root-SDK shorthand constructors:
