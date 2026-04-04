@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-04-04
+
+- Add `FailIfHeldDef()` definition option for composite lock preconditions:
+  - Mark a composite member as check-only — aborts with `ErrPreconditionFailed` if already held
+  - Pre-check runs before any acquire begins; no members are acquired if a precondition fails
+  - Check-only members excluded from callback `Lease.ResourceKeys`, guard tracking, and active-lock metrics
+  - Can be combined with `StrictDef()` on the same definition
+- Add `ErrPreconditionFailed` error sentinel to root SDK and lockkit errors
+- Add composite authoring validation: panics on zero members or duplicate definitions
+- Update `docs/advanced/composite.md`, `docs/errors.md`, and `SKILL.md` with fail-if-held coverage
+
 ## [1.4.1] - 2026-04-04
 
 - Add `RunMultiple` and `HoldMultiple` client methods for acquiring multiple locks on the same definition in a single call:
