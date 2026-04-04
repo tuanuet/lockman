@@ -2,6 +2,7 @@ package composite
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,254 @@ func TestCompositePackageRejectsStrictCompositeRuns(t *testing.T) {
 		t.Logf("New error: %v", err)
 		if err == nil {
 			t.Fatal("expected composite with strict member to fail at New")
+		}
+	}
+}
+
+func TestCompositePackageFailIfHeldCheckPassesWhenNotHeld(t *testing.T) {
+	reg := lockman.NewRegistry()
+	preconditionDef := lockman.DefineLock(
+		"precondition",
+		lockman.BindResourceID("precondition", func(in transferInput) string { return in.AccountID }),
+		lockman.FailIfHeldDef(),
+	)
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		preconditionDef,
+		accountDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
+	if err := reg.Register(transfer); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
+		lockman.WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := transfer.With(transferInput{
+		AccountID: "acct-123",
+	})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var gotKeys []string
+	if err := client.Run(context.Background(), req, func(_ context.Context, lease lockman.Lease) error {
+		gotKeys = lease.ResourceKeys
+		return nil
+	}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if len(gotKeys) != 1 {
+		t.Fatalf("expected 1 resource key, got %d", len(gotKeys))
+	}
+	if gotKeys[0] != "account:acct-123" {
+		t.Fatalf("expected resource key %q, got %q", "account:acct-123", gotKeys[0])
+	}
+}
+
+func TestCompositePackageFailIfHeldCheckAbortsWhenHeld(t *testing.T) {
+	reg := lockman.NewRegistry()
+	preconditionDef := lockman.DefineLock(
+		"precondition",
+		lockman.BindResourceID("precondition", func(in transferInput) string { return in.AccountID }),
+		lockman.FailIfHeldDef(),
+	)
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		preconditionDef,
+		accountDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
+	holdUC := lockman.DefineHoldOn("precondition.hold", preconditionDef)
+	if err := reg.Register(transfer, holdUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	driver := testkit.NewMemoryDriver()
+
+	holderClient, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "holder-owner"}),
+		lockman.WithBackend(driver),
+	)
+	if err != nil {
+		t.Fatalf("holder New returned error: %v", err)
+	}
+
+	compositeClient, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
+		lockman.WithBackend(driver),
+	)
+	if err != nil {
+		t.Fatalf("composite New returned error: %v", err)
+	}
+
+	holdReq, err := holdUC.With(transferInput{AccountID: "acct-123"})
+	if err != nil {
+		t.Fatalf("hold With returned error: %v", err)
+	}
+	handle, err := holderClient.Hold(context.Background(), holdReq)
+	if err != nil {
+		t.Fatalf("Hold returned error: %v", err)
+	}
+	defer func() {
+		_ = holderClient.Forfeit(context.Background(), holdUC.ForfeitWith(handle.Token()))
+	}()
+
+	req, err := transfer.With(transferInput{AccountID: "acct-123"})
+	if err != nil {
+		t.Fatalf("composite With returned error: %v", err)
+	}
+
+	err = compositeClient.Run(context.Background(), req, func(_ context.Context, lease lockman.Lease) error {
+		t.Fatal("callback should not be called when precondition fails")
+		return nil
+	})
+	if !errors.Is(err, lockman.ErrPreconditionFailed) {
+		t.Fatalf("expected ErrPreconditionFailed, got %v", err)
+	}
+}
+
+func TestCompositePackageFailIfHeldErrorIncludesOwnerInfo(t *testing.T) {
+	reg := lockman.NewRegistry()
+	preconditionDef := lockman.DefineLock(
+		"precondition",
+		lockman.BindResourceID("precondition", func(in transferInput) string { return in.AccountID }),
+		lockman.FailIfHeldDef(),
+	)
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		preconditionDef,
+		accountDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
+	holdUC := lockman.DefineHoldOn("precondition.hold", preconditionDef)
+	if err := reg.Register(transfer, holdUC); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	driver := testkit.NewMemoryDriver()
+
+	holderClient, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "holder-owner"}),
+		lockman.WithBackend(driver),
+	)
+	if err != nil {
+		t.Fatalf("holder New returned error: %v", err)
+	}
+
+	compositeClient, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
+		lockman.WithBackend(driver),
+	)
+	if err != nil {
+		t.Fatalf("composite New returned error: %v", err)
+	}
+
+	holdReq, err := holdUC.With(transferInput{AccountID: "acct-123"})
+	if err != nil {
+		t.Fatalf("hold With returned error: %v", err)
+	}
+	handle, err := holderClient.Hold(context.Background(), holdReq)
+	if err != nil {
+		t.Fatalf("Hold returned error: %v", err)
+	}
+	defer func() {
+		_ = holderClient.Forfeit(context.Background(), holdUC.ForfeitWith(handle.Token()))
+	}()
+
+	req, err := transfer.With(transferInput{AccountID: "acct-123"})
+	if err != nil {
+		t.Fatalf("composite With returned error: %v", err)
+	}
+
+	err = compositeClient.Run(context.Background(), req, func(_ context.Context, lease lockman.Lease) error {
+		t.Fatal("callback should not be called when precondition fails")
+		return nil
+	})
+	if !errors.Is(err, lockman.ErrPreconditionFailed) {
+		t.Fatalf("expected ErrPreconditionFailed, got %v", err)
+	}
+	if err.Error() != "lockman: precondition failed" {
+		t.Fatalf("expected sentinel error message, got %v", err)
+	}
+}
+
+func TestCompositePackageFailIfHeldMembersAreExcludedFromLeasePayload(t *testing.T) {
+	reg := lockman.NewRegistry()
+	preconditionDef := lockman.DefineLock(
+		"precondition",
+		lockman.BindResourceID("precondition", func(in transferInput) string { return in.AccountID }),
+		lockman.FailIfHeldDef(),
+	)
+	accountDef := lockman.DefineLock(
+		"account",
+		lockman.BindResourceID("account", func(in transferInput) string { return in.AccountID }),
+	)
+	transferDef := DefineLock(
+		"transfer",
+		preconditionDef,
+		accountDef,
+	)
+	transfer := AttachRun("transfer.run", transferDef, lockman.TTL(5*time.Second))
+	if err := reg.Register(transfer); err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	client, err := lockman.New(
+		lockman.WithRegistry(reg),
+		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
+		lockman.WithBackend(testkit.NewMemoryDriver()),
+	)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	req, err := transfer.With(transferInput{AccountID: "acct-123"})
+	if err != nil {
+		t.Fatalf("With returned error: %v", err)
+	}
+
+	var gotKeys []string
+	if err := client.Run(context.Background(), req, func(_ context.Context, lease lockman.Lease) error {
+		gotKeys = lease.ResourceKeys
+		return nil
+	}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if len(gotKeys) != 1 {
+		t.Fatalf("expected 1 resource key (FailIfHeld member excluded), got %d: %v", len(gotKeys), gotKeys)
+	}
+	if gotKeys[0] != "account:acct-123" {
+		t.Fatalf("expected resource key %q, got %q", "account:acct-123", gotKeys[0])
+	}
+	for _, key := range gotKeys {
+		if strings.HasPrefix(key, "precondition:") {
+			t.Fatalf("FailIfHeld member should be excluded from lease resource keys, got %q", key)
 		}
 	}
 }
