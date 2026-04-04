@@ -217,6 +217,13 @@ func TestMapEngineErrorPreservesOverlapRejected(t *testing.T) {
 	}
 }
 
+func TestMapEngineErrorMapsPreconditionFailed(t *testing.T) {
+	err := mapEngineError(lockerrors.ErrPreconditionFailed, false)
+	if !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("expected ErrPreconditionFailed, got %v", err)
+	}
+}
+
 func testRunUseCase(name string) RunUseCase[string] {
 	def := DefineLock(name, BindResourceID("order", func(v string) string { return v }))
 	return DefineRunOn[string](

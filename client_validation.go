@@ -886,6 +886,8 @@ func mapEngineError(err error, shuttingDown bool) error {
 		return ErrShuttingDown
 	case shuttingDown && errors.Is(err, lockerrors.ErrPolicyViolation):
 		return ErrShuttingDown
+	case errors.Is(err, lockerrors.ErrPreconditionFailed):
+		return ErrPreconditionFailed
 	default:
 		return err
 	}

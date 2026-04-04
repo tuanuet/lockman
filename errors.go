@@ -20,4 +20,5 @@ var (
 	ErrBackendCapabilityRequired = errors.New("lockman: backend lacks required capability")
 	ErrIdempotencyRequired       = errors.New("lockman: idempotency backend is required for this claim use case")
 	ErrNotImplemented            = errors.New("lockman: not yet implemented")
+	ErrPreconditionFailed        = errors.New("lockman: precondition failed")
 )

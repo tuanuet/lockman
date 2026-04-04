@@ -38,4 +38,7 @@ var (
 
 	// ErrWorkerShuttingDown indicates worker runtime is shutting down.
 	ErrWorkerShuttingDown = stdErrors.New("worker shutting down")
+
+	// ErrPreconditionFailed indicates a runtime precondition was not met.
+	ErrPreconditionFailed = stdErrors.New("precondition failed")
 )
