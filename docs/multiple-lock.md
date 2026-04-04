@@ -24,6 +24,8 @@ Use multiple lock when you need exclusive access to several resources of the **s
 
 Acquires multiple keys, runs a callback, then releases all keys.
 
+All requests are built via `RunUseCase.With` — keys go through the definition's `KeyBuilder` for type safety.
+
 ```go
 orderDef := lockman.DefineLock(
     "order",
@@ -31,10 +33,14 @@ orderDef := lockman.DefineLock(
 )
 batchUC := lockman.DefineRunOn("batch_process", orderDef)
 
-err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.Lease) error {
+req1, _ := batchUC.With(BatchInput{OrderID: "1"})
+req2, _ := batchUC.With(BatchInput{OrderID: "2"})
+req3, _ := batchUC.With(BatchInput{OrderID: "3"})
+
+err := client.RunMultiple(ctx, func(ctx context.Context, lease lockman.Lease) error {
     // lease.ResourceKeys = ["order:1", "order:2", "order:3"]
     return processBatch(ctx, lease.ResourceKeys)
-}, input, []string{"order:1", "order:2", "order:3"})
+}, []lockman.RunRequest{req1, req2, req3})
 ```
 
 ### Behavior
@@ -43,10 +49,13 @@ err := client.RunMultiple(ctx, batchUC, func(ctx context.Context, lease lockman.
 - **Canonical ordering**: keys are sorted alphabetically before acquisition (prevents deadlocks)
 - **Overlap rejection**: if any key overlaps with existing locks, the entire operation is rejected
 - **Max keys**: 100 keys per call
+- **Same use case**: all requests must belong to the same use case
 
 ## HoldMultiple
 
 Acquires multiple keys and returns a single `HoldHandle`. Keys remain locked until `Forfeit` is called.
+
+All requests are built via `HoldUseCase.With` — keys go through the definition's `KeyBuilder` for type safety.
 
 ```go
 slotDef := lockman.DefineLock(
@@ -55,7 +64,11 @@ slotDef := lockman.DefineLock(
 )
 holdUC := lockman.DefineHoldOn("reserve_slots", slotDef)
 
-handle, err := client.HoldMultiple(ctx, holdUC, input, []string{"slot:A", "slot:B", "slot:C"})
+req1, _ := holdUC.With(ReserveInput{SlotID: "A"})
+req2, _ := holdUC.With(ReserveInput{SlotID: "B"})
+req3, _ := holdUC.With(ReserveInput{SlotID: "C"})
+
+handle, err := client.HoldMultiple(ctx, []lockman.HoldRequest{req1, req2, req3})
 // ... manual workflow steps ...
 client.Forfeit(ctx, holdUC.ForfeitWith(handle.Token()))
 ```
@@ -66,14 +79,16 @@ client.Forfeit(ctx, holdUC.ForfeitWith(handle.Token()))
 - Single `HoldHandle` manages all keys
 - Renewal is handled by the hold manager for all keys
 - `Forfeit` releases all keys at once
+- **Same use case**: all requests must belong to the same use case
 
 ## Validation
 
 | Condition | Error |
 |---|---|
-| Empty keys list | `keys must not be empty` |
+| Empty requests list | `requests must not be empty` |
 | Duplicate keys | `duplicate key "..."` |
-| More than 100 keys | `keys must not exceed 100` |
+| More than 100 requests | `requests must not exceed 100` |
+| Mixed use cases | `all requests must belong to the same use case` |
 | Strict definition | `lockman: backend lacks required capability` |
 | Use case not registered | `lockman: use case not found` |
 | Registry mismatch | `lockman: use case does not belong to this registry` |
