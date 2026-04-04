@@ -4,37 +4,24 @@
 
 From `v1.3.0`, the public SDK story is definition-first:
 
-- define one lock boundary first
-- attach one or more execution surfaces to it
-- register centrally
-- call `Run`, `Hold`, or `Claim`
+1. define one lock boundary
+2. attach one or more execution surfaces to it
+3. register centrally
+4. call `Run`, `Hold`, or `Claim`
 
 ## Why lockman
 
-- You bind typed input to a lock definition instead of building lock keys by hand at callsites.
-- Sync, hold, and async flows can share one business boundary instead of feeling like separate products.
-- The happy path stays short, but stricter coordination features are still available when you need them.
-
-## The SDK Backbone
-
-The `v1.3.0` SDK model is definition-first:
-
-1. Create a shared lock definition with `DefineLock`.
-2. Attach one or more execution surfaces with `DefineRunOn`, `DefineHoldOn`, or `DefineClaimOn`.
-3. Register those use cases in one registry.
-4. Execute through the root client.
-
-This is the public SDK path the README and `examples/sdk` now optimize for.
+- Bind typed input to a lock definition instead of building lock keys by hand at callsites.
+- Sync, hold, and async flows share one business boundary instead of feeling like separate products.
+- The happy path stays short, but stricter coordination features are available when you need them.
 
 ## Install
-
-Install the root SDK module with:
 
 ```bash
 go get github.com/tuanuet/lockman
 ```
 
-## Definition-First Happy Path
+## Quick Start
 
 ```go
 package orderlocks
@@ -57,11 +44,9 @@ var OrderDef = lockman.DefineLock(
 
 var Approve = lockman.DefineRunOn("order.approve", OrderDef)
 
-var ManualHold = lockman.DefineHoldOn("order.manual_hold", OrderDef)
-
 func approve(ctx context.Context, redisClient any) error {
 	reg := lockman.NewRegistry()
-	if err := reg.Register(Approve, ManualHold); err != nil {
+	if err := reg.Register(Approve); err != nil {
 		return err
 	}
 
@@ -86,96 +71,68 @@ func approve(ctx context.Context, redisClient any) error {
 }
 ```
 
-The point of this example is that one `LockDefinition` owns the shared business boundary, while attached execution surfaces share that same boundary.
+The smallest runnable version: [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition).
 
-If you want the smallest runnable version of that model, start with [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition).
+## Run vs Hold vs Claim
 
-## Shared Lock Definitions
+| Surface | When to use | Example |
+|---------|-------------|---------|
+| `Run` | Synchronous critical sections (request/response, job orchestration) | [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order) |
+| `Hold` | Retain a manual lock across steps (approval windows, admin holds) | [`examples/sdk/manual-hold`](examples/sdk/manual-hold) |
+| `Claim` | Async delivery with idempotency (retry/redelivery dedup) | [`examples/sdk/async-process-order`](examples/sdk/async-process-order) |
 
-Use `LockDefinition` when multiple use cases should contend on the same lock identity.
+## Examples
 
-- `DefineLock(...)` owns the shared lock identity, binding, and strictness configuration.
-- `DefineRunOn(...)`, `DefineHoldOn(...)`, and `DefineClaimOn(...)` attach execution surfaces to that shared definition.
-- `DefinitionID()` on use cases remains public-name-facing for compatibility and observability.
+Start with `examples/sdk` (workspace mirrors of the public SDK interface):
 
-```go
-contractDef := lockman.DefineLock(
-	"order.contract",
-	lockman.BindResourceID("order", func(in OrderInput) string { return in.OrderID }),
-)
+- [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition) – canonical first example
+- [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order) – shortest sync `Run` flow
+- [`examples/sdk/manual-hold`](examples/sdk/manual-hold) – hold acquire/forfeit flow
+- [`examples/sdk/async-process-order`](examples/sdk/async-process-order) – async `Claim` with idempotency
+- [`examples/sdk/shared-aggregate-split-definitions`](examples/sdk/shared-aggregate-split-definitions) – sync + async over one aggregate
+- [`examples/sdk/parent-lock-over-composite`](examples/sdk/parent-lock-over-composite) – parent lock vs composite
+- [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds) – multi-resource sync lock
+- [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write) – strict fenced execution
+- [`examples/sdk/observability-basic`](examples/sdk/observability-basic) – observability + inspection
 
-importUC := lockman.DefineRunOn("order.import", contractDef)
-holdUC := lockman.DefineHoldOn("order.manual_hold", contractDef)
+Deeper follow-up examples live in `examples/core`. Published adapter copies run from adapter module roots without build tags:
+
+- [`backend/redis/examples/...`](backend/redis/examples/)
+- [`idempotency/redis/examples/...`](idempotency/redis/examples/)
+
+### Running examples
+
+```bash
+LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/sync-approve-order
 ```
 
-See [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition) for a focused runnable example.
+## Adapters
 
-## Examples By Learning Path
+| Module | Purpose |
+|--------|---------|
+| [`backend/redis`](backend/redis) | Redis lease backend (standard, strict, lineage) |
+| [`idempotency/redis`](idempotency/redis) | Redis idempotency state for async `Claim` |
+| [`guard/postgres`](guard/postgres) | Postgres guarded-write helpers |
 
-Start here:
+## Docs
 
-- [`examples/sdk/shared-lock-definition`](examples/sdk/shared-lock-definition): the canonical first example for the `v1.3.0` definition-first SDK path
-
-Then choose an execution surface:
-
-- [`examples/sdk/sync-approve-order`](examples/sdk/sync-approve-order): the shortest sync request/response flow on the SDK path
-- [`examples/sdk/manual-hold`](examples/sdk/manual-hold): the shortest manual hold acquire/forfeit flow on the SDK path
-- [`examples/sdk/async-process-order`](examples/sdk/async-process-order): the shortest async delivery flow with idempotency on the SDK path
-
-Then expand into shared-definition patterns:
-
-- [`examples/sdk/shared-aggregate-split-definitions`](examples/sdk/shared-aggregate-split-definitions): compare sync and async flows over one aggregate boundary
-- [`examples/sdk/parent-lock-over-composite`](examples/sdk/parent-lock-over-composite): when one aggregate boundary is enough and composite locking is overkill
-- [`examples/sdk/sync-transfer-funds`](examples/sdk/sync-transfer-funds): one operation holding multiple resources together
-
-Advanced coordination on the same SDK path:
-
-- [`examples/sdk/sync-fenced-write`](examples/sdk/sync-fenced-write): strict fenced execution on top of the same authoring model
-
-Some scenarios intentionally appear in both `examples/core` and `examples/sdk`.
-
-New SDK readers should start in `examples/sdk`.
-
-`examples/sdk` keeps workspace mirrors of the current public SDK interface. `examples/core` keeps preserved lower-level source material for deeper follow-up study once the public path is clear.
-
-Additional deeper follow-up examples in `examples/core` include:
-
-- [`examples/core/strict-guarded-write`](examples/core/strict-guarded-write): strict fencing carried all the way into a guarded database write
-- [`examples/core/parent-lock-over-composite`](examples/core/parent-lock-over-composite): lower-level preserved scenario framing for aggregate-over-composite reasoning
-
-Published adapter-backed copies also live here:
-
-- [`backend/redis/examples/sync-approve-order`](backend/redis/examples/sync-approve-order)
-- [`backend/redis/examples/sync-transfer-funds`](backend/redis/examples/sync-transfer-funds)
-- [`backend/redis/examples/sync-fenced-write`](backend/redis/examples/sync-fenced-write)
-- [`idempotency/redis/examples/async-process-order`](idempotency/redis/examples/async-process-order)
-
-## Run Or Claim?
-
-- Use `Run` for synchronous critical sections in request/response or job orchestration flows.
-- Use `Hold` when a user or process needs to retain a manual lock over a shared definition boundary.
-- Use `Claim` when work starts from delivery, retry, or redelivery semantics and needs idempotent processing.
-
-More detail:
-
-- [`docs/production-guide.md`](docs/production-guide.md) — production checklist, wiring patterns, and which example to copy
-- [`docs/benchmarks.md`](docs/benchmarks.md) — benchmark tracks for calibrating SDK and adapter overhead
 - [`docs/quickstart-sync.md`](docs/quickstart-sync.md)
 - [`docs/quickstart-async.md`](docs/quickstart-async.md)
-- [`docs/runtime-vs-workers.md`](docs/runtime-vs-workers.md)
+- [`docs/lock-definition-reference.md`](docs/lock-definition-reference.md)
+- [`docs/registry-and-usecases.md`](docs/registry-and-usecases.md)
+- [`docs/production-guide.md`](docs/production-guide.md)
 - [`docs/errors.md`](docs/errors.md)
+- [`docs/benchmarks.md`](docs/benchmarks.md)
 
-## When You Need More
+Advanced: [`docs/advanced/composite.md`](docs/advanced/composite.md) · [`docs/advanced/strict.md`](docs/advanced/strict.md) · [`docs/advanced/lineage.md`](docs/advanced/lineage.md) · [`docs/advanced/guard.md`](docs/advanced/guard.md)
 
-- Composite locking: [`docs/advanced/composite.md`](docs/advanced/composite.md)
-- Strict fenced execution: [`docs/advanced/strict.md`](docs/advanced/strict.md)
-- Lineage and overlap rules: [`docs/advanced/lineage.md`](docs/advanced/lineage.md)
-- Guarded write integrations: [`docs/advanced/guard.md`](docs/advanced/guard.md)
-- Registry patterns and use case authoring: [`docs/registry-and-usecases.md`](docs/registry-and-usecases.md)
+## For AI Agents
+
+See [`SKILL.md`](SKILL.md) for a comprehensive reference of all features, APIs, error sentinels, patterns, and example catalog.
 
 ## Status
 
-The root SDK path `github.com/tuanuet/lockman` is the stable entry point for synchronous and asynchronous use-case locking. Adapter modules such as `backend/redis`, `idempotency/redis`, and `guard/postgres` are versioned as nested Go modules with their own module-path tags.
+The root SDK path `github.com/tuanuet/lockman` is the stable entry point for synchronous and asynchronous use-case locking. Adapter modules are versioned as nested Go modules with their own module-path tags.
 
 ## Development
 
