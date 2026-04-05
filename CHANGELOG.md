@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-04-05
+
+- Add public `backend/memory` in-memory driver for unit testing:
+  - New `backend/memory` package with `NewDriver()` constructor
+  - Replaces `lockkit/testkit` as the public in-memory backend
+  - Driver supports all core operations: acquire, release, extend, force release, and contention
+- Refactor idempotency memory store into `idempotency/memory/` subpackage:
+  - Move store implementation to `idempotency/memory/store.go`
+  - Update all imports and tests to use new package path
+- Move testkit utilities into `backend/memory` and remove `lockkit/testkit`:
+  - Merge assertion helpers and memory driver into single `backend/memory` package
+  - Update all example and test imports across root, advanced, benchmarks, and lockkit packages
+- Update SKILL.md to reference new `backend/memory` package path
+
 ## [1.4.2] - 2026-04-04
 
 - Add `FailIfHeldDef()` definition option for composite lock preconditions:
