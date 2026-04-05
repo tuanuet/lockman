@@ -12,6 +12,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/tuanuet/lockman/backend"
 	lockredis "github.com/tuanuet/lockman/backend/redis"
 	redisstore "github.com/tuanuet/lockman/idempotency/redis"
 	"github.com/tuanuet/lockman/lockkit/definitions"
@@ -49,7 +50,7 @@ func run(out io.Writer, redisURL string) error {
 
 	if err := register(definitions.LockDefinition{
 		ID:                  "LedgerMember",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "ledger",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -62,7 +63,7 @@ func run(out io.Writer, redisURL string) error {
 	}
 	if err := register(definitions.LockDefinition{
 		ID:                  "AccountMember",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "account",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,

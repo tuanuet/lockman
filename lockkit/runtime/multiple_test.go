@@ -17,7 +17,7 @@ func TestExecuteMultipleExclusiveAcquiresAllKeys(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -62,7 +62,7 @@ func TestExecuteMultipleExclusiveFailsOnBusy(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -104,7 +104,7 @@ func TestExecuteMultipleExclusiveRejectsEmptyKeys(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -138,7 +138,7 @@ func TestExecuteMultipleExclusiveRejectsDuplicateKeys(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -172,7 +172,7 @@ func TestExecuteMultipleExclusiveRejectsShuttingDown(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -207,7 +207,7 @@ func TestExecuteMultipleExclusiveCanonicalOrder(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -251,7 +251,7 @@ func TestExecuteMultipleExclusiveRejectsStrictDefinition(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:                   "order",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionAsync,
@@ -288,7 +288,7 @@ func TestExecuteMultipleExclusiveAggregatesMinTTL(t *testing.T) {
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

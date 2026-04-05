@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	"github.com/tuanuet/lockman/lockkit/observe"
@@ -25,7 +26,7 @@ func run(out io.Writer) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "ShipmentAggregateLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "shipment",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

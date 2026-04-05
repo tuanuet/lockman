@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	"github.com/tuanuet/lockman/lockkit/registry"
 )
@@ -15,7 +16,7 @@ func TestRegistryRejectsDuplicateDefinitionIDs(t *testing.T) {
 	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
 	def := definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -37,7 +38,7 @@ func TestRegistryValidateRejectsStrictWithoutFencing(t *testing.T) {
 	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "PaymentLock",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "payment",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -59,7 +60,7 @@ func TestRegistryRegisterRejectsEmptyID(t *testing.T) {
 	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
 	err := reg.Register(definitions.LockDefinition{
 		ID:            "   ",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -79,7 +80,7 @@ func TestRegistryValidateRejectsDefinitionWithoutKeyBuilder(t *testing.T) {
 
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "BrokenLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "broken",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -98,7 +99,7 @@ func TestRegistryValidateRejectsInvalidFailOpenStrictDefinition(t *testing.T) {
 	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "PaymentLock",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "payment",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -120,7 +121,7 @@ func TestRegistryValidateRejectsStrictDefinitionWithoutBackendFailurePolicy(t *t
 	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
 	if err := reg.Register(definitions.LockDefinition{
 		ID:              "StrictMissingPolicy",
-		Kind:            definitions.KindParent,
+		Kind:            backend.KindParent,
 		Resource:        "payment",
 		Mode:            definitions.ModeStrict,
 		ExecutionKind:   definitions.ExecutionSync,
@@ -141,7 +142,7 @@ func TestRegistryValidateRejectsStrictDefinitionWithUnknownBackendFailurePolicy(
 	builder := definitions.MustTemplateKeyBuilder("payment:{payment_id}", []string{"payment_id"})
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "StrictUnknownPolicy",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "payment",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -163,7 +164,7 @@ func TestRegistryValidateAcceptsValidDefinition(t *testing.T) {
 	builder := definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"})
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -184,7 +185,7 @@ func TestRegistryClonesTagsBeforeStorage(t *testing.T) {
 	tags := map[string]string{}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -252,7 +253,7 @@ func TestRegistryValidateRejectsCompositeWithStrictMember(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.strict",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -265,7 +266,7 @@ func TestRegistryValidateRejectsCompositeWithStrictMember(t *testing.T) {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.strict.secondary",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -297,7 +298,7 @@ func TestRegistryValidateRejectsCompositeMixedModes(t *testing.T) {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.strict",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -405,7 +406,7 @@ func TestRegistryValidateRejectsCompositeExceedingMaxMemberCount(t *testing.T) {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.parent.secondary",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStandard,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -458,7 +459,7 @@ func TestRegistryValidateRejectsStrictAsyncWithoutIdempotency(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.strict-async",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionAsync,
@@ -479,7 +480,7 @@ func TestRegistryValidateRejectsStrictBothWithoutIdempotency(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "account.strict-both",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionBoth,
@@ -500,7 +501,7 @@ func TestRegistryValidateRejectsBrokenLineageChain(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -509,7 +510,7 @@ func TestRegistryValidateRejectsBrokenLineageChain(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -529,7 +530,7 @@ func TestRegistryValidateRejectsNonRejectOverlapForChildLineage(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -538,7 +539,7 @@ func TestRegistryValidateRejectsNonRejectOverlapForChildLineage(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -558,7 +559,7 @@ func TestRegistryValidateRejectsUnknownParentRef(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -578,7 +579,7 @@ func TestRegistryValidateRejectsParentRefCycle(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -589,7 +590,7 @@ func TestRegistryValidateRejectsParentRefCycle(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -609,7 +610,7 @@ func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -618,7 +619,7 @@ func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -629,7 +630,7 @@ func TestRegistryValidateAcceptsGrandchildLineageChain(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "allocation",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "allocation",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -648,7 +649,7 @@ func TestRegistryValidateRejectsNonTemplateChildLineageBuilder(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -657,7 +658,7 @@ func TestRegistryValidateRejectsNonTemplateChildLineageBuilder(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -679,7 +680,7 @@ func TestRegistryValidateRejectsNonTemplateParentLineageBuilder(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:       "order",
-		Kind:     definitions.KindParent,
+		Kind:     backend.KindParent,
 		Resource: "order",
 		Mode:     definitions.ModeStandard,
 		LeaseTTL: 30 * time.Second,
@@ -690,7 +691,7 @@ func TestRegistryValidateRejectsNonTemplateParentLineageBuilder(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -710,7 +711,7 @@ func TestRegistryValidateRejectsChildMissingParentFields(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -723,7 +724,7 @@ func TestRegistryValidateRejectsChildMissingParentFields(t *testing.T) {
 	}
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -743,7 +744,7 @@ func TestRegistryValidateRejectsLineageWithNonStandardMode(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -752,7 +753,7 @@ func TestRegistryValidateRejectsLineageWithNonStandardMode(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "item",
-		Kind:                 definitions.KindChild,
+		Kind:                 backend.KindChild,
 		Resource:             "item",
 		Mode:                 definitions.ModeStrict,
 		LeaseTTL:             30 * time.Second,
@@ -774,7 +775,7 @@ func TestRegistryValidateRejectsStrictChildWithParentRefRegression(t *testing.T)
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "order",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -783,7 +784,7 @@ func TestRegistryValidateRejectsStrictChildWithParentRefRegression(t *testing.T)
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "item",
-		Kind:                 definitions.KindChild,
+		Kind:                 backend.KindChild,
 		Resource:             "item",
 		Mode:                 definitions.ModeStrict,
 		LeaseTTL:             30 * time.Second,
@@ -805,7 +806,7 @@ func TestRegistryValidateRejectsStandardChildWithStrictParentRegression(t *testi
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "order",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		LeaseTTL:             30 * time.Second,
@@ -816,7 +817,7 @@ func TestRegistryValidateRejectsStandardChildWithStrictParentRegression(t *testi
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -837,7 +838,7 @@ func TestGetReturnsDefinitionWithoutClone(t *testing.T) {
 	tags := map[string]string{"env": "prod"}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -869,7 +870,7 @@ func TestGetCompositeReturnsDefinitionWithoutClone(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "alpha",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "alpha",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -903,7 +904,7 @@ func TestRequiresStrictRuntimeDriverIgnoresAsyncOnlyStrictDefinitions(t *testing
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "StrictAsyncOnly",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionAsync,
@@ -926,7 +927,7 @@ func TestRequiresStrictRuntimeDriverIncludesSyncAndBothStrictDefinitions(t *test
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "StrictBoth",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionBoth,
@@ -946,7 +947,7 @@ func TestRequiresStrictWorkerDriverIgnoresSyncOnlyStrictDefinitions(t *testing.T
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "StrictSyncOnly",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionSync,
@@ -965,7 +966,7 @@ func TestRegistryValidateRejectsLineageWithNonStandardParentMode(t *testing.T) {
 	reg := registry.New()
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:                   "order",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		LeaseTTL:             30 * time.Second,
@@ -976,7 +977,7 @@ func TestRegistryValidateRejectsLineageWithNonStandardParentMode(t *testing.T) {
 	})
 	mustRegister(t, reg, definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -995,7 +996,7 @@ func TestRegistryValidateRejectsLineageWithNonStandardParentMode(t *testing.T) {
 func validParentDefinition() definitions.LockDefinition {
 	return definitions.LockDefinition{
 		ID:                   "account.parent",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "account",
 		Mode:                 definitions.ModeStandard,
 		ExecutionKind:        definitions.ExecutionSync,

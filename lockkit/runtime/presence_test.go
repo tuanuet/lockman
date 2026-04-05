@@ -20,7 +20,7 @@ func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -67,7 +67,7 @@ func TestCheckPresenceRejectsDefinitionWithoutCheckOnlyAllowed(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -99,7 +99,7 @@ func TestCheckPresenceReturnsPresenceUnknownWhenDriverHealthUnavailable(t *testi
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -137,7 +137,7 @@ func TestCheckPresenceReturnsPresenceUnknownWhenDriverHealthUnavailable(t *testi
 func TestCheckPresenceRecordsMetricsWithResolvedDefinitionID(t *testing.T) {
 	def := definitions.LockDefinition{
 		ID:               "CanonicalOrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -209,7 +209,7 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -221,7 +221,7 @@ func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "ItemLock",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -363,7 +363,7 @@ func TestCheckPresenceEmitsBridgeEvent(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,

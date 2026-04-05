@@ -145,7 +145,7 @@ func newTestRegistry(t *testing.T) *registry.Registry {
 func testHoldDefinition() definitions.LockDefinition {
 	return definitions.LockDefinition{
 		ID:            "OrderHold",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

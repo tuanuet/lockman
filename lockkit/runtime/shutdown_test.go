@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
@@ -17,7 +18,7 @@ func TestShutdownStopsNewAcquisitions(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -53,7 +54,7 @@ func TestShutdownIsIdempotent(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -80,7 +81,7 @@ func TestShutdownWaitsForInFlightExecutionToDrain(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -180,7 +181,7 @@ func TestShutdownReturnsContextErrorWhenInFlightDoesNotDrain(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -235,7 +236,7 @@ func TestShutdownWaitsForAcquireInProgressExecutionToDrain(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -291,7 +292,7 @@ func TestShutdownReturnsContextErrorWhenAcquireInProgressDoesNotDrain(t *testing
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -344,7 +345,7 @@ func TestShutdownNotBlockedByReentrantAdmissionFailure(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -391,7 +392,7 @@ func TestShutdownEmitsBridgeLifecycleEvents(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -425,7 +426,7 @@ func TestShutdownDoesNotMissDrainSignal(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

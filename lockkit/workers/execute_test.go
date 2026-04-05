@@ -549,7 +549,7 @@ func newWorkerRegistryForTest(t *testing.T, idempotencyRequired bool) *registry.
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                  "MessageClaimLock",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "message",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -584,7 +584,7 @@ func registryWithShortTTLLineageChain(t *testing.T, ttl time.Duration) *registry
 
 	register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionAsync,
@@ -593,7 +593,7 @@ func registryWithShortTTLLineageChain(t *testing.T, ttl time.Duration) *registry
 	})
 	register(definitions.LockDefinition{
 		ID:            "ItemLock",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionAsync,
@@ -684,7 +684,7 @@ func strictExecuteWorkerRegistryForTest(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   "StrictMessageClaimLock",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "message",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionAsync,

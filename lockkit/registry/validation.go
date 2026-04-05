@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
@@ -105,7 +106,7 @@ func requireStrictAsyncIdempotency(def definitions.LockDefinition) error {
 
 // ValidateDefinitionAgainstRegistry applies validations that need access to registry definitions.
 func ValidateDefinitionAgainstRegistry(def definitions.LockDefinition, definitionsByID map[string]definitions.LockDefinition) error {
-	if def.Kind != definitions.KindChild {
+	if def.Kind != backend.KindChild {
 		return nil
 	}
 	parentID := strings.TrimSpace(def.ParentRef)

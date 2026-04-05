@@ -1,12 +1,17 @@
 package lockman
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/tuanuet/lockman/backend"
+	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
+)
 
 var (
 	ErrBusy                      = errors.New("lockman: resource busy")
 	ErrTimeout                   = errors.New("lockman: acquire timed out")
 	ErrDuplicate                 = errors.New("lockman: duplicate message ignored")
-	ErrOverlapRejected           = errors.New("lockman: overlap rejected")
+	ErrOverlapRejected           = backend.ErrOverlapRejected
 	ErrShuttingDown              = errors.New("lockman: shutting down")
 	ErrLeaseLost                 = errors.New("lockman: lease lost before completion")
 	ErrInvariantRejected         = errors.New("lockman: execution invariant rejected")
@@ -20,5 +25,5 @@ var (
 	ErrBackendCapabilityRequired = errors.New("lockman: backend lacks required capability")
 	ErrIdempotencyRequired       = errors.New("lockman: idempotency backend is required for this claim use case")
 	ErrNotImplemented            = errors.New("lockman: not yet implemented")
-	ErrPreconditionFailed        = errors.New("lockman: precondition failed")
+	ErrPreconditionFailed        = lockerrors.ErrPreconditionFailed
 )

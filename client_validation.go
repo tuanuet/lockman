@@ -395,7 +395,7 @@ func collectPlannedDefinitions(
 
 		def := definitions.LockDefinition{
 			ID:            defID,
-			Kind:          definitions.KindParent,
+			Kind:          backend.KindParent,
 			Resource:      resourceName,
 			Mode:          definitions.ModeStandard,
 			ExecutionKind: execKind,
@@ -427,7 +427,7 @@ func collectPlannedDefinitions(
 					ErrUseCaseNotFound,
 				)
 			}
-			def.Kind = definitions.KindChild
+			def.Kind = backend.KindChild
 			def.ParentRef = parent.DefinitionID()
 			def.OverlapPolicy = definitions.OverlapReject
 		}
@@ -601,7 +601,7 @@ func translateUseCaseDefinition(
 
 	definition := definitions.LockDefinition{
 		ID:            normalized.DefinitionID(),
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      useCase.name,
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: toExecutionKind(useCase.kind),
@@ -630,7 +630,7 @@ func translateUseCaseDefinition(
 				ErrUseCaseNotFound,
 			)
 		}
-		definition.Kind = definitions.KindChild
+		definition.Kind = backend.KindChild
 		definition.ParentRef = parent.DefinitionID()
 		definition.OverlapPolicy = definitions.OverlapReject
 	}
@@ -653,7 +653,7 @@ func translateCompositeMemberDefinition(
 
 	return definitions.LockDefinition{
 		ID:               compositeMemberDefinitionID(normalized.DefinitionID(), member.name),
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         member.name,
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,

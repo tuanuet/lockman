@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 )
 
@@ -12,7 +13,7 @@ func TestResolveAcquirePlanReturnsAncestorKeys(t *testing.T) {
 	defs := map[string]definitions.LockDefinition{
 		"order": {
 			ID:         "order",
-			Kind:       definitions.KindParent,
+			Kind:       backend.KindParent,
 			Resource:   "order",
 			Mode:       definitions.ModeStandard,
 			LeaseTTL:   30 * time.Second,
@@ -20,7 +21,7 @@ func TestResolveAcquirePlanReturnsAncestorKeys(t *testing.T) {
 		},
 		"item": {
 			ID:            "item",
-			Kind:          definitions.KindChild,
+			Kind:          backend.KindChild,
 			Resource:      "item",
 			Mode:          definitions.ModeStandard,
 			LeaseTTL:      30 * time.Second,
@@ -49,7 +50,7 @@ func TestResolveAcquirePlanReturnsRootFirstAncestorsForGrandchild(t *testing.T) 
 	defs := lineageDefinitions()
 	defs["allocation"] = definitions.LockDefinition{
 		ID:            "allocation",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "allocation",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -78,7 +79,7 @@ func TestResolveAcquirePlanRejectsMissingParentDefinition(t *testing.T) {
 	defs := lineageDefinitions()
 	defs["item"] = definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -100,7 +101,7 @@ func TestResolveAcquirePlanRejectsCyclicParentRefs(t *testing.T) {
 	defs := lineageDefinitions()
 	defs["order"] = definitions.LockDefinition{
 		ID:         "order",
-		Kind:       definitions.KindParent,
+		Kind:       backend.KindParent,
 		Resource:   "order",
 		Mode:       definitions.ModeStandard,
 		LeaseTTL:   30 * time.Second,
@@ -121,7 +122,7 @@ func TestResolveAcquirePlanRejectsChildWithoutParentRef(t *testing.T) {
 	defs := lineageDefinitions()
 	defs["item"] = definitions.LockDefinition{
 		ID:            "item",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		LeaseTTL:      30 * time.Second,
@@ -142,7 +143,7 @@ func TestResolveAcquirePlanRejectsParentRefOnNonChildDefinition(t *testing.T) {
 	defs := lineageDefinitions()
 	defs["order"] = definitions.LockDefinition{
 		ID:         "order",
-		Kind:       definitions.KindParent,
+		Kind:       backend.KindParent,
 		Resource:   "order",
 		Mode:       definitions.ModeStandard,
 		LeaseTTL:   30 * time.Second,
@@ -188,7 +189,7 @@ func lineageDefinitions() map[string]definitions.LockDefinition {
 	return map[string]definitions.LockDefinition{
 		"order": {
 			ID:         "order",
-			Kind:       definitions.KindParent,
+			Kind:       backend.KindParent,
 			Resource:   "order",
 			Mode:       definitions.ModeStandard,
 			LeaseTTL:   30 * time.Second,
@@ -196,7 +197,7 @@ func lineageDefinitions() map[string]definitions.LockDefinition {
 		},
 		"item": {
 			ID:            "item",
-			Kind:          definitions.KindChild,
+			Kind:          backend.KindChild,
 			Resource:      "item",
 			Mode:          definitions.ModeStandard,
 			LeaseTTL:      30 * time.Second,

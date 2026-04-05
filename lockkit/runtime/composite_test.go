@@ -240,7 +240,7 @@ func newCompositeRegistry(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "LedgerMember",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "ledger",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -252,7 +252,7 @@ func newCompositeRegistry(t *testing.T) *registry.Registry {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "AccountMember",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "account",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -306,7 +306,7 @@ func newRollbackCompositeRegistry(t *testing.T) *registry.Registry {
 
 	register(definitions.LockDefinition{
 		ID:            "Rank3",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "rank3",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -316,7 +316,7 @@ func newRollbackCompositeRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "Rank2",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "rank2",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -326,7 +326,7 @@ func newRollbackCompositeRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "Rank1",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "rank1",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -363,7 +363,7 @@ func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
 
 	register(definitions.LockDefinition{
 		ID:            "RankOneGammaB",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "gamma",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -373,7 +373,7 @@ func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "RankOneGammaC",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "gamma",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -383,7 +383,7 @@ func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "RankOneAlpha",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "alpha",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -393,7 +393,7 @@ func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "RankZeroZeta",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "zeta",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -403,7 +403,7 @@ func newCanonicalOrderingCoverageRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:            "RankOneGammaA",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "gamma",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -452,7 +452,7 @@ func newOverlapCompositeRegistry(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderParent",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -464,7 +464,7 @@ func newOverlapCompositeRegistry(t *testing.T) *registry.Registry {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderChild",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		ParentRef:     "OrderParent",
 		OverlapPolicy: definitions.OverlapReject,
 		Resource:      "order_line",
@@ -742,7 +742,7 @@ func newFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "FailIfHeldMember",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "account",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -756,7 +756,7 @@ func newFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "NormalMember",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "ledger",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -909,7 +909,7 @@ func newAllFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "PreconditionAccount",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "account",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,
@@ -923,7 +923,7 @@ func newAllFailIfHeldCompositeRegistry(t *testing.T) *registry.Registry {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "PreconditionLedger",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "ledger",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,

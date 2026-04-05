@@ -295,7 +295,7 @@ func newCompositeWorkerRegistryWithTTLs(t *testing.T, accountTTL, ledgerTTL time
 
 	register(definitions.LockDefinition{
 		ID:                  "LedgerMember",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "ledger",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -306,7 +306,7 @@ func newCompositeWorkerRegistryWithTTLs(t *testing.T, accountTTL, ledgerTTL time
 	})
 	register(definitions.LockDefinition{
 		ID:                  "AccountMember",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "account",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -406,7 +406,7 @@ func newRollbackCompositeWorkerRegistry(t *testing.T) *registry.Registry {
 
 	register(definitions.LockDefinition{
 		ID:                  "AccountA",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "account",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -417,7 +417,7 @@ func newRollbackCompositeWorkerRegistry(t *testing.T) *registry.Registry {
 	})
 	register(definitions.LockDefinition{
 		ID:                  "AccountB",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "account",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -471,7 +471,7 @@ func newOverlapCompositeWorkerRegistry(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                  "OrderParent",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "order",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,
@@ -484,7 +484,7 @@ func newOverlapCompositeWorkerRegistry(t *testing.T) *registry.Registry {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                  "OrderChild",
-		Kind:                definitions.KindChild,
+		Kind:                backend.KindChild,
 		ParentRef:           "OrderParent",
 		OverlapPolicy:       definitions.OverlapReject,
 		Resource:            "order_line",

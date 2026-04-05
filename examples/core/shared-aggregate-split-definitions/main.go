@@ -12,6 +12,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/tuanuet/lockman/backend"
 	lockredis "github.com/tuanuet/lockman/backend/redis"
 	redisstore "github.com/tuanuet/lockman/idempotency/redis"
 	"github.com/tuanuet/lockman/lockkit/definitions"
@@ -49,7 +50,7 @@ func run(out io.Writer, redisURL string) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderApprovalSync",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -60,7 +61,7 @@ func run(out io.Writer, redisURL string) error {
 	}
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                  "OrderApprovalAsync",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "order",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,

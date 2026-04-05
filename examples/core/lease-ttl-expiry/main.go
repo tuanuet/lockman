@@ -32,7 +32,7 @@ func run(out io.Writer) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

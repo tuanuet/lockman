@@ -20,7 +20,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "BrokenAsyncLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "broken",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionAsync,
@@ -316,7 +316,7 @@ func workerRegistryWithLineageChain(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionAsync,
@@ -328,7 +328,7 @@ func workerRegistryWithLineageChain(t *testing.T) *registry.Registry {
 
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "ItemLock",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionAsync,
@@ -352,7 +352,7 @@ func strictWorkerRegistryForTest(t *testing.T, kind definitions.ExecutionKind) *
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:                   "StrictMessageLock",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "message",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        kind,

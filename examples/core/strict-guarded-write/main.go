@@ -16,6 +16,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/tuanuet/lockman/backend"
 	lockredis "github.com/tuanuet/lockman/backend/redis"
 	"github.com/tuanuet/lockman/guard"
 	guardpostgres "github.com/tuanuet/lockman/guard/postgres"
@@ -93,7 +94,7 @@ func run(out io.Writer, redisURL, postgresDSN string) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                   exampleDefinitionID,
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        definitions.ExecutionAsync,

@@ -53,7 +53,7 @@ func ResolveAcquirePlan(
 	return AcquirePlan{
 		DefinitionID: def.ID,
 		ResourceKey:  resourceKey,
-		Kind:         backend.LockKind(def.Kind),
+		Kind:         def.Kind,
 		// Ancestors are ordered root-first so script key assembly, renew, and release stay stable.
 		AncestorKeys: ancestors,
 		LeaseID:      leaseID,
@@ -65,11 +65,11 @@ func resolveAncestors(
 	definitionsByID map[string]definitions.LockDefinition,
 	input map[string]string,
 ) ([]backend.AncestorKey, error) {
-	if def.ParentRef != "" && def.Kind != definitions.KindChild {
+	if def.ParentRef != "" && def.Kind != backend.KindChild {
 		return nil, fmt.Errorf("lineage: non-child definition %q must not set parent ref", def.ID)
 	}
 	if def.ParentRef == "" {
-		if def.Kind == definitions.KindChild {
+		if def.Kind == backend.KindChild {
 			return nil, fmt.Errorf("lineage: child definition %q missing parent ref", def.ID)
 		}
 		return nil, nil

@@ -864,3 +864,10 @@ func validateLineageLeaseMeta(meta backend.LineageLeaseMeta) error {
 	}
 	return nil
 }
+
+var (
+	_ backend.Driver             = (*Driver)(nil)
+	_ backend.StrictDriver       = (*Driver)(nil)
+	_ backend.LineageDriver      = (*Driver)(nil)
+	_ backend.ForceReleaseDriver = (*Driver)(nil)
+)

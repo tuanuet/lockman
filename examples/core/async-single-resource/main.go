@@ -50,7 +50,7 @@ func run(out io.Writer, redisURL string) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:                  "OrderClaim",
-		Kind:                definitions.KindParent,
+		Kind:                backend.KindParent,
 		Resource:            "order",
 		Mode:                definitions.ModeStandard,
 		ExecutionKind:       definitions.ExecutionAsync,

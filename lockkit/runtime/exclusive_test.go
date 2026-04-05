@@ -21,7 +21,7 @@ func TestExecuteExclusiveRunsCallbackWhenLockAcquired(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -68,7 +68,7 @@ func TestExecuteExclusiveRunsCallbackWithDirectResourceKey(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -113,7 +113,7 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -155,7 +155,7 @@ func TestExecuteExclusiveGuardHandlesColonCharacters(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "Order:Lock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order:group",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -220,7 +220,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "BrokenLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "broken",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -302,7 +302,7 @@ func TestExecuteExclusiveStrictSuiteKeepsStandardFencingTokenZero(t *testing.T) 
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -408,7 +408,7 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -578,7 +578,7 @@ func strictRuntimeRegistryForTest(t *testing.T, kind definitions.ExecutionKind) 
 	reg := registry.New()
 	def := definitions.LockDefinition{
 		ID:                   "StrictOrderLock",
-		Kind:                 definitions.KindParent,
+		Kind:                 backend.KindParent,
 		Resource:             "order",
 		Mode:                 definitions.ModeStrict,
 		ExecutionKind:        kind,
@@ -600,7 +600,7 @@ func registryWithLineageChain(t *testing.T) *registry.Registry {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -612,7 +612,7 @@ func registryWithLineageChain(t *testing.T) *registry.Registry {
 
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "ItemLock",
-		Kind:          definitions.KindChild,
+		Kind:          backend.KindChild,
 		Resource:      "item",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -659,7 +659,7 @@ func TestExecuteExclusiveInvalidOverridesDoesNotPoisonGuard(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -718,7 +718,7 @@ func TestExecuteExclusiveZeroWaitTimeoutOverride(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -758,7 +758,7 @@ func TestExecuteExclusiveHonorsContextDeadlineBeforeWaitTimeout(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -801,7 +801,7 @@ func TestExecuteExclusiveConcurrentSameOwnerGuard(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -862,7 +862,7 @@ func TestExecuteExclusiveMetricsExcludePendingGuards(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -914,7 +914,7 @@ func TestExecuteExclusiveCancellationPropagates(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -1152,7 +1152,7 @@ func TestNewManagerAcceptsOptionalObservabilityOptions(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -1185,7 +1185,7 @@ func TestExecuteExclusiveEmitsBridgeAcquireAndRelease(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -1232,7 +1232,7 @@ func TestExecuteExclusiveEmitsBridgeContentionOnDriverContention(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -1288,7 +1288,7 @@ func TestExecuteExclusiveEmitsBridgeActiveStateChanges(t *testing.T) {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:            "OrderLock",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "order",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

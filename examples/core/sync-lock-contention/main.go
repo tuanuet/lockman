@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
@@ -28,7 +29,7 @@ func run(out io.Writer) error {
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
-		Kind:             definitions.KindParent,
+		Kind:             backend.KindParent,
 		Resource:         "order",
 		Mode:             definitions.ModeStandard,
 		ExecutionKind:    definitions.ExecutionSync,

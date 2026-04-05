@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	"github.com/tuanuet/lockman/lockkit/observe"
@@ -30,7 +31,7 @@ func run(out io.Writer) error {
 
 	if err := register(definitions.LockDefinition{
 		ID:            "LedgerMember",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "ledger",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,
@@ -42,7 +43,7 @@ func run(out io.Writer) error {
 	}
 	if err := register(definitions.LockDefinition{
 		ID:            "AccountMember",
-		Kind:          definitions.KindParent,
+		Kind:          backend.KindParent,
 		Resource:      "account",
 		Mode:          definitions.ModeStandard,
 		ExecutionKind: definitions.ExecutionSync,

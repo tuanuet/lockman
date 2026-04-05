@@ -1,6 +1,10 @@
 package definitions
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tuanuet/lockman/backend"
+)
 
 func TestCompositeDefinitionCarriesPhase2Shape(t *testing.T) {
 	def := CompositeDefinition{
@@ -35,7 +39,7 @@ func TestCompositeDefinitionCarriesPhase2Shape(t *testing.T) {
 func TestPhase2LockDefinitionCarriesOverlapPolicy(t *testing.T) {
 	def := LockDefinition{
 		ID:            "order.item",
-		Kind:          KindChild,
+		Kind:          backend.KindChild,
 		OverlapPolicy: OverlapReject,
 	}
 

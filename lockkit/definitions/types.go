@@ -1,6 +1,10 @@
 package definitions
 
-import "time"
+import (
+	"time"
+
+	"github.com/tuanuet/lockman/backend"
+)
 
 // LockMode controls strictness guarantees enforced by a lock definition.
 type LockMode string
@@ -8,14 +12,6 @@ type LockMode string
 const (
 	ModeStandard LockMode = "standard"
 	ModeStrict   LockMode = "strict"
-)
-
-// LockKind distinguishes parent and child definitions.
-type LockKind string
-
-const (
-	KindParent LockKind = "parent"
-	KindChild  LockKind = "child"
 )
 
 // ExecutionKind describes whether a lock run is synchronous, asynchronous, or either.
@@ -91,7 +87,7 @@ type CompositeDefinition struct {
 // LockDefinition captures the runtime constraints and metadata for a lock.
 type LockDefinition struct {
 	ID                   string
-	Kind                 LockKind
+	Kind                 backend.LockKind
 	Resource             string
 	Mode                 LockMode
 	ExecutionKind        ExecutionKind

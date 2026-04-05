@@ -573,3 +573,9 @@ func cloneAncestorKeys(input []backend.AncestorKey) []backend.AncestorKey {
 	copy(out, input)
 	return out
 }
+
+var (
+	_ backend.Driver        = (*MemoryDriver)(nil)
+	_ backend.StrictDriver  = (*MemoryDriver)(nil)
+	_ backend.LineageDriver = (*MemoryDriver)(nil)
+)
