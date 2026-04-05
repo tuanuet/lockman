@@ -9,13 +9,14 @@ It documents the commands, conventions, and guardrails expected here.
 - Root module: `github.com/tuanuet/lockman`
 - Workspace file: `go.work`
 - Multi-module workspace includes:
-  - `.`
-  - `./backend/redis`
-  - `./benchmarks`
-  - `./examples`
-  - `./guard/postgres`
-  - `./idempotency/redis`
+  - `.` (root SDK)
+  - `./backend/redis` — Redis lease backend
+  - `./benchmarks` — adoption benchmarks
+  - `./examples` — SDK and core examples
+  - `./guard/postgres` — Postgres guarded-write helpers
+  - `./idempotency/redis` — Redis idempotency state
 - CI runs tests in root and nested modules, plus external-consumer smoke checks.
+- **SKILL.md** at repo root is the comprehensive API reference — consult it for SDK details.
 
 ## Primary Commands
 
@@ -38,6 +39,10 @@ Run from repository root unless noted otherwise.
   - `go test ./backend/redis/...`
   - `go test ./idempotency/redis/...`
   - `go test ./guard/postgres/...`
+- Makefile test target:
+  - `make test`
+- Documentation-linked tests:
+  - `make test-docs`
 
 ### Run a Single Test (Important)
 
@@ -50,6 +55,15 @@ Run from repository root unless noted otherwise.
   - `go test . -run '^TestNewCreatesOnlyNeededManagers/run only$'`
 - Verbose output while iterating:
   - `go test . -run '^TestName$' -v`
+
+### Running Examples
+
+- SDK examples (workspace mode, with build tag):
+  - `go run -tags lockman_examples ./examples/sdk/sync-approve-order`
+- With Redis backend:
+  - `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/sync-approve-order`
+- Adapter examples (run from module root, no build tag):
+  - `cd backend/redis && go run ./examples/sync-approve-order`
 
 ### Benchmarks
 
@@ -84,6 +98,82 @@ Run these locally before claiming completion:
 4. `go test ./idempotency/redis/...`
 5. `go test ./guard/postgres/...`
 6. `go test -tags lockman_examples ./examples/... -run '^$'`
+
+## Local Development Infrastructure
+
+### Docker Compose
+
+- Start Redis and Postgres for integration testing:
+  - `docker compose up -d`
+- Redis: `localhost:6379` (override via `LOCKMAN_REDIS_PORT`)
+- Postgres: `localhost:5432`, db `lockman`, user `postgres`, password `postgres` (override via `LOCKMAN_POSTGRES_PORT`)
+
+### Environment Variables
+
+- `LOCKMAN_REDIS_URL` — Redis connection string for examples (e.g. `redis://localhost:6379/0`)
+- `LOCKMAN_REDIS_PORT` — Override Redis port in docker-compose
+- `LOCKMAN_POSTGRES_PORT` — Override Postgres port in docker-compose
+
+## Release Process
+
+### Tagging
+
+Each module is versioned independently. Push tags to trigger CI verification and GitHub release:
+
+| Module | Tag pattern |
+|--------|-------------|
+| Root SDK | `v1.x.x` |
+| backend/redis | `backend/redis/v1.x.x` |
+| idempotency/redis | `idempotency/redis/v1.x.x` |
+| guard/postgres | `guard/postgres/v1.x.x` |
+
+### Release CI (release.yml)
+
+1. **verify** — runs full test suite across all modules (same as CI)
+2. **external-consumer** — smoke tests module installation from proxy.golang.org in an isolated temp directory
+3. **publish** — creates GitHub release with auto-generated notes (softprops/action-gh-release)
+
+### Release Checklist
+
+1. Update `CHANGELOG.md` under `[Unreleased]` section
+2. Run full CI parity checklist (see above)
+3. Create and push tag: `git tag v1.x.x && git push origin v1.x.x`
+4. Verify GitHub release was created automatically
+5. For adapter releases, tag the specific module path: `git tag backend/redis/v1.x.x && git push origin backend/redis/v1.x.x`
+
+### External Consumer Smoke Tests
+
+- CI verifies modules install outside the repo via `testdata/externalconsumer/smoke_test.go`
+- Release smoke tests live in `testdata/releaseconsumer/` (per-module)
+- These ensure consumers can `go get` and compile against published versions
+
+## CI Pipelines
+
+### ci.yml (PR + main)
+
+- **test** job: runs all module tests + compiles tagged examples
+- **external-consumer** job: verifies `go get` + compile against `v1.0.0` published modules
+
+### release.yml (tags)
+
+- Triggered on `v*`, `backend/redis/v*`, `idempotency/redis/v*`, `guard/postgres/v*`
+- Verifies + smoke tests + publishes GitHub release
+
+## Key Internal Packages
+
+| Package | Purpose |
+|---------|---------|
+| `lockkit/runtime` | Sync exclusive execution engine |
+| `lockkit/holds` | Detached hold acquire/release manager |
+| `lockkit/workers` | Async claim with renewal loop |
+| `lockkit/definitions` | Canonical lock models |
+| `lockkit/registry` | Use case storage + validation |
+| `lockkit/errors` | Internal sentinels (normalized to root errors) |
+| `lockkit/observe` | Lifecycle event hooks |
+| `lockkit/internal/lineage` | Ancestor chains, lease IDs |
+| `lockkit/internal/policy` | Outcome mapping, overlap rejection, composite canonicalization |
+| `internal/sdk` | Bridge: normalizes public use cases/requests into internal forms |
+| `backend/memory` | In-memory backend for unit testing |
 
 ## Code Style Guidelines
 
