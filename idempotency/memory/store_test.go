@@ -1,4 +1,4 @@
-package idempotency_test
+package memory
 
 import (
 	"context"
@@ -6,28 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tuanuet/lockman"
-	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/idempotency"
-	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/workers"
 )
-
-func TestStoreContractExists(t *testing.T) {
-	// Compile-time assertion that the public Store contract exists.
-	var _ idempotency.Store = idempotency.NewMemoryStore()
-}
-
-func TestClientCompilesAgainstPromotedIdempotency(t *testing.T) {
-	// This doesn't need to run any client logic; it just pins the public option signature.
-	_ = lockman.WithIdempotency(idempotency.NewMemoryStore())
-}
-
-func TestWorkerCompilesAgainstPromotedIdempotency(t *testing.T) {
-	// Pin the worker manager constructor signature to the promoted contract.
-	// Variadic opts are additive; existing 3-arg calls still compile.
-	var _ func(reg registry.Reader, driver backend.Driver, store idempotency.Store, opts ...workers.Option) (*workers.Manager, error) = workers.NewManager
-}
 
 type fakeClock struct {
 	current time.Time
@@ -45,9 +25,9 @@ func (c *fakeClock) Advance(delta time.Duration) {
 	c.current = c.current.Add(delta)
 }
 
-func TestMemoryStoreBeginRejectsSecondActiveClaim(t *testing.T) {
+func TestStoreBeginRejectsSecondActiveClaim(t *testing.T) {
 	clock := newFakeClock(time.Date(2026, 3, 26, 9, 0, 0, 0, time.UTC))
-	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+	store := NewStoreWithNow(clock.Now)
 
 	first, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
@@ -81,9 +61,9 @@ func TestMemoryStoreBeginRejectsSecondActiveClaim(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreBeginAllowsReacquireAfterExpiryBoundary(t *testing.T) {
+func TestStoreBeginAllowsReacquireAfterExpiryBoundary(t *testing.T) {
 	clock := newFakeClock(time.Date(2026, 3, 26, 10, 0, 0, 0, time.UTC))
-	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+	store := NewStoreWithNow(clock.Now)
 
 	first, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
@@ -119,9 +99,9 @@ func TestMemoryStoreBeginAllowsReacquireAfterExpiryBoundary(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreCompletePreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
+func TestStoreCompletePreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
 	clock := newFakeClock(time.Date(2026, 3, 26, 11, 0, 0, 0, time.UTC))
-	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+	store := NewStoreWithNow(clock.Now)
 
 	_, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
@@ -169,9 +149,9 @@ func TestMemoryStoreCompletePreservesOriginalMetadataAndSetsRetentionTTL(t *test
 	}
 }
 
-func TestMemoryStoreFailPreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
+func TestStoreFailPreservesOriginalMetadataAndSetsRetentionTTL(t *testing.T) {
 	clock := newFakeClock(time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC))
-	store := idempotency.NewMemoryStoreWithNow(clock.Now)
+	store := NewStoreWithNow(clock.Now)
 
 	_, err := store.Begin(context.Background(), "msg:123", idempotency.BeginInput{
 		OwnerID:       "worker-a",
@@ -219,8 +199,8 @@ func TestMemoryStoreFailPreservesOriginalMetadataAndSetsRetentionTTL(t *testing.
 	}
 }
 
-func TestMemoryStoreRejectsNonPositiveTTL(t *testing.T) {
-	store := idempotency.NewMemoryStore()
+func TestStoreRejectsNonPositiveTTL(t *testing.T) {
+	store := NewStore()
 	ctx := context.Background()
 
 	_, err := store.Begin(ctx, "msg:begin:0", idempotency.BeginInput{
@@ -278,8 +258,8 @@ func TestMemoryStoreRejectsNonPositiveTTL(t *testing.T) {
 	}
 }
 
-func BenchmarkMemoryStoreBeginParallel(b *testing.B) {
-	store := idempotency.NewMemoryStore()
+func BenchmarkStoreBeginParallel(b *testing.B) {
+	store := NewStore()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {

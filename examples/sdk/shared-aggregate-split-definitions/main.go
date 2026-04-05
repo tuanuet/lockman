@@ -10,7 +10,7 @@ import (
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/backend/memory"
-	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 )
 
 type approvalInput struct {
@@ -47,7 +47,7 @@ func run(out io.Writer) error {
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "example-app"}),
 		lockman.WithBackend(memory.NewMemoryDriver()),
-		lockman.WithIdempotency(idempotency.NewMemoryStore()),
+		lockman.WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		return err

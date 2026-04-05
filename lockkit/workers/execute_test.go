@@ -10,6 +10,7 @@ import (
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
@@ -19,7 +20,7 @@ import (
 
 type workerManagerHarness struct {
 	*Manager
-	testStore *idempotency.MemoryStore
+	testStore *memstore.Store
 }
 
 func TestExecuteClaimedPersistsIdempotencyBeforeAck(t *testing.T) {
@@ -366,7 +367,7 @@ func TestExecuteClaimedValidatesIdempotencyMetadataWhenRequired(t *testing.T) {
 
 func TestExecuteClaimedDetectsRenewalFailureAfterCallbackReturns(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	driver := newPostCallbackRenewFailDriver()
 
 	mgr, err := NewManager(reg, driver, store)
@@ -513,7 +514,7 @@ func TestOutcomeFromErrorMapsWorkerErrors(t *testing.T) {
 func newWorkerManagerForTest(t *testing.T) workerManagerHarness {
 	t.Helper()
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -527,7 +528,7 @@ func newWorkerManagerForTest(t *testing.T) workerManagerHarness {
 func newWorkerManagerWithRenewFailure(t *testing.T) workerManagerHarness {
 	t.Helper()
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	driver := &renewFailDriver{
 		base:     memory.NewMemoryDriver(),
 		renewErr: backend.ErrLeaseExpired,
@@ -564,7 +565,7 @@ func newWorkerRegistryForTest(t *testing.T, idempotencyRequired bool) *registry.
 func newWorkerManagerWithDriver(t *testing.T, reg *registry.Registry, driver backend.Driver) *Manager {
 	t.Helper()
 
-	mgr, err := NewManager(reg, driver, idempotency.NewMemoryStore())
+	mgr, err := NewManager(reg, driver, memstore.NewStore())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -928,7 +929,7 @@ func (d *acquireFailDriver) Ping(ctx context.Context) error {
 
 func TestExecuteClaimedEmitsAcquireLifecycleEvents(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, false)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	var events []observe.Event
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
@@ -958,7 +959,7 @@ func TestExecuteClaimedEmitsAcquireLifecycleEvents(t *testing.T) {
 
 func TestExecuteClaimedEmitsIdempotencyBeginCompletedEvents(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	var events []observe.Event
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
@@ -985,7 +986,7 @@ func TestExecuteClaimedEmitsIdempotencyBeginCompletedEvents(t *testing.T) {
 
 func TestExecuteClaimedEmitsLeaseLostWhenRenewalFails(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	driver := &renewFailDriver{
 		base:     memory.NewMemoryDriver(),
 		renewErr: backend.ErrLeaseExpired,
@@ -1013,7 +1014,7 @@ func TestExecuteClaimedEmitsLeaseLostWhenRenewalFails(t *testing.T) {
 
 func TestExecuteClaimedEmitsRenewalSucceededOnRenewal(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	var events []observe.Event
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
@@ -1038,7 +1039,7 @@ func TestExecuteClaimedEmitsRenewalSucceededOnRenewal(t *testing.T) {
 
 func TestExecuteClaimedEmitsAcquireFailedOnError(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, false)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	var events []observe.Event
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)

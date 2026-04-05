@@ -8,7 +8,7 @@ import (
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/backend/memory"
-	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 )
 
 func registerBenchmarkRunUseCase(b *testing.B, reg *lockman.Registry, uc lockman.RunUseCase[string]) {
@@ -78,7 +78,7 @@ func newBenchmarkClaimClient(b *testing.B, uc lockman.ClaimUseCase[string]) *loc
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-worker"}),
 		lockman.WithBackend(memory.NewMemoryDriver()),
-		lockman.WithIdempotency(idempotency.NewMemoryStore()),
+		lockman.WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		b.Fatalf("New returned error: %v", err)

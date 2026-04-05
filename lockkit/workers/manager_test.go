@@ -9,7 +9,7 @@ import (
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
-	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
@@ -28,7 +28,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	_, err := NewManager(reg, memory.NewMemoryDriver(), idempotency.NewMemoryStore())
+	_, err := NewManager(reg, memory.NewMemoryDriver(), memstore.NewStore())
 	if !errors.Is(err, lockerrors.ErrRegistryViolation) {
 		t.Fatalf("expected registry violation, got %v", err)
 	}
@@ -37,7 +37,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 func TestNewManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 	reg := workerRegistryWithLineageChain(t)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, memstore.NewStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing lineage driver capability, got %v", err)
 	}
@@ -46,7 +46,7 @@ func TestNewManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 func TestNewManagerRejectsStrictAsyncRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictWorkerRegistryForTest(t, definitions.ExecutionAsync)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, memstore.NewStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -55,7 +55,7 @@ func TestNewManagerRejectsStrictAsyncRegistryWithoutStrictDriver(t *testing.T) {
 func TestNewManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictWorkerRegistryForTest(t, definitions.ExecutionBoth)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, memstore.NewStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -192,7 +192,7 @@ func TestShutdownIsIdempotent(t *testing.T) {
 
 func TestShutdownWaitsForInFlightClaimWithoutPrematureRenewalCancellation(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
-	store := idempotency.NewMemoryStore()
+	store := memstore.NewStore()
 	driver := &renewObserveDriver{base: memory.NewMemoryDriver()}
 
 	mgr, err := NewManager(reg, driver, store)

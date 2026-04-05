@@ -1,4 +1,4 @@
-package idempotency
+package memory
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"hash/fnv"
 	"sync"
 	"time"
+
+	"github.com/tuanuet/lockman/idempotency"
 )
 
 const shardCount = 16
@@ -14,39 +16,41 @@ var errInvalidTTL = errors.New("idempotency: invalid ttl")
 
 type memoryShard struct {
 	mu      sync.Mutex
-	records map[string]Record
+	records map[string]idempotency.Record
 }
 
-// MemoryStore is an in-memory idempotency store intended for tests and local runs.
-type MemoryStore struct {
+// Store is an in-memory idempotency store intended for tests and local runs.
+type Store struct {
 	shards [shardCount]memoryShard
 	now    func() time.Time
 }
 
-func NewMemoryStore() *MemoryStore {
-	return NewMemoryStoreWithNow(time.Now)
+// NewStore returns a ready-to-use in-memory store.
+func NewStore() *Store {
+	return NewStoreWithNow(time.Now)
 }
 
-func NewMemoryStoreWithNow(now func() time.Time) *MemoryStore {
+// NewStoreWithNow returns an in-memory store with a custom clock.
+func NewStoreWithNow(now func() time.Time) *Store {
 	if now == nil {
 		now = time.Now
 	}
-	s := &MemoryStore{now: now}
+	s := &Store{now: now}
 	for i := range s.shards {
-		s.shards[i].records = make(map[string]Record)
+		s.shards[i].records = make(map[string]idempotency.Record)
 	}
 	return s
 }
 
-func (s *MemoryStore) shard(key string) *memoryShard {
+func (s *Store) shard(key string) *memoryShard {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
 	return &s.shards[h.Sum32()%shardCount]
 }
 
-func (s *MemoryStore) Get(ctx context.Context, key string) (Record, error) {
+func (s *Store) Get(ctx context.Context, key string) (idempotency.Record, error) {
 	if err := ctx.Err(); err != nil {
-		return Record{}, err
+		return idempotency.Record{}, err
 	}
 
 	sh := s.shard(key)
@@ -59,21 +63,21 @@ func (s *MemoryStore) Get(ctx context.Context, key string) (Record, error) {
 		if ok {
 			delete(sh.records, key)
 		}
-		return Record{
+		return idempotency.Record{
 			Key:    key,
-			Status: StatusMissing,
+			Status: idempotency.StatusMissing,
 		}, nil
 	}
 
 	return record, nil
 }
 
-func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (BeginResult, error) {
+func (s *Store) Begin(ctx context.Context, key string, input idempotency.BeginInput) (idempotency.BeginResult, error) {
 	if err := ctx.Err(); err != nil {
-		return BeginResult{}, err
+		return idempotency.BeginResult{}, err
 	}
 	if input.TTL <= 0 {
-		return BeginResult{}, errInvalidTTL
+		return idempotency.BeginResult{}, errInvalidTTL
 	}
 
 	sh := s.shard(key)
@@ -83,7 +87,7 @@ func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (
 
 	if record, ok := sh.records[key]; ok {
 		if !isExpired(record.ExpiresAt, now) {
-			return BeginResult{
+			return idempotency.BeginResult{
 				Record:    record,
 				Acquired:  false,
 				Duplicate: true,
@@ -92,9 +96,9 @@ func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (
 		delete(sh.records, key)
 	}
 
-	record := Record{
+	record := idempotency.Record{
 		Key:           key,
-		Status:        StatusInProgress,
+		Status:        idempotency.StatusInProgress,
 		OwnerID:       input.OwnerID,
 		MessageID:     input.MessageID,
 		ConsumerGroup: input.ConsumerGroup,
@@ -104,22 +108,22 @@ func (s *MemoryStore) Begin(ctx context.Context, key string, input BeginInput) (
 	}
 	sh.records[key] = record
 
-	return BeginResult{
+	return idempotency.BeginResult{
 		Record:    record,
 		Acquired:  true,
 		Duplicate: false,
 	}, nil
 }
 
-func (s *MemoryStore) Complete(ctx context.Context, key string, input CompleteInput) error {
-	return s.setTerminalStatus(ctx, key, input.OwnerID, input.MessageID, input.TTL, StatusCompleted)
+func (s *Store) Complete(ctx context.Context, key string, input idempotency.CompleteInput) error {
+	return s.setTerminalStatus(ctx, key, input.OwnerID, input.MessageID, input.TTL, idempotency.StatusCompleted)
 }
 
-func (s *MemoryStore) Fail(ctx context.Context, key string, input FailInput) error {
-	return s.setTerminalStatus(ctx, key, input.OwnerID, input.MessageID, input.TTL, StatusFailed)
+func (s *Store) Fail(ctx context.Context, key string, input idempotency.FailInput) error {
+	return s.setTerminalStatus(ctx, key, input.OwnerID, input.MessageID, input.TTL, idempotency.StatusFailed)
 }
 
-func (s *MemoryStore) setTerminalStatus(ctx context.Context, key, ownerID, messageID string, ttl time.Duration, status Status) error {
+func (s *Store) setTerminalStatus(ctx context.Context, key, ownerID, messageID string, ttl time.Duration, status idempotency.Status) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -132,7 +136,7 @@ func (s *MemoryStore) setTerminalStatus(ctx context.Context, key, ownerID, messa
 	defer sh.mu.Unlock()
 	now := s.now()
 
-	record := Record{
+	record := idempotency.Record{
 		Key:       key,
 		Status:    status,
 		OwnerID:   ownerID,
@@ -155,4 +159,4 @@ func isExpired(expiresAt, now time.Time) bool {
 	return !expiresAt.After(now)
 }
 
-var _ Store = (*MemoryStore)(nil)
+var _ idempotency.Store = (*Store)(nil)

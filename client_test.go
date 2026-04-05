@@ -9,7 +9,7 @@ import (
 
 	"github.com/tuanuet/lockman/backend"
 	"github.com/tuanuet/lockman/backend/memory"
-	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 	"github.com/tuanuet/lockman/inspect"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
@@ -168,7 +168,7 @@ func TestNewCreatesOnlyNeededManagers(t *testing.T) {
 			WithRegistry(reg),
 			WithIdentity(Identity{OwnerID: "worker-1"}),
 			WithBackend(memory.NewMemoryDriver()),
-			WithIdempotency(idempotency.NewMemoryStore()),
+			WithIdempotency(memstore.NewStore()),
 		)
 		if err != nil {
 			t.Fatalf("New returned error: %v", err)
@@ -573,7 +573,7 @@ func TestClaimWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {
@@ -686,7 +686,7 @@ func TestSharedDefinitionReferencedByRunAndClaimNormalizesToExecutionBoth(t *tes
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -801,7 +801,7 @@ func TestClaimUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -865,7 +865,7 @@ func TestSharedDefinitionWithHoldAndClaimNormalizesToExecutionBoth(t *testing.T)
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -919,7 +919,7 @@ func TestSharedStrictDefinitionRequiresStrictBackendSupport(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
 		WithBackend(exactOnlyDriverStub{inner: memory.NewMemoryDriver()}),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if !errors.Is(err, ErrBackendCapabilityRequired) {
 		t.Fatalf("expected ErrBackendCapabilityRequired, got %v", err)
@@ -956,7 +956,7 @@ func TestSharedDefinitionTTLAndWaitTimeoutRequireAgreementAcrossUseCases(t *test
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -985,7 +985,7 @@ func TestSharedDefinitionRejectsConflictingTTLValues(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err == nil {
 		t.Fatal("expected startup error for conflicting TTL values")
@@ -1006,7 +1006,7 @@ func TestSharedDefinitionRejectsConflictingWaitTimeoutValues(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err == nil {
 		t.Fatal("expected startup error for conflicting WaitTimeout values")

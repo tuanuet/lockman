@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/tuanuet/lockman/backend/memory"
-	"github.com/tuanuet/lockman/idempotency"
+	memstore "github.com/tuanuet/lockman/idempotency/memory"
 )
 
 func TestClaimRejectsRequestFromDifferentRegistry(t *testing.T) {
@@ -21,7 +21,7 @@ func TestClaimRejectsRequestFromDifferentRegistry(t *testing.T) {
 		WithRegistry(regA),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -62,7 +62,7 @@ func TestClaimRejectsRequestBoundBeforeLaterRegistration(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -83,7 +83,7 @@ func TestClaimExecutesThroughWorkerManager(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -126,7 +126,7 @@ func TestClaimMapsDuplicateError(t *testing.T) {
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
 		WithBackend(memory.NewMemoryDriver()),
-		WithIdempotency(idempotency.NewMemoryStore()),
+		WithIdempotency(memstore.NewStore()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
