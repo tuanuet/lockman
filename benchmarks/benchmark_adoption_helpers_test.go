@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func registerBenchmarkRunUseCase(b *testing.B, reg *lockman.Registry, uc lockman.RunUseCase[string]) {
@@ -58,7 +58,7 @@ func newBenchmarkRunClient(b *testing.B, uc lockman.RunUseCase[string]) (*lockma
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-runner"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New returned error: %v", err)
@@ -77,7 +77,7 @@ func newBenchmarkClaimClient(b *testing.B, uc lockman.ClaimUseCase[string]) *loc
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-worker"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 		lockman.WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -93,7 +93,7 @@ func newBenchmarkHoldClient(b *testing.B, uc lockman.HoldUseCase[string]) *lockm
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-holder"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New returned error: %v", err)
@@ -121,7 +121,7 @@ func benchmarkRunContentionClientPair(b *testing.B, uc lockman.RunUseCase[string
 	holder, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-holder"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New holder returned error: %v", err)
@@ -129,7 +129,7 @@ func benchmarkRunContentionClientPair(b *testing.B, uc lockman.RunUseCase[string
 	competitor, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-competitor"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New competitor returned error: %v", err)

@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/inspect"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -30,7 +30,7 @@ func TestNewFailsWhenIdentityHasEmptyOwnerID(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if !errors.Is(err, ErrIdentityRequired) {
 		t.Fatalf("expected ErrIdentityRequired, got %v", err)
@@ -57,7 +57,7 @@ func TestNewFailsWhenClaimUseCaseNeedsIdempotencyButStoreMissing(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if !errors.Is(err, ErrIdempotencyRequired) {
 		t.Fatalf("expected ErrIdempotencyRequired, got %v", err)
@@ -71,7 +71,7 @@ func TestNewAllowsNonIdempotentClaimUseCaseWithoutIdempotencyStore(t *testing.T)
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("expected non-idempotent claim use case to start without idempotency store, got %v", err)
@@ -93,7 +93,7 @@ func TestNewFailsWhenStrictUseCaseNeedsStrictBackendSupport(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}),
+		WithBackend(exactOnlyDriverStub{inner: memory.NewMemoryDriver()}),
 	)
 	if !errors.Is(err, ErrBackendCapabilityRequired) {
 		t.Fatalf("expected ErrBackendCapabilityRequired, got %v", err)
@@ -113,7 +113,7 @@ func TestNewFailsWhenLineageUseCaseNeedsLineageBackendSupport(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}),
+		WithBackend(exactOnlyDriverStub{inner: memory.NewMemoryDriver()}),
 	)
 	if !errors.Is(err, ErrBackendCapabilityRequired) {
 		t.Fatalf("expected ErrBackendCapabilityRequired, got %v", err)
@@ -147,7 +147,7 @@ func TestNewCreatesOnlyNeededManagers(t *testing.T) {
 		client, err := New(
 			WithRegistry(reg),
 			WithIdentity(Identity{OwnerID: "owner-1"}),
-			WithBackend(testkit.NewMemoryDriver()),
+			WithBackend(memory.NewMemoryDriver()),
 		)
 		if err != nil {
 			t.Fatalf("New returned error: %v", err)
@@ -167,7 +167,7 @@ func TestNewCreatesOnlyNeededManagers(t *testing.T) {
 		client, err := New(
 			WithRegistry(reg),
 			WithIdentity(Identity{OwnerID: "worker-1"}),
-			WithBackend(testkit.NewMemoryDriver()),
+			WithBackend(memory.NewMemoryDriver()),
 			WithIdempotency(idempotency.NewMemoryStore()),
 		)
 		if err != nil {
@@ -190,7 +190,7 @@ func TestShutdownMarksClientUnavailable(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -333,7 +333,7 @@ func TestNewWithObserverCreatesClientWithoutError(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObserver(d),
 	)
 	if err != nil {
@@ -353,7 +353,7 @@ func TestNewWithInspectStoreCreatesClientWithoutError(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithInspectStore(store),
 	)
 	if err != nil {
@@ -375,7 +375,7 @@ func TestNewWithObservabilityCreatesClientWithoutError(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {
@@ -416,7 +416,7 @@ func TestClientWithInspectStoreUpdatesLocalStateWithoutDispatcher(t *testing.T) 
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithInspectStore(store),
 	)
 	if err != nil {
@@ -456,7 +456,7 @@ func TestWithObserverPublishesAsyncExportWithoutInspectStore(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObserver(d),
 	)
 	if err != nil {
@@ -485,7 +485,7 @@ func TestWithObservabilityWiresBothOnce(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {
@@ -520,7 +520,7 @@ func TestRunWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1", Service: "orders", Instance: "api-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {
@@ -572,7 +572,7 @@ func TestClaimWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
@@ -617,7 +617,7 @@ func TestClientShutdownPublishesFinalEventsThenDrainsDispatcher(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {
@@ -656,7 +656,7 @@ func TestNewAllowsMultipleUseCasesToShareOneDefinition(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -685,7 +685,7 @@ func TestSharedDefinitionReferencedByRunAndClaimNormalizesToExecutionBoth(t *tes
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -719,7 +719,7 @@ func TestHoldOnStrictDefinitionFailsAtStartup(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err == nil {
 		t.Fatal("expected strict hold definition startup failure")
@@ -738,7 +738,7 @@ func TestRunUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -771,7 +771,7 @@ func TestHoldUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "holder-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -800,7 +800,7 @@ func TestClaimUsesSharedDefinitionIdentityAtExecutionTime(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -839,7 +839,7 @@ func TestSharedDefinitionWithHoldAndRunNormalizesToExecutionSync(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -864,7 +864,7 @@ func TestSharedDefinitionWithHoldAndClaimNormalizesToExecutionBoth(t *testing.T)
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -890,7 +890,7 @@ func TestRunAndRunSharingOneDefinitionProducesSingleEngineDefinition(t *testing.
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -918,7 +918,7 @@ func TestSharedStrictDefinitionRequiresStrictBackendSupport(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}),
+		WithBackend(exactOnlyDriverStub{inner: memory.NewMemoryDriver()}),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if !errors.Is(err, ErrBackendCapabilityRequired) {
@@ -938,7 +938,7 @@ func TestSharedClaimUseCaseStillRequiresIdempotencyWhenConfigured(t *testing.T) 
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if !errors.Is(err, ErrIdempotencyRequired) {
 		t.Fatalf("expected ErrIdempotencyRequired, got %v", err)
@@ -955,7 +955,7 @@ func TestSharedDefinitionTTLAndWaitTimeoutRequireAgreementAcrossUseCases(t *test
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -984,7 +984,7 @@ func TestSharedDefinitionRejectsConflictingTTLValues(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err == nil {
@@ -1005,7 +1005,7 @@ func TestSharedDefinitionRejectsConflictingWaitTimeoutValues(t *testing.T) {
 	_, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err == nil {
@@ -1035,7 +1035,7 @@ func TestCompositeRunWithSharedDefinitionMembersBuildsProjectedKeys(t *testing.T
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -1115,7 +1115,7 @@ func TestCompositeTranslationSetsFailIfHeldFlags(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

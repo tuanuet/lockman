@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -153,7 +153,7 @@ func TestExecuteClaimedTreatsFailedDuplicateAsAckWithoutCallback(t *testing.T) {
 }
 
 func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := workerRegistryWithLineageChain(t)
 	mgr := newWorkerManagerWithDriver(t, reg, driver)
 
@@ -188,7 +188,7 @@ func TestExecuteClaimedReturnsRetryOutcomeForRuntimeOverlap(t *testing.T) {
 }
 
 func TestExecuteClaimedRejectsParentWhenChildHeldByAnotherWorker(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := workerRegistryWithLineageChain(t)
 	childMgr := newWorkerManagerWithDriver(t, reg, driver)
 	parentMgr := newWorkerManagerWithDriver(t, reg, driver)
@@ -223,7 +223,7 @@ func TestExecuteClaimedRejectsParentWhenChildHeldByAnotherWorker(t *testing.T) {
 }
 
 func TestExecuteClaimedRenewsLineageMembershipUntilCallbackCompletes(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := registryWithShortTTLLineageChain(t, 150*time.Millisecond)
 	childMgr := newWorkerManagerWithDriver(t, reg, driver)
 	parentMgr := newWorkerManagerWithDriver(t, reg, driver)
@@ -400,7 +400,7 @@ func TestExecuteClaimedDetectsRenewalFailureAfterCallbackReturns(t *testing.T) {
 
 func TestExecuteClaimedStrictPopulatesFencingToken(t *testing.T) {
 	reg := strictExecuteWorkerRegistryForTest(t)
-	mgr := newWorkerManagerWithDriver(t, reg, testkit.NewMemoryDriver())
+	mgr := newWorkerManagerWithDriver(t, reg, memory.NewMemoryDriver())
 
 	err := mgr.ExecuteClaimed(context.Background(), strictMessageClaimRequest(), func(ctx context.Context, claim definitions.ClaimContext) error {
 		if claim.FencingToken == 0 {
@@ -470,7 +470,7 @@ func TestExecuteClaimedStrictAcquireErrorReturnsDirectly(t *testing.T) {
 	reg := strictExecuteWorkerRegistryForTest(t)
 	sentinel := errors.New("strict acquire failed")
 	mgr := newWorkerManagerWithDriver(t, reg, strictAcquireFailDriver{
-		base: testkit.NewMemoryDriver(),
+		base: memory.NewMemoryDriver(),
 		err:  sentinel,
 	})
 
@@ -514,7 +514,7 @@ func newWorkerManagerForTest(t *testing.T) workerManagerHarness {
 	t.Helper()
 	reg := newWorkerRegistryForTest(t, true)
 	store := idempotency.NewMemoryStore()
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store)
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -529,7 +529,7 @@ func newWorkerManagerWithRenewFailure(t *testing.T) workerManagerHarness {
 	reg := newWorkerRegistryForTest(t, true)
 	store := idempotency.NewMemoryStore()
 	driver := &renewFailDriver{
-		base:     testkit.NewMemoryDriver(),
+		base:     memory.NewMemoryDriver(),
 		renewErr: backend.ErrLeaseExpired,
 	}
 	mgr, err := NewManager(reg, driver, store)
@@ -699,14 +699,14 @@ func strictExecuteWorkerRegistryForTest(t *testing.T) *registry.Registry {
 }
 
 type postCallbackRenewFailDriver struct {
-	base             *testkit.MemoryDriver
+	base             *memory.MemoryDriver
 	renewStartedCh   chan struct{}
 	allowRenewResult chan struct{}
 }
 
 func newPostCallbackRenewFailDriver() *postCallbackRenewFailDriver {
 	return &postCallbackRenewFailDriver{
-		base:             testkit.NewMemoryDriver(),
+		base:             memory.NewMemoryDriver(),
 		renewStartedCh:   make(chan struct{}),
 		allowRenewResult: make(chan struct{}),
 	}
@@ -747,7 +747,7 @@ func (d *postCallbackRenewFailDriver) Ping(ctx context.Context) error {
 }
 
 type renewFailDriver struct {
-	base      *testkit.MemoryDriver
+	base      *memory.MemoryDriver
 	renewErr  error
 	renewSeen atomic.Bool
 }
@@ -776,13 +776,13 @@ func (d *renewFailDriver) Ping(ctx context.Context) error {
 }
 
 type strictRenewProbeDriver struct {
-	base           *testkit.MemoryDriver
+	base           *memory.MemoryDriver
 	renewCalls     atomic.Uint64
 	lastRenewToken atomic.Uint64
 }
 
 func newStrictRenewProbeDriver() *strictRenewProbeDriver {
-	return &strictRenewProbeDriver{base: testkit.NewMemoryDriver()}
+	return &strictRenewProbeDriver{base: memory.NewMemoryDriver()}
 }
 
 func (d *strictRenewProbeDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
@@ -820,11 +820,11 @@ func (d *strictRenewProbeDriver) ReleaseStrict(ctx context.Context, lease backen
 }
 
 type strictRenewMismatchDriver struct {
-	base *testkit.MemoryDriver
+	base *memory.MemoryDriver
 }
 
 func newStrictRenewMismatchDriver() *strictRenewMismatchDriver {
-	return &strictRenewMismatchDriver{base: testkit.NewMemoryDriver()}
+	return &strictRenewMismatchDriver{base: memory.NewMemoryDriver()}
 }
 
 func (d *strictRenewMismatchDriver) Acquire(ctx context.Context, req backend.AcquireRequest) (backend.LeaseRecord, error) {
@@ -865,7 +865,7 @@ func (d *strictRenewMismatchDriver) ReleaseStrict(ctx context.Context, lease bac
 }
 
 type strictAcquireFailDriver struct {
-	base *testkit.MemoryDriver
+	base *memory.MemoryDriver
 	err  error
 }
 
@@ -902,7 +902,7 @@ func (d strictAcquireFailDriver) ReleaseStrict(ctx context.Context, lease backen
 }
 
 type acquireFailDriver struct {
-	base *testkit.MemoryDriver
+	base *memory.MemoryDriver
 	err  error
 }
 
@@ -933,7 +933,7 @@ func TestExecuteClaimedEmitsAcquireLifecycleEvents(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store, WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -963,7 +963,7 @@ func TestExecuteClaimedEmitsIdempotencyBeginCompletedEvents(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store, WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -987,7 +987,7 @@ func TestExecuteClaimedEmitsLeaseLostWhenRenewalFails(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
 	store := idempotency.NewMemoryStore()
 	driver := &renewFailDriver{
-		base:     testkit.NewMemoryDriver(),
+		base:     memory.NewMemoryDriver(),
 		renewErr: backend.ErrLeaseExpired,
 	}
 	var events []observe.Event
@@ -1018,7 +1018,7 @@ func TestExecuteClaimedEmitsRenewalSucceededOnRenewal(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store, WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store, WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -1044,7 +1044,7 @@ func TestExecuteClaimedEmitsAcquireFailedOnError(t *testing.T) {
 		events = append(events, event)
 	})
 	driver := &acquireFailDriver{
-		base: testkit.NewMemoryDriver(),
+		base: memory.NewMemoryDriver(),
 		err:  errors.New("acquire failed"),
 	}
 	mgr, err := NewManager(reg, driver, store, WithBridge(bridge))

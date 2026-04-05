@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestShutdownStopsNewAcquisitions(t *testing.T) {
@@ -27,7 +27,7 @@ func TestShutdownStopsNewAcquisitions(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestShutdownIsIdempotent(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestShutdownWaitsForInFlightExecutionToDrain(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestShutdownWaitsForInFlightExecutionToDrain(t *testing.T) {
 
 func TestShutdownWaitsForInFlightCompositeExecutionToDrain(t *testing.T) {
 	reg := newCompositeRegistry(t)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestShutdownReturnsContextErrorWhenInFlightDoesNotDrain(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestShutdownNotBlockedByReentrantAdmissionFailure(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestShutdownEmitsBridgeLifecycleEvents(t *testing.T) {
 	}
 
 	bridge := &bridgeStub{}
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestShutdownDoesNotMissDrainSignal(t *testing.T) {
 	}
 
 	for i := 0; i < 200; i++ {
-		mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+		mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 		if err != nil {
 			t.Fatalf("NewManager returned error: %v", err)
 		}

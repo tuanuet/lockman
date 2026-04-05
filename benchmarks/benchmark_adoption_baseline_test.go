@@ -8,7 +8,7 @@ import (
 
 	"github.com/tuanuet/lockman"
 	"github.com/tuanuet/lockman/advanced/composite"
-	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend/memory"
 )
 
 func BenchmarkAdoptionRunMemory(b *testing.B) {
@@ -39,7 +39,7 @@ func BenchmarkAdoptionRunContentionMemory(b *testing.B) {
 		holder, err := lockman.New(
 			lockman.WithRegistry(reg),
 			lockman.WithIdentity(lockman.Identity{OwnerID: "bench-holder"}),
-			lockman.WithBackend(testkit.NewMemoryDriver()),
+			lockman.WithBackend(memory.NewMemoryDriver()),
 		)
 		if err != nil {
 			b.Fatalf("New holder returned error: %v", err)
@@ -48,7 +48,7 @@ func BenchmarkAdoptionRunContentionMemory(b *testing.B) {
 		competitor, err := lockman.New(
 			lockman.WithRegistry(reg),
 			lockman.WithIdentity(lockman.Identity{OwnerID: "bench-competitor"}),
-			lockman.WithBackend(testkit.NewMemoryDriver()),
+			lockman.WithBackend(memory.NewMemoryDriver()),
 		)
 		if err != nil {
 			b.Fatalf("New competitor returned error: %v", err)
@@ -134,7 +134,7 @@ func BenchmarkAdoptionStrictMemory(b *testing.B) {
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "bench-runner"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		b.Fatalf("New returned error: %v", err)
@@ -193,7 +193,7 @@ func BenchmarkAdoptionCompositeMemory(b *testing.B) {
 			client, err := lockman.New(
 				lockman.WithRegistry(reg),
 				lockman.WithIdentity(lockman.Identity{OwnerID: "bench-runner"}),
-				lockman.WithBackend(testkit.NewMemoryDriver()),
+				lockman.WithBackend(memory.NewMemoryDriver()),
 			)
 			if err != nil {
 				b.Fatalf("New returned error: %v", err)

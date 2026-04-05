@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend/memory"
 )
 
 func TestRunRejectsRequestFromDifferentRegistry(t *testing.T) {
@@ -20,7 +20,7 @@ func TestRunRejectsRequestFromDifferentRegistry(t *testing.T) {
 	client, err := New(
 		WithRegistry(regA),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -46,7 +46,7 @@ func TestRunRejectsUnregisteredUseCase(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -78,7 +78,7 @@ func TestRunRejectsRequestBoundBeforeLaterRegistration(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -102,7 +102,7 @@ func TestRunExecutesThroughRuntimeManager(t *testing.T) {
 			Service:  "orders",
 			Instance: "api-1",
 		}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -140,7 +140,7 @@ func TestRunMapsBusyError(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman"
-	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend/memory"
 )
 
 type shipmentInput struct {
@@ -44,7 +44,7 @@ func run(out io.Writer) error {
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "shipment-runtime"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		return err

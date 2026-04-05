@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/tuanuet/lockman"
-	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend/memory"
 )
 
 func TestStrictPackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
@@ -23,7 +23,7 @@ func TestStrictPackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "owner-a"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

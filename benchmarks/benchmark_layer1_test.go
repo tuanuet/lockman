@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/tuanuet/lockman"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func BenchmarkActiveCountParallel(b *testing.B) {
@@ -21,7 +21,7 @@ func BenchmarkActiveCountParallel(b *testing.B) {
 			client, err := lockman.New(
 				lockman.WithRegistry(reg),
 				lockman.WithIdentity(lockman.Identity{OwnerID: "bench-runner"}),
-				lockman.WithBackend(testkit.NewMemoryDriver()),
+				lockman.WithBackend(memory.NewMemoryDriver()),
 			)
 			if err != nil {
 				b.Fatalf("New: %v", err)

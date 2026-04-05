@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman"
-	"github.com/tuanuet/lockman/lockkit/testkit"
+	"github.com/tuanuet/lockman/backend/memory"
 )
 
 type transferInput struct {
@@ -39,7 +39,7 @@ func TestCompositePackageExposesPublicRunUseCaseAuthoring(t *testing.T) {
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -121,7 +121,7 @@ func TestCompositePackageRejectsStrictCompositeRuns(t *testing.T) {
 		_, err := lockman.New(
 			lockman.WithRegistry(reg),
 			lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
-			lockman.WithBackend(testkit.NewMemoryDriver()),
+			lockman.WithBackend(memory.NewMemoryDriver()),
 		)
 		t.Logf("New error: %v", err)
 		if err == nil {
@@ -154,7 +154,7 @@ func TestCompositePackageFailIfHeldCheckPassesWhenNotHeld(t *testing.T) {
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -205,7 +205,7 @@ func TestCompositePackageFailIfHeldCheckAbortsWhenHeld(t *testing.T) {
 		t.Fatalf("Register returned error: %v", err)
 	}
 
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	holderClient, err := lockman.New(
 		lockman.WithRegistry(reg),
@@ -273,7 +273,7 @@ func TestCompositePackageFailIfHeldErrorIncludesOwnerInfo(t *testing.T) {
 		t.Fatalf("Register returned error: %v", err)
 	}
 
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	holderClient, err := lockman.New(
 		lockman.WithRegistry(reg),
@@ -343,7 +343,7 @@ func TestCompositePackageFailIfHeldMembersAreExcludedFromLeasePayload(t *testing
 	client, err := lockman.New(
 		lockman.WithRegistry(reg),
 		lockman.WithIdentity(lockman.Identity{OwnerID: "transfer-owner"}),
-		lockman.WithBackend(testkit.NewMemoryDriver()),
+		lockman.WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

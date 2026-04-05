@@ -8,15 +8,15 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestCheckPresenceReturnsPresenceHeld(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
@@ -78,7 +78,7 @@ func TestCheckPresenceRejectsDefinitionWithoutCheckOnlyAllowed(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestCheckPresenceReturnsPresenceUnknownWhenDriverHealthUnavailable(t *testi
 
 	sentinelErr := errors.New("driver unavailable")
 	mgr, err := NewManager(reg, pingFailDriver{
-		inner: testkit.NewMemoryDriver(),
+		inner: memory.NewMemoryDriver(),
 		err:   sentinelErr,
 	}, lockobserve.NewNoopRecorder())
 	if err != nil {
@@ -146,7 +146,7 @@ func TestCheckPresenceRecordsMetricsWithResolvedDefinitionID(t *testing.T) {
 		KeyBuilder:       definitions.MustTemplateKeyBuilder("order:{order_id}", []string{"order_id"}),
 	}
 
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	if _, err := driver.Acquire(context.Background(), backend.AcquireRequest{
 		DefinitionID: def.ID,
 		ResourceKeys: []string{"order:123"},
@@ -184,7 +184,7 @@ func TestCheckPresenceRecordsMetricsWithResolvedDefinitionID(t *testing.T) {
 
 func TestCheckPresenceSkipsMetricsWhenDefinitionLookupFails(t *testing.T) {
 	rec := &presenceMetricRecorder{}
-	mgr, err := NewManager(registry.New(), testkit.NewMemoryDriver(), rec)
+	mgr, err := NewManager(registry.New(), memory.NewMemoryDriver(), rec)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestCheckPresenceSkipsMetricsWhenDefinitionLookupFails(t *testing.T) {
 }
 
 func TestCheckPresenceRemainsExactKeyOnlyWithActiveChild(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := registry.New()
 	if err := reg.Register(definitions.LockDefinition{
 		ID:               "OrderLock",
@@ -374,7 +374,7 @@ func TestCheckPresenceEmitsBridgeEvent(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	bridge := &bridgeStub{}
 	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {

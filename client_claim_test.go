@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestClaimRejectsRequestFromDifferentRegistry(t *testing.T) {
@@ -20,7 +20,7 @@ func TestClaimRejectsRequestFromDifferentRegistry(t *testing.T) {
 	client, err := New(
 		WithRegistry(regA),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestClaimRejectsRequestBoundBeforeLaterRegistration(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestClaimExecutesThroughWorkerManager(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestClaimMapsDuplicateError(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "worker-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithIdempotency(idempotency.NewMemoryStore()),
 	)
 	if err != nil {

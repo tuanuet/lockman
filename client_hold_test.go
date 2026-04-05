@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/internal/sdk"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func testHoldUseCaseHelper(name string) HoldUseCase[string] {
@@ -26,7 +26,7 @@ func mustNewHoldClient(t *testing.T, reg *Registry) *Client {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "holder-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)

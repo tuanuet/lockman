@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/inspect"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -22,7 +22,7 @@ func TestDebugBridge(t *testing.T) {
 	client, err := New(
 		WithRegistry(reg),
 		WithIdentity(Identity{OwnerID: "owner-1"}),
-		WithBackend(testkit.NewMemoryDriver()),
+		WithBackend(memory.NewMemoryDriver()),
 		WithObservability(Observability{Dispatcher: d, Store: store}),
 	)
 	if err != nil {

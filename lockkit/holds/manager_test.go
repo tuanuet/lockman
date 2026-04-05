@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestHoldsManagerAcquireReturnsLease(t *testing.T) {
 	reg := newTestRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	mgr, err := NewManager(reg, driver)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestHoldsManagerAcquireReturnsLease(t *testing.T) {
 
 func TestHoldsManagerReleaseCallsBackend(t *testing.T) {
 	reg := newTestRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	mgr, err := NewManager(reg, driver)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestHoldsManagerReleaseCallsBackend(t *testing.T) {
 
 func TestHoldsManagerAcquireAfterShutdownRejected(t *testing.T) {
 	reg := newTestRegistry(t)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestHoldsManagerAcquireAfterShutdownRejected(t *testing.T) {
 
 func TestHoldsManagerAcquireUnknownDefinitionRejected(t *testing.T) {
 	reg := newTestRegistry(t)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}

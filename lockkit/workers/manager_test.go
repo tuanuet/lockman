@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -28,7 +28,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	_, err := NewManager(reg, testkit.NewMemoryDriver(), idempotency.NewMemoryStore())
+	_, err := NewManager(reg, memory.NewMemoryDriver(), idempotency.NewMemoryStore())
 	if !errors.Is(err, lockerrors.ErrRegistryViolation) {
 		t.Fatalf("expected registry violation, got %v", err)
 	}
@@ -37,7 +37,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 func TestNewManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 	reg := workerRegistryWithLineageChain(t)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing lineage driver capability, got %v", err)
 	}
@@ -46,7 +46,7 @@ func TestNewManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 func TestNewManagerRejectsStrictAsyncRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictWorkerRegistryForTest(t, definitions.ExecutionAsync)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -55,7 +55,7 @@ func TestNewManagerRejectsStrictAsyncRegistryWithoutStrictDriver(t *testing.T) {
 func TestNewManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictWorkerRegistryForTest(t, definitions.ExecutionBoth)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, idempotency.NewMemoryStore())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, idempotency.NewMemoryStore())
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -64,7 +64,7 @@ func TestNewManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
 func TestNewManagerAllowsStrictSyncOnlyRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictWorkerRegistryForTest(t, definitions.ExecutionSync)
 
-	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, nil)
+	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, nil)
 	if err != nil {
 		t.Fatalf("expected worker manager to allow sync-only strict definitions, got %v", err)
 	}
@@ -76,7 +76,7 @@ func TestNewManagerAllowsStrictSyncOnlyRegistryWithoutStrictDriver(t *testing.T)
 func TestNewManagerRequiresIdempotencyStoreWhenAsyncDefinitionNeedsIt(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
 
-	_, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
+	_, err := NewManager(reg, memory.NewMemoryDriver(), nil)
 	if !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing idempotency store, got %v", err)
 	}
@@ -85,7 +85,7 @@ func TestNewManagerRequiresIdempotencyStoreWhenAsyncDefinitionNeedsIt(t *testing
 func TestNewManagerAllowsNilIdempotencyStoreWhenNotRequired(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, false)
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), nil)
 	if err != nil {
 		t.Fatalf("expected manager creation to succeed without idempotency store, got %v", err)
 	}
@@ -193,7 +193,7 @@ func TestShutdownIsIdempotent(t *testing.T) {
 func TestShutdownWaitsForInFlightClaimWithoutPrematureRenewalCancellation(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, true)
 	store := idempotency.NewMemoryStore()
-	driver := &renewObserveDriver{base: testkit.NewMemoryDriver()}
+	driver := &renewObserveDriver{base: memory.NewMemoryDriver()}
 
 	mgr, err := NewManager(reg, driver, store)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestShutdownWaitsForInFlightClaimWithoutPrematureRenewalCancellation(t *tes
 }
 
 type renewObserveDriver struct {
-	base       *testkit.MemoryDriver
+	base       *memory.MemoryDriver
 	renewCalls atomic.Int32
 }
 
@@ -370,7 +370,7 @@ func strictWorkerRegistryForTest(t *testing.T, kind definitions.ExecutionKind) *
 
 func TestNewManagerStillCompilesWithExistingThreeParamShape(t *testing.T) {
 	reg := newWorkerRegistryForTest(t, false)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil)
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), nil)
 	if err != nil {
 		t.Fatalf("NewManager with three params returned error: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestNewManagerAcceptsVariadicBridgeOption(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil, WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), nil, WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager with bridge option returned error: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestShutdownEmitsObservabilityEvents(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), nil, WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), nil, WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}

@@ -516,7 +516,7 @@ The public SDK translates into internal `lockkit` execution engines:
 | Policy | `lockkit/internal/policy` — outcome mapping, overlap rejection, composite canonicalization | `lockkit/internal/policy` |
 | Errors | `lockkit/errors` — internal sentinels normalized to root errors | `lockkit/errors` |
 | Observe | `lockkit/observe.Recorder` — lifecycle event hooks | `lockkit/observe` |
-| Test support | `lockkit/testkit.MemoryDriver` — in-memory backend for tests | `lockkit/testkit` |
+| Test support | `backend/memory.MemoryDriver` — in-memory backend for tests | `backend/memory` |
 
 **Bridge:** `internal/sdk` normalizes public use cases/requests into internal forms before dispatching to lockkit managers.
 

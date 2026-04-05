@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/idempotency"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/internal/policy"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 )
 
@@ -93,7 +93,7 @@ func TestExecuteCompositeClaimedRejectsOverlapBeforeAcquire(t *testing.T) {
 }
 
 func TestExecuteCompositeClaimedUsesLineageDriverForLineageMembers(t *testing.T) {
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	reg := workerRegistryWithCompositeLineageMembers(t)
 	holder := newWorkerManagerWithDriver(t, reg, driver)
 	compositeMgr := newWorkerManagerWithDriver(t, reg, driver)
@@ -182,7 +182,7 @@ func TestExecuteCompositeClaimedUsesMaxMemberLeaseTTLForIdempotency(t *testing.T
 
 	reg := newCompositeWorkerRegistryWithTTLs(t, shortTTL, longTTL)
 	store := idempotency.NewMemoryStore()
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), store)
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), store)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestExecuteCompositeClaimedCancelsContextWhenAnyMemberRenewalFails(t *testi
 	reg := newCompositeWorkerRegistryForTest(t)
 	store := idempotency.NewMemoryStore()
 	driver := &multiMemberRenewFailDriver{
-		base:            testkit.NewMemoryDriver(),
+		base:            memory.NewMemoryDriver(),
 		failResourceKey: "ledger:ledger-456",
 	}
 	mgr, err := NewManager(reg, driver, store)
@@ -265,7 +265,7 @@ func newCompositeWorkerManagerForTest(t *testing.T) compositeWorkerManagerHarnes
 
 	reg := newCompositeWorkerRegistryForTest(t)
 	store := idempotency.NewMemoryStore()
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := NewManager(reg, driver, store)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -552,7 +552,7 @@ func assertNotHeld(t *testing.T, driver backend.Driver, definitionID string, key
 }
 
 type failingCompositeClaimDriver struct {
-	base         *testkit.MemoryDriver
+	base         *memory.MemoryDriver
 	failAt       int32
 	failErr      error
 	acquireCount atomic.Int32
@@ -560,7 +560,7 @@ type failingCompositeClaimDriver struct {
 
 func newFailingCompositeClaimDriver(failAt int, failErr error) *failingCompositeClaimDriver {
 	return &failingCompositeClaimDriver{
-		base:    testkit.NewMemoryDriver(),
+		base:    memory.NewMemoryDriver(),
 		failAt:  int32(failAt),
 		failErr: failErr,
 	}
@@ -619,7 +619,7 @@ func (d *failingCompositeClaimDriver) acquireAttempts() int {
 }
 
 type multiMemberRenewFailDriver struct {
-	base            *testkit.MemoryDriver
+	base            *memory.MemoryDriver
 	failResourceKey string
 	failed          atomic.Bool
 }
@@ -653,7 +653,7 @@ func TestExecuteCompositeClaimedEmitsMemberAcquireEvents(t *testing.T) {
 	bridge := workerTestBridge(func(event observe.Event) {
 		events = append(events, event)
 	})
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), idempotency.NewMemoryStore(), WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), idempotency.NewMemoryStore(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -693,7 +693,7 @@ func TestExecuteCompositeClaimedEmitsLeaseLostOnMemberRenewalFailure(t *testing.
 	reg := newCompositeWorkerRegistryForTest(t)
 	store := idempotency.NewMemoryStore()
 	driver := &multiMemberRenewFailDriver{
-		base:            testkit.NewMemoryDriver(),
+		base:            memory.NewMemoryDriver(),
 		failResourceKey: "ledger:ledger-456",
 	}
 	var events []observe.Event

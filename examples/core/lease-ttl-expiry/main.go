@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
 	"github.com/tuanuet/lockman/lockkit/runtime"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func main() {
@@ -42,7 +42,7 @@ func run(out io.Writer) error {
 		return err
 	}
 
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := runtime.NewManager(reg, driver, observe.NewNoopRecorder())
 	if err != nil {
 		return err

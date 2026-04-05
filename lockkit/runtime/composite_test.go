@@ -8,15 +8,15 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 )
 
 func TestExecuteCompositeExclusiveAcquiresMembersInCanonicalOrder(t *testing.T) {
 	reg := newCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := NewManager(reg, driver, nil)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -40,7 +40,7 @@ func TestExecuteCompositeExclusiveAcquiresMembersInCanonicalOrder(t *testing.T) 
 
 func TestExecuteCompositeExclusiveCanonicalOrderingUsesRankThenResourceThenKey(t *testing.T) {
 	reg := newCanonicalOrderingCoverageRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := NewManager(reg, driver, nil)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -78,7 +78,7 @@ func TestExecuteCompositeExclusiveCanonicalOrderingUsesRankThenResourceThenKey(t
 
 func TestExecuteCompositeExclusiveInvalidOverridesRejectedBeforeAcquire(t *testing.T) {
 	reg := newCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	rec := &countingRecorder{}
 	mgr, err := NewManager(reg, driver, rec)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestExecuteCompositeExclusiveRejectsParentChildOverlap(t *testing.T) {
 
 func TestExecuteCompositeExclusiveUsesLineageDriverForLineageMembers(t *testing.T) {
 	reg := registryWithCompositeLineageMembers(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	holder, err := NewManager(reg, driver, nil)
 	if err != nil {
@@ -804,7 +804,7 @@ func failIfHeldSyncRequest() definitions.SyncLockRequest {
 
 func TestExecuteCompositeExclusiveExcludesFailIfHeldMembersFromLeaseContext(t *testing.T) {
 	reg := newFailIfHeldCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := NewManager(reg, driver, nil)
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -835,7 +835,7 @@ func TestExecuteCompositeExclusiveExcludesFailIfHeldMembersFromLeaseContext(t *t
 
 func TestExecuteCompositeExclusiveDoesNotTrackFailIfHeldMembersAsActive(t *testing.T) {
 	reg := newFailIfHeldCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	rec := &countingRecorder{}
 	mgr, err := NewManager(reg, driver, rec)
 	if err != nil {
@@ -866,7 +866,7 @@ func TestExecuteCompositeExclusiveDoesNotTrackFailIfHeldMembersAsActive(t *testi
 
 func TestExecuteCompositeExclusiveAllowsAllPreconditionsComposite(t *testing.T) {
 	reg := newAllFailIfHeldCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	rec := &countingRecorder{}
 	mgr, err := NewManager(reg, driver, rec)
 	if err != nil {
@@ -1016,7 +1016,7 @@ func TestExecuteCompositeExclusiveFailIfHeldMembersSkipReentrancyGuard(t *testin
 
 func TestExecuteCompositeExclusiveEmitsBridgeEvents(t *testing.T) {
 	reg := newCompositeRegistry(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	bridge := &bridgeStub{}
 	mgr, err := NewManager(reg, driver, nil, WithBridge(bridge))
 	if err != nil {

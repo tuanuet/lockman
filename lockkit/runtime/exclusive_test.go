@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/backend"
+	"github.com/tuanuet/lockman/backend/memory"
 	"github.com/tuanuet/lockman/lockkit/definitions"
 	lockobserve "github.com/tuanuet/lockman/lockkit/observe"
 	"github.com/tuanuet/lockman/lockkit/registry"
-	"github.com/tuanuet/lockman/lockkit/testkit"
 	"github.com/tuanuet/lockman/observe"
 
 	lockerrors "github.com/tuanuet/lockman/lockkit/errors"
@@ -31,7 +31,7 @@ func TestExecuteExclusiveRunsCallbackWhenLockAcquired(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestExecuteExclusiveRunsCallbackWithDirectResourceKey(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestExecuteExclusiveRejectsReentrantAcquire(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestExecuteExclusiveGuardHandlesColonCharacters(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestExecuteExclusiveGuardHandlesColonCharacters(t *testing.T) {
 
 func TestExecuteExclusiveUnknownDefinitionReturnsError(t *testing.T) {
 	reg := registry.New()
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	_, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	_, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err == nil {
 		t.Fatal("expected invalid registry rejection")
 	}
@@ -236,7 +236,7 @@ func TestNewManagerRejectsInvalidRegistry(t *testing.T) {
 
 func TestRuntimeManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) {
 	reg := registryWithLineageChain(t)
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
 	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected manager capability rejection, got %v", err)
 	}
@@ -245,7 +245,7 @@ func TestRuntimeManagerRejectsLineageRegistryWithoutLineageDriver(t *testing.T) 
 func TestRuntimeManagerRejectsStrictSyncRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
 	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -254,7 +254,7 @@ func TestRuntimeManagerRejectsStrictSyncRegistryWithoutStrictDriver(t *testing.T
 func TestRuntimeManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionBoth)
 
-	_, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
+	_, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
 	if err == nil || !errors.Is(err, lockerrors.ErrPolicyViolation) {
 		t.Fatalf("expected policy violation for missing strict driver capability, got %v", err)
 	}
@@ -263,7 +263,7 @@ func TestRuntimeManagerRejectsStrictBothRegistryWithoutStrictDriver(t *testing.T
 func TestRuntimeManagerAllowsStrictAsyncOnlyRegistryWithoutStrictDriver(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionAsync)
 
-	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: testkit.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, exactOnlyDriverStub{inner: memory.NewMemoryDriver()}, lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("expected runtime manager to allow async-only strict definitions, got %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRuntimeManagerAllowsStrictAsyncOnlyRegistryWithoutStrictDriver(t *testi
 
 func TestExecuteExclusiveStrictPopulatesFencingToken(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestExecuteExclusiveStrictSuiteKeepsStandardFencingTokenZero(t *testing.T) 
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestExecuteExclusiveStrictSuiteKeepsStandardFencingTokenZero(t *testing.T) 
 
 func TestExecuteExclusiveStrictReacquireAfterReleaseIncreasesToken(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestExecuteExclusiveStrictReacquireAfterReleaseIncreasesToken(t *testing.T)
 
 func TestExecuteExclusiveStrictRejectsReentrantAcquire(t *testing.T) {
 	reg := strictRuntimeRegistryForTest(t, definitions.ExecutionSync)
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestExecuteExclusiveDifferentOwnerHitsDriverContention(t *testing.T) {
 
 func TestExecuteExclusiveRejectsParentWhenChildHeldByAnotherManager(t *testing.T) {
 	reg := registryWithLineageChain(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	childManager, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
@@ -511,7 +511,7 @@ func TestExecuteExclusiveRejectsParentWhenChildHeldByAnotherManager(t *testing.T
 
 func TestExecuteExclusiveRejectsChildWhenParentHeldByAnotherManager(t *testing.T) {
 	reg := registryWithLineageChain(t)
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 
 	parentManager, err := NewManager(reg, driver, lockobserve.NewNoopRecorder())
 	if err != nil {
@@ -669,7 +669,7 @@ func TestExecuteExclusiveInvalidOverridesDoesNotPoisonGuard(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -1163,7 +1163,7 @@ func TestNewManagerAcceptsOptionalObservabilityOptions(t *testing.T) {
 	}
 
 	bridge := &bridgeStub{}
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -1172,7 +1172,7 @@ func TestNewManagerAcceptsOptionalObservabilityOptions(t *testing.T) {
 	}
 
 	// Without options still works.
-	mgr2, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder())
+	mgr2, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder())
 	if err != nil {
 		t.Fatalf("NewManager without options returned error: %v", err)
 	}
@@ -1196,7 +1196,7 @@ func TestExecuteExclusiveEmitsBridgeAcquireAndRelease(t *testing.T) {
 	}
 
 	bridge := &bridgeStub{}
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
@@ -1243,7 +1243,7 @@ func TestExecuteExclusiveEmitsBridgeContentionOnDriverContention(t *testing.T) {
 	}
 
 	bridge := &bridgeStub{}
-	driver := testkit.NewMemoryDriver()
+	driver := memory.NewMemoryDriver()
 	mgr, err := NewManager(reg, driver, lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
@@ -1299,7 +1299,7 @@ func TestExecuteExclusiveEmitsBridgeActiveStateChanges(t *testing.T) {
 	}
 
 	bridge := &bridgeStub{}
-	mgr, err := NewManager(reg, testkit.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
+	mgr, err := NewManager(reg, memory.NewMemoryDriver(), lockobserve.NewNoopRecorder(), WithBridge(bridge))
 	if err != nil {
 		t.Fatalf("NewManager returned error: %v", err)
 	}
