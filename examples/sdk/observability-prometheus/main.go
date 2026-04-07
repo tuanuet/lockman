@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	goredis "github.com/redis/go-redis/v9"
@@ -47,6 +48,9 @@ func main() {
 	store := inspect.NewStore()
 
 	redisAddr := "localhost:6379"
+	if url := os.Getenv("LOCKMAN_REDIS_URL"); url != "" {
+		redisAddr = url
+	}
 	redisClient := goredis.NewClient(&goredis.Options{Addr: redisAddr})
 
 	client, err := lockman.New(
