@@ -1,4 +1,4 @@
-package observe_test
+package otel_test
 
 import (
 	"context"
@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/tuanuet/lockman/observe"
+	"github.com/tuanuet/lockman/observe/otel"
 )
 
 func TestOTelSinkSatisfiesSinkInterface(t *testing.T) {
-	var _ observe.Sink = observe.NewOTelSink(observe.OTelConfig{})
+	var _ observe.Sink = otel.NewOTelSink(otel.OTelConfig{})
 }
 
 func TestOTelSinkConsumeNeverReturnsError(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	err := sink.Consume(context.Background(), observe.Event{
 		Kind: observe.EventAcquireSucceeded,
 	})
@@ -23,7 +24,7 @@ func TestOTelSinkConsumeNeverReturnsError(t *testing.T) {
 }
 
 func TestOTelSinkWithNilProvidersIsNoop(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{
+	sink := otel.NewOTelSink(otel.OTelConfig{
 		TracerProvider: nil,
 		MeterProvider:  nil,
 	})
@@ -48,7 +49,7 @@ func TestOTelSinkWithNilProvidersIsNoop(t *testing.T) {
 }
 
 func TestOTelSinkConsumeWithOnlyTracerProvider(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{
+	sink := otel.NewOTelSink(otel.OTelConfig{
 		TracerProvider: nil,
 		MeterProvider:  nil,
 	})
@@ -67,7 +68,7 @@ func TestOTelSinkConsumeWithOnlyTracerProvider(t *testing.T) {
 }
 
 func TestOTelSinkConsumeWithEventError(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	testErr := context.DeadlineExceeded
 	err := sink.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventAcquireFailed,
@@ -81,7 +82,7 @@ func TestOTelSinkConsumeWithEventError(t *testing.T) {
 }
 
 func TestOTelSinkConsumeAllEventKinds(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	ctx := context.Background()
 
 	kinds := []observe.EventKind{
@@ -124,7 +125,7 @@ func TestOTelSinkConsumeAllEventKinds(t *testing.T) {
 }
 
 func TestOTelSinkConsumeWithContention(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	err := sink.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventContention,
 		DefinitionID: "def-1",
@@ -137,7 +138,7 @@ func TestOTelSinkConsumeWithContention(t *testing.T) {
 }
 
 func TestOTelSinkConsumeWithHoldDuration(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	err := sink.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventReleased,
 		DefinitionID: "def-1",
@@ -150,7 +151,7 @@ func TestOTelSinkConsumeWithHoldDuration(t *testing.T) {
 }
 
 func TestOTelSinkConsumeWithZeroDurations(t *testing.T) {
-	sink := observe.NewOTelSink(observe.OTelConfig{})
+	sink := otel.NewOTelSink(otel.OTelConfig{})
 	err := sink.Consume(context.Background(), observe.Event{
 		Kind:         observe.EventAcquireSucceeded,
 		DefinitionID: "def-1",

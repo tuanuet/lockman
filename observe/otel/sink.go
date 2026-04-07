@@ -1,8 +1,9 @@
-package observe
+package otel
 
 import (
 	"context"
 
+	"github.com/tuanuet/lockman/observe"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
@@ -18,7 +19,7 @@ import (
 //
 //	tp := oteltrace.NewTracerProvider(trace.WithServiceName("my-service"))
 //	mp := otelmeter.NewMeterProvider(...)
-//	sink := observe.NewOTelSink(observe.OTelConfig{
+//	sink := otel.NewOTelSink(otel.OTelConfig{
 //	    TracerProvider: tp,
 //	    MeterProvider:  mp,
 //	})
@@ -41,7 +42,7 @@ type OTelSink struct {
 // NewOTelSink creates a Sink that records lock lifecycle events as OpenTelemetry
 // spans and metrics. Pass nil providers to disable the respective signal.
 // The returned sink never returns errors from Consume.
-func NewOTelSink(cfg OTelConfig) Sink {
+func NewOTelSink(cfg OTelConfig) observe.Sink {
 	s := &OTelSink{}
 
 	if cfg.TracerProvider != nil {
@@ -81,13 +82,13 @@ func (s *OTelSink) initMetrics() {
 
 // Consume records the event through OpenTelemetry if providers are configured.
 // Errors from providers are silently swallowed to maintain best-effort semantics.
-func (s *OTelSink) Consume(ctx context.Context, event Event) error {
+func (s *OTelSink) Consume(ctx context.Context, event observe.Event) error {
 	s.recordMetrics(ctx, event)
 	s.recordSpan(ctx, event)
 	return nil
 }
 
-func (s *OTelSink) recordMetrics(ctx context.Context, event Event) {
+func (s *OTelSink) recordMetrics(ctx context.Context, event observe.Event) {
 	if s.meter == nil {
 		return
 	}
@@ -95,21 +96,21 @@ func (s *OTelSink) recordMetrics(ctx context.Context, event Event) {
 	attrs := s.commonAttributes(event)
 
 	switch event.Kind {
-	case EventAcquireStarted, EventAcquireSucceeded, EventAcquireFailed:
+	case observe.EventAcquireStarted, observe.EventAcquireSucceeded, observe.EventAcquireFailed:
 		s.acquireTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 		if event.Wait > 0 {
 			s.acquireDuration.Record(ctx, event.Wait.Seconds(), metric.WithAttributes(attrs...))
 		}
-	case EventContention:
+	case observe.EventContention:
 		s.contentionCount.Add(ctx, 1, metric.WithAttributes(attrs...))
-	case EventReleased:
+	case observe.EventReleased:
 		if event.Held > 0 {
 			s.holdDuration.Record(ctx, event.Held.Seconds(), metric.WithAttributes(attrs...))
 		}
 	}
 }
 
-func (s *OTelSink) recordSpan(ctx context.Context, event Event) {
+func (s *OTelSink) recordSpan(ctx context.Context, event observe.Event) {
 	if s.tracer == nil {
 		return
 	}
@@ -127,7 +128,7 @@ func (s *OTelSink) recordSpan(ctx context.Context, event Event) {
 	}
 }
 
-func (s *OTelSink) commonAttributes(event Event) []attribute.KeyValue {
+func (s *OTelSink) commonAttributes(event observe.Event) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		attribute.String("lockman.definition_id", event.DefinitionID),
 		attribute.String("lockman.request_id", event.RequestID),
@@ -142,4 +143,4 @@ func (s *OTelSink) commonAttributes(event Event) []attribute.KeyValue {
 	return attrs
 }
 
-var _ Sink = (*OTelSink)(nil)
+var _ observe.Sink = (*OTelSink)(nil)

@@ -7,4 +7,5 @@ use (
 	./examples
 	./guard/postgres
 	./idempotency/redis
+	./observe/otel
 )
