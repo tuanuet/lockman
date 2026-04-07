@@ -37,6 +37,7 @@ type OTelSink struct {
 	acquireDuration metric.Float64Histogram
 	contentionCount metric.Int64Counter
 	holdDuration    metric.Float64Histogram
+	renewalTotal    metric.Int64Counter
 }
 
 // NewOTelSink creates a Sink that records lock lifecycle events as OpenTelemetry
@@ -78,6 +79,10 @@ func (s *OTelSink) initMetrics() {
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300),
 	)
+	s.renewalTotal, _ = s.meter.Int64Counter(
+		"lockman.renewal.total",
+		metric.WithDescription("Total number of lock renewal attempts"),
+	)
 }
 
 // Consume records the event through OpenTelemetry if providers are configured.
@@ -96,8 +101,13 @@ func (s *OTelSink) recordMetrics(ctx context.Context, event observe.Event) {
 	attrs := s.commonAttributes(event)
 
 	switch event.Kind {
-	case observe.EventAcquireStarted, observe.EventAcquireSucceeded, observe.EventAcquireFailed:
-		s.acquireTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	case observe.EventAcquireSucceeded, observe.EventAcquireFailed:
+		outcome := "success"
+		if event.Kind == observe.EventAcquireFailed {
+			outcome = "failure"
+		}
+		outcomeAttrs := append(attrs, attribute.String("lockman.outcome", outcome))
+		s.acquireTotal.Add(ctx, 1, metric.WithAttributes(outcomeAttrs...))
 		if event.Wait > 0 {
 			s.acquireDuration.Record(ctx, event.Wait.Seconds(), metric.WithAttributes(attrs...))
 		}
@@ -107,6 +117,13 @@ func (s *OTelSink) recordMetrics(ctx context.Context, event observe.Event) {
 		if event.Held > 0 {
 			s.holdDuration.Record(ctx, event.Held.Seconds(), metric.WithAttributes(attrs...))
 		}
+	case observe.EventRenewalSucceeded, observe.EventRenewalFailed:
+		outcome := "success"
+		if event.Kind == observe.EventRenewalFailed {
+			outcome = "failure"
+		}
+		outcomeAttrs := append(attrs, attribute.String("lockman.outcome", outcome))
+		s.renewalTotal.Add(ctx, 1, metric.WithAttributes(outcomeAttrs...))
 	}
 }
 
@@ -129,18 +146,9 @@ func (s *OTelSink) recordSpan(ctx context.Context, event observe.Event) {
 }
 
 func (s *OTelSink) commonAttributes(event observe.Event) []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
+	return []attribute.KeyValue{
 		attribute.String("lockman.definition_id", event.DefinitionID),
-		attribute.String("lockman.request_id", event.RequestID),
-		attribute.String("lockman.owner_id", event.OwnerID),
-		attribute.String("lockman.resource_id", event.ResourceID),
-		attribute.String("lockman.event_kind", event.Kind.String()),
-		attribute.Bool("lockman.success", event.Success),
 	}
-	if event.Contention > 0 {
-		attrs = append(attrs, attribute.Int("lockman.contention", event.Contention))
-	}
-	return attrs
 }
 
 var _ observe.Sink = (*OTelSink)(nil)
