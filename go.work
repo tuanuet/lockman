@@ -8,4 +8,5 @@ use (
 	./guard/postgres
 	./idempotency/redis
 	./observe/otel
+	./observe/prometheus
 )
