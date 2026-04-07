@@ -1,15 +1,18 @@
 module github.com/tuanuet/lockman/examples
 
-go 1.24
+go 1.25.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/jackc/pgx/v5 v5.6.0
+	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/tuanuet/lockman v0.0.0-00010101000000-000000000000
 	github.com/tuanuet/lockman/backend/redis v1.0.0
 	github.com/tuanuet/lockman/guard/postgres v1.0.0
 	github.com/tuanuet/lockman/idempotency/redis v1.0.0
+	github.com/tuanuet/lockman/observe/otel v0.0.0-00010101000000-000000000000
+	github.com/tuanuet/lockman/observe/prometheus v0.0.0-00010101000000-000000000000
 	gopkg.in/DataDog/dd-trace-go.v1 v1.68.0
 )
 
@@ -23,6 +26,7 @@ require (
 	github.com/DataDog/go-tuf v1.1.0-0.5.2 // indirect
 	github.com/DataDog/sketches-go v1.4.7 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -32,10 +36,15 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/outcaste-io/ristretto v0.2.3 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/prometheus/client_model v0.6.1 // indirect
+	github.com/prometheus/common v0.55.0 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.9.0 // indirect
 	github.com/tinylib/msgp v1.2.5 // indirect
@@ -62,3 +71,7 @@ replace github.com/tuanuet/lockman/backend/redis => ../backend/redis
 replace github.com/tuanuet/lockman/guard/postgres => ../guard/postgres
 
 replace github.com/tuanuet/lockman/idempotency/redis => ../idempotency/redis
+
+replace github.com/tuanuet/lockman/observe/otel => ../observe/otel
+
+replace github.com/tuanuet/lockman/observe/prometheus => ../observe/prometheus
