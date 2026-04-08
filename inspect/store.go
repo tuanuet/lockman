@@ -83,6 +83,9 @@ func (s *Store) applyEventLocked(e observe.Event) {
 			OwnerID:      e.OwnerID,
 			AcquiredAt:   e.Timestamp,
 		}
+		delete(s.workerClaims, key)
+	case observe.EventAcquireFailed:
+		delete(s.workerClaims, key)
 	case observe.EventAcquireStarted:
 		s.workerClaims[key] = WorkerClaimInfo{
 			DefinitionID: e.DefinitionID,

@@ -112,9 +112,18 @@ func (m *Events) View() string {
 		end = len(m.events)
 	}
 
+	maxRows := m.height - 8
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	pageLimit := start + maxRows
+	if pageLimit < end {
+		end = pageLimit
+	}
+
 	lines := []string{components.TitleStyle.Render("Events (F to filter, PgUp/PgDn to navigate)")}
 	for _, e := range m.events[start:end] {
-		color := components.DimStyle
+		color := components.RowStyle
 		switch e.Kind {
 		case observe.EventAcquireSucceeded, observe.EventRenewalSucceeded, observe.EventReleased:
 			color = components.SuccessStyle
@@ -141,7 +150,16 @@ func (m *Events) View() string {
 	pageInfo := fmt.Sprintf("Page %d (%d total)", m.page+1, (len(m.events)+m.pageSize-1)/m.pageSize)
 	lines = append(lines, components.DimStyle.Render(pageInfo))
 
-	return lipgloss.NewStyle().Height(m.height - 4).Render(strings.Join(lines, "\n"))
+	content := strings.Join(lines, "\n")
+	if m.height == 0 {
+		return content
+	}
+
+	h := m.height - 4
+	if h < 3 {
+		return content
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Width(m.width).Render(content)
 }
 
 func (m *Events) refreshCmd() tea.Cmd {

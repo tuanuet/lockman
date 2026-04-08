@@ -109,7 +109,16 @@ func (m *Active) View() string {
 	header := components.TitleStyle.Render("Active Locks (S to sort, ↑/↓ to navigate, Enter: details)")
 	table := components.Table(columns, rows, m.selected)
 
-	return lipgloss.NewStyle().Height(m.height - 4).Render(header + "\n" + table)
+	content := header + "\n" + table
+	if m.height == 0 {
+		return content
+	}
+
+	h := m.height - 4
+	if h < 3 {
+		return content
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Width(m.width).Render(content)
 }
 
 func (m *Active) refreshCmd() tea.Cmd {

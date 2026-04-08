@@ -74,7 +74,7 @@ type Event struct {
 	Contention   int
 	Success      bool
 	Timestamp    time.Time
-	Error        error
+	Error        error `json:"-"`
 }
 
 type Sink interface {

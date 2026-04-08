@@ -93,9 +93,17 @@ func (m *Dashboard) View() string {
 		s.Shutdown.Started, s.Shutdown.Completed)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, left, mid, right)
-	content = lipgloss.JoinVertical(lipgloss.Left, content, components.DimStyle.Render(bottom))
+	content = lipgloss.JoinVertical(lipgloss.Left, content, components.BottomBarStyle.Render(bottom))
 
-	return lipgloss.NewStyle().Height(m.height - 4).Render(content)
+	if m.height == 0 {
+		return content
+	}
+
+	h := m.height - 4
+	if h < 3 {
+		return content
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Width(m.width).Render(content)
 }
 
 func (m *Dashboard) refreshCmd() tea.Cmd {
@@ -113,12 +121,14 @@ func renderLockList(title string, locks []inspect.RuntimeLockInfo, width int) st
 	header := components.TitleStyle.Render(title)
 	lines := []string{header}
 	for _, l := range locks {
-		lines = append(lines, fmt.Sprintf("%s/%s by %s", l.DefinitionID, l.ResourceID, l.OwnerID))
+		label := fmt.Sprintf("%s/%s by %s", l.DefinitionID, l.ResourceID, l.OwnerID)
+		lines = append(lines, components.RowStyle.Render(label))
 	}
 	if len(lines) == 1 {
 		lines = append(lines, components.DimStyle.Render("(none)"))
 	}
-	return style.Render(strings.Join(lines, "\n"))
+	content := strings.Join(lines, "\n")
+	return style.Render(components.ColumnStyle.Render(content))
 }
 
 func renderClaimList(title string, claims []inspect.WorkerClaimInfo, width int) string {
@@ -126,12 +136,14 @@ func renderClaimList(title string, claims []inspect.WorkerClaimInfo, width int) 
 	header := components.TitleStyle.Render(title)
 	lines := []string{header}
 	for _, c := range claims {
-		lines = append(lines, fmt.Sprintf("%s/%s by %s", c.DefinitionID, c.ResourceID, c.OwnerID))
+		label := fmt.Sprintf("%s/%s by %s", c.DefinitionID, c.ResourceID, c.OwnerID)
+		lines = append(lines, components.RowStyle.Render(label))
 	}
 	if len(lines) == 1 {
 		lines = append(lines, components.DimStyle.Render("(none)"))
 	}
-	return style.Render(strings.Join(lines, "\n"))
+	content := strings.Join(lines, "\n")
+	return style.Render(components.ColumnStyle.Render(content))
 }
 
 func renderRenewalList(title string, renewals []inspect.RenewalInfo, width int) string {
@@ -139,13 +151,15 @@ func renderRenewalList(title string, renewals []inspect.RenewalInfo, width int) 
 	header := components.TitleStyle.Render(title)
 	lines := []string{header}
 	for _, r := range renewals {
-		lines = append(lines, fmt.Sprintf("%s/%s renewed %s ago",
-			r.DefinitionID, r.ResourceID, time.Since(r.LastRenewed).Round(time.Second)))
+		label := fmt.Sprintf("%s/%s renewed %s ago",
+			r.DefinitionID, r.ResourceID, time.Since(r.LastRenewed).Round(time.Second))
+		lines = append(lines, components.RowStyle.Render(label))
 	}
 	if len(lines) == 1 {
 		lines = append(lines, components.DimStyle.Render("(none)"))
 	}
-	return style.Render(strings.Join(lines, "\n"))
+	content := strings.Join(lines, "\n")
+	return style.Render(components.ColumnStyle.Render(content))
 }
 
 type snapshotMsg struct{ inspect.Snapshot }

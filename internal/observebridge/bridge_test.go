@@ -239,6 +239,33 @@ func TestBridgeRequestIDPropagatedWhenSet(t *testing.T) {
 	}
 }
 
+func TestBridgeAddsTimestampWhenMissing(t *testing.T) {
+	var capturedEvent observe.Event
+
+	store := &stubStore{
+		consumeFn: func(_ context.Context, e observe.Event) error {
+			capturedEvent = e
+			return nil
+		},
+	}
+	dispatcher := &stubDispatcher{}
+
+	bridge := observebridge.New(observebridge.Config{
+		Store:      store,
+		Dispatcher: dispatcher,
+	})
+
+	bridge.PublishRuntimeAcquireSucceeded(observe.Event{
+		DefinitionID: "order.approve",
+		ResourceID:   "order:42",
+		OwnerID:      "owner-1",
+	})
+
+	if capturedEvent.Timestamp.IsZero() {
+		t.Fatal("expected timestamp to be populated")
+	}
+}
+
 func TestBridgeShutdownHelperUsesDispatcherDeadline(t *testing.T) {
 	slowDispatcher := &stubDispatcher{
 		publishFn: func(_ observe.Event) {

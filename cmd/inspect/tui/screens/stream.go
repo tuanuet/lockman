@@ -20,6 +20,7 @@ type Stream struct {
 	events      []observe.Event
 	paused      bool
 	loading     bool
+	connected   bool
 	err         string
 	retries     int
 	maxRetries  int
@@ -27,6 +28,7 @@ type Stream struct {
 	cancel      context.CancelFunc
 	program     *tea.Program
 	filterInput textinput.Model
+	streamDone  chan struct{}
 	width       int
 	height      int
 }
@@ -47,6 +49,10 @@ func NewStream(c *client.Client) *Stream {
 }
 
 func (m *Stream) Init() tea.Cmd {
+	m.stopStream()
+	m.retries = 0
+	m.err = ""
+	m.ctx, m.cancel = context.WithCancel(context.Background())
 	return m.startStream()
 }
 
@@ -56,17 +62,17 @@ func (m *Stream) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case tui.ScreenRefreshMsg:
+		m.stopStream()
 		m.retries = 0
 		m.err = ""
-		m.cancel()
 		m.ctx, m.cancel = context.WithCancel(context.Background())
 		return m, m.startStream()
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "r":
+			m.stopStream()
 			m.retries = 0
 			m.err = ""
-			m.cancel()
 			m.ctx, m.cancel = context.WithCancel(context.Background())
 			return m, m.startStream()
 		case " ":
@@ -98,6 +104,7 @@ func (m *Stream) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case streamErr:
+		m.connected = false
 		m.retries++
 		if m.retries >= m.maxRetries {
 			m.err = "Stream disconnected — press R to reconnect"
@@ -117,12 +124,20 @@ func (m *Stream) View() string {
 	if m.loading {
 		return "Connecting to stream..."
 	}
-	if m.err != "" && len(m.events) == 0 {
+	if m.err != "" && len(m.events) == 0 && !m.connected {
 		return components.ErrorStyle.Render(m.err)
 	}
 
 	header := components.TitleStyle.Render("Stream (Space: pause, R: reconnect, /: filter)")
 	lines := []string{header}
+
+	statusLine := components.DimStyle.Render("  ● Listening...")
+	if m.paused {
+		statusLine = components.WarnStyle.Render("  ■ Paused")
+	} else if !m.connected {
+		statusLine = components.ErrorStyle.Render("  ● Reconnecting...")
+	}
+	lines = append(lines, statusLine)
 
 	if m.filterInput.Focused() {
 		lines = append(lines, components.WarnStyle.Render("Filter: "+m.filterInput.View()))
@@ -131,11 +146,15 @@ func (m *Stream) View() string {
 	}
 
 	start := 0
-	if len(m.events) > m.height-6 {
-		start = len(m.events) - (m.height - 6)
+	visible := m.height - 12
+	if visible < 1 {
+		visible = 1
+	}
+	if len(m.events) > visible {
+		start = len(m.events) - visible
 	}
 	for _, e := range m.events[start:] {
-		color := components.DimStyle
+		color := components.RowStyle
 		switch e.Kind {
 		case observe.EventAcquireSucceeded:
 			color = components.SuccessStyle
@@ -153,22 +172,50 @@ func (m *Stream) View() string {
 		)))
 	}
 
-	if m.paused {
-		lines = append(lines, components.WarnStyle.Render("  [PAUSED]"))
+	if len(m.events) == 0 {
+		lines = append(lines, "")
+		lines = append(lines, components.DimStyle.Render("  Waiting for events from the server..."))
+		lines = append(lines, components.DimStyle.Render("  Events will appear here as they occur."))
 	}
+
+	eventCount := fmt.Sprintf("  Total events received: %d", len(m.events))
+	lines = append(lines, components.DimStyle.Render(eventCount))
 
 	if m.err != "" && len(m.events) > 0 {
 		lines = append(lines, components.ErrorStyle.Render(m.err))
 	}
 
-	return lipgloss.NewStyle().Height(m.height - 4).Render(strings.Join(lines, "\n"))
+	content := strings.Join(lines, "\n")
+	if m.height == 0 {
+		return content
+	}
+
+	h := m.height - 4
+	if h < 3 {
+		return content
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Width(m.width).Render(content)
+}
+
+func (m *Stream) stopStream() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	if m.streamDone != nil {
+		close(m.streamDone)
+		m.streamDone = nil
+	}
 }
 
 func (m *Stream) startStream() tea.Cmd {
+	m.loading = true
+	m.streamDone = make(chan struct{})
 	return func() tea.Msg {
-		m.loading = true
 		eventCh, errCh := m.client.Stream(m.ctx)
 		m.loading = false
+		m.connected = true
+
+		done := m.streamDone
 
 		go func() {
 			for {
@@ -187,7 +234,7 @@ func (m *Stream) startStream() tea.Cmd {
 					if m.program != nil {
 						m.program.Send(streamErr{err})
 					}
-				case <-m.ctx.Done():
+				case <-done:
 					return
 				}
 			}

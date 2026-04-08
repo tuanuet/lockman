@@ -7,7 +7,7 @@ import (
 )
 
 var statusBarStyle = lipgloss.NewStyle().
-	Foreground(Gray).
+	Foreground(White).
 	Background(lipgloss.Color("#282a36")).
 	Padding(0, 1)
 

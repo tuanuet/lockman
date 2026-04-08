@@ -27,9 +27,11 @@ func Table(columns []Column, rows [][]string, selected int) string {
 	lines = append(lines, TitleStyle.Render(strings.Join(headerCells, "  ")))
 
 	for i, row := range rows {
-		prefix := " "
+		prefix := "  "
+		rowStyle := RowStyle
 		if i == selected {
 			prefix = "▸ "
+			rowStyle = SelectedStyle
 		}
 		cells := make([]string, len(columns))
 		for j, c := range columns {
@@ -39,7 +41,7 @@ func Table(columns []Column, rows [][]string, selected int) string {
 			}
 			cells[j] = fmt.Sprintf("%-*s", c.Width, val)
 		}
-		lines = append(lines, prefix+strings.Join(cells, "  "))
+		lines = append(lines, prefix+rowStyle.Render(strings.Join(cells, "  ")))
 	}
 
 	return strings.Join(lines, "\n")

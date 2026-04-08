@@ -8,7 +8,7 @@ import (
 
 var (
 	tabActiveStyle   = lipgloss.NewStyle().Foreground(Cyan).Bold(true)
-	tabInactiveStyle = lipgloss.NewStyle().Foreground(Gray)
+	tabInactiveStyle = lipgloss.NewStyle().Foreground(White)
 )
 
 func RenderTabBar(screenNames []string, activeIdx int, width int) string {

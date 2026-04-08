@@ -2,6 +2,7 @@ package observebridge
 
 import (
 	"context"
+	"time"
 
 	"github.com/tuanuet/lockman/lockkit/runtime"
 	"github.com/tuanuet/lockman/observe"
@@ -46,6 +47,9 @@ func (b *Bridge) Shutdown(ctx context.Context) error {
 // publish applies the event to the local store first, then publishes one async
 // copy to the dispatcher. Nil targets are silently skipped.
 func (b *Bridge) publish(event observe.Event) {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
 	if b.store != nil {
 		if err := b.store.Consume(context.Background(), event); err != nil {
 			// Best-effort: store errors are not propagated.

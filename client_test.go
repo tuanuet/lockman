@@ -593,16 +593,26 @@ func TestClaimWithObservabilitySurfacesNormalizedEventFields(t *testing.T) {
 		t.Fatalf("Claim returned error: %v", err)
 	}
 
-	snap := store.Snapshot()
-	if len(snap.WorkerClaims) == 0 {
-		t.Fatal("expected inspect store to capture worker claim")
+	// Verify the inspect store captured events for the claim lifecycle.
+	events := store.RecentEvents(10)
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events, got %d", len(events))
 	}
-	claim := snap.WorkerClaims[0]
-	if claim.OwnerID != "worker-1" {
-		t.Fatalf("expected owner %q, got %q", "worker-1", claim.OwnerID)
+	var found bool
+	for _, e := range events {
+		if e.Kind == observe.EventAcquireSucceeded {
+			if e.OwnerID != "worker-1" {
+				t.Fatalf("expected owner %q, got %q", "worker-1", e.OwnerID)
+			}
+			if e.ResourceID != "order:123" {
+				t.Fatalf("expected resource %q, got %q", "order:123", e.ResourceID)
+			}
+			found = true
+			break
+		}
 	}
-	if claim.ResourceID != "order:123" {
-		t.Fatalf("expected resource %q, got %q", "order:123", claim.ResourceID)
+	if !found {
+		t.Fatal("expected acquire_succeeded event in captured events")
 	}
 }
 

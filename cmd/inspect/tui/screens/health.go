@@ -72,39 +72,85 @@ func (m *Health) View() string {
 		statusLabel = components.SuccessStyle.Render("Healthy")
 	}
 
+	s := m.snapshot
+	activeCount := len(s.RuntimeLocks)
+	claimCount := len(s.WorkerClaims)
+	renewalCount := len(s.Renewals)
+
 	lines := []string{
 		components.TitleStyle.Render("Health Status"),
 		statusLabel,
 		"",
-		components.TitleStyle.Render("Pipeline Stats"),
+		components.TitleStyle.Render("Active Locks"),
+		components.RowStyle.Render(fmt.Sprintf("  Locks held:     %d", activeCount)),
+		components.RowStyle.Render(fmt.Sprintf("  Pending claims: %d", claimCount)),
+		components.RowStyle.Render(fmt.Sprintf("  Renewals:       %d", renewalCount)),
 	}
 
-	if m.snapshot != nil {
+	if activeCount > 0 {
+		lines = append(lines, "")
+		lines = append(lines, components.TitleStyle.Render("Top Active Locks"))
+		limit := activeCount
+		if limit > 8 {
+			limit = 8
+		}
+		for i := 0; i < limit; i++ {
+			l := s.RuntimeLocks[i]
+			label := fmt.Sprintf("  %s/%s by %s", l.DefinitionID, l.ResourceID, l.OwnerID)
+			lines = append(lines, components.RowStyle.Render(label))
+		}
+	}
+
+	if m.snapshot != nil && m.snapshot.Pipeline.DroppedCount > 0 {
 		p := m.snapshot.Pipeline
+		lines = append(lines, "")
+		lines = append(lines, components.TitleStyle.Render("Pipeline Stats"))
 		lines = append(lines,
-			fmt.Sprintf("  Buffer size:     %d", p.BufferSize),
-			fmt.Sprintf("  Dropped:         %d", p.DroppedCount),
-			fmt.Sprintf("  Sink failures:   %d", p.SinkFailureCount),
-			fmt.Sprintf("  Exporter fails:  %d", p.ExporterFailureCount),
-			"",
-			components.TitleStyle.Render("Shutdown"),
-			fmt.Sprintf("  Started:   %v", m.snapshot.Shutdown.Started),
-			fmt.Sprintf("  Completed: %v", m.snapshot.Shutdown.Completed),
+			components.RowStyle.Render(fmt.Sprintf("  Dropped:         %d", p.DroppedCount)),
+			components.RowStyle.Render(fmt.Sprintf("  Sink failures:   %d", p.SinkFailureCount)),
+			components.RowStyle.Render(fmt.Sprintf("  Exporter fails:  %d", p.ExporterFailureCount)),
 		)
 	}
 
-	return lipgloss.NewStyle().Height(m.height - 4).Render(strings.Join(lines, "\n"))
+	if m.snapshot != nil {
+		lines = append(lines, "")
+		lines = append(lines, components.TitleStyle.Render("Shutdown"))
+		started := components.SuccessStyle.Render(fmt.Sprintf("  Started:   %v", m.snapshot.Shutdown.Started))
+		completed := components.SuccessStyle.Render(fmt.Sprintf("  Completed: %v", m.snapshot.Shutdown.Completed))
+		if m.snapshot.Shutdown.Started {
+			started = components.WarnStyle.Render(fmt.Sprintf("  Started:   %v", m.snapshot.Shutdown.Started))
+		}
+		if m.snapshot.Shutdown.Completed {
+			completed = components.ErrorStyle.Render(fmt.Sprintf("  Completed: %v", m.snapshot.Shutdown.Completed))
+		}
+		lines = append(lines, started, completed)
+	}
+
+	content := strings.Join(lines, "\n")
+	if m.height == 0 {
+		return content
+	}
+
+	h := m.height - 4
+	if h < 3 {
+		return content
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Width(m.width).Render(content)
 }
 
 func (m *Health) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		status, err := m.client.Health(ctx)
-		if err != nil {
-			return errMsg{err}
+		status, sErr := m.client.Health(ctx)
+		snap, snErr := m.client.Snapshot(ctx)
+
+		if sErr != nil && snErr != nil {
+			return errMsg{fmt.Errorf("health: %v, snapshot: %v", sErr, snErr)}
 		}
-		snap, err := m.client.Snapshot(ctx)
-		if err != nil {
+		if sErr != nil {
+			status = map[string]string{"status": "unknown"}
+		}
+		if snErr != nil {
 			snap = inspect.Snapshot{}
 		}
 		return healthMsg{Status: status, Snapshot: snap}
