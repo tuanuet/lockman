@@ -372,6 +372,7 @@ import (
 )
 
 // ParseEvents reads an SSE stream and sends parsed JSON raw messages to the events channel.
+// It accumulates multi-line "data:" fields into a single payload before emitting.
 // Errors are sent to the errors channel. Both channels are closed when the stream ends.
 func ParseEvents(r io.Reader, events chan<- json.RawMessage, errors chan<- error) {
 	defer close(events)
@@ -379,18 +380,34 @@ func ParseEvents(r io.Reader, events chan<- json.RawMessage, errors chan<- error
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 1024*64), 1024*64)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
+
+	var dataLines []string
+	flushData := func() {
+		if len(dataLines) == 0 {
+			return
 		}
+		combined := strings.Join(dataLines, "\n")
+		dataLines = nil
 		var raw json.RawMessage
-		if err := json.Unmarshal([]byte(line[6:]), &raw); err != nil {
+		if err := json.Unmarshal([]byte(combined), &raw); err != nil {
 			errors <- err
-			continue
+			return
 		}
 		events <- raw
 	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			flushData()
+			continue
+		}
+		if strings.HasPrefix(line, "data: ") {
+			dataLines = append(dataLines, line[6:])
+		}
+		// Ignore other SSE fields (id, event, retry)
+	}
+	flushData()
 	if err := scanner.Err(); err != nil {
 		errors <- err
 	}
@@ -1222,39 +1239,32 @@ func Table(columns []Column, rows [][]string, selected int) string {
 	if len(rows) == 0 {
 		headers := make([]string, len(columns))
 		for i, c := range columns {
-			headers[i] = c.Title
+			headers[i] = fmt.Sprintf("%-*s", c.Width, c.Title)
 		}
-		return DimStyle.Render(strings.Join(headers, "  "))
+		return TitleStyle.Render(strings.Join(headers, "  "))
 	}
 
 	var lines []string
-	headerFmt := make([]string, len(columns))
+	// Build header
+	headerCells := make([]string, len(columns))
 	for i, c := range columns {
-		headerFmt[i] = fmt.Sprintf("%%-%ds", c.Width)
+		headerCells[i] = fmt.Sprintf("%-*s", c.Width, c.Title)
 	}
-	headerLine := fmt.Sprintf(strings.Join(headerFmt, "  "), make([]any, len(columns))...)
-	for i, c := range columns {
-		headerLine = fmt.Sprintf(strings.Join(make([]string, i+1), fmt.Sprintf("%%-%ds  ", c.Width)), c.Title)
-		if i == 0 {
-			headerLine = fmt.Sprintf("%-*s", c.Width, c.Title)
-		} else {
-			headerLine = headerLine + fmt.Sprintf("  %-*s", c.Width, c.Title)
-		}
-	}
-	lines = append(lines, TitleStyle.Render(headerLine))
+	lines = append(lines, TitleStyle.Render(strings.Join(headerCells, "  ")))
 
+	// Build rows
 	for i, row := range rows {
 		prefix := " "
 		if i == selected {
 			prefix = "▸ "
 		}
-		var cells []string
+		cells := make([]string, len(columns))
 		for j, c := range columns {
 			val := ""
 			if j < len(row) {
 				val = row[j]
 			}
-			cells = append(cells, fmt.Sprintf("%-*s", c.Width, val))
+			cells[j] = fmt.Sprintf("%-*s", c.Width, val)
 		}
 		lines = append(lines, prefix+strings.Join(cells, "  "))
 	}
@@ -1570,13 +1580,9 @@ func (m *Active) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.selected >= 0 && m.selected < len(m.locks) {
 				l := m.locks[m.selected]
-				// Show lock details as toast (simple approach)
 				detail := fmt.Sprintf("Lock: %s/%s Owner: %s Acquired: %s",
 					l.DefinitionID, l.ResourceID, l.OwnerID, l.AcquiredAt.Format("15:04:05"))
-				return m, tea.Batch(
-					func() tea.Msg { return tui.ErrToastMsg(detail) },
-					func() tea.Msg { return tui.ClearToastMsg{} }, // auto-dismiss after 1 frame
-				)
+				return m, func() tea.Msg { return tui.ErrToastMsg(detail) }
 			}
 		}
 	case activeLocksMsg:
@@ -1744,6 +1750,7 @@ type Events struct {
 	loading  bool
 	err      string
 	filter   components.FilterModal
+	appliedFilter Filter
 	page     int
 	pageSize int
 	width    int
@@ -1768,7 +1775,15 @@ func (m *Events) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model, cmd := m.filter.Update(msg)
 		m.filter = model.(components.FilterModal)
 		if km, ok := msg.(tea.KeyMsg); ok && km.Type == tea.KeyEnter {
-			m.applyFilter()
+			m.appliedFilter = client.Filter{
+				DefinitionID: m.filter.DefinitionID(),
+				ResourceID:   m.filter.ResourceID(),
+				OwnerID:      m.filter.OwnerID(),
+				Kind:         client.ParseEventKind(m.filter.Kind()),
+				Limit:        500,
+			}
+			m.page = 0
+			m.filter.Hide()
 			return m, m.refreshCmd()
 		}
 		return m, cmd
@@ -1862,14 +1877,9 @@ func (m *Events) View() string {
 
 func (m *Events) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
-		filter := client.Filter{
-			Limit: 500,
-		}
-		if m.filter.Visible() {
-			filter.DefinitionID = m.filter.DefinitionID()
-			filter.ResourceID = m.filter.ResourceID()
-			filter.OwnerID = m.filter.OwnerID()
-			filter.Kind = client.ParseEventKind(m.filter.Kind())
+		filter := m.appliedFilter
+		if filter.Limit == 0 {
+			filter.Limit = 500
 		}
 		events, err := m.client.Events(context.Background(), filter)
 		if err != nil {
@@ -1962,28 +1972,33 @@ import (
 )
 
 type Stream struct {
-	client     *client.Client
-	events     []observe.Event
-	paused     bool
-	loading    bool
-	err        string
-	retries    int
-	maxRetries int
-	ctx        context.Context
-	cancel     context.CancelFunc
-	program    *tea.Program
-	filterBar  string
-	width      int
-	height     int
+	client      *client.Client
+	events      []observe.Event
+	paused      bool
+	loading     bool
+	err         string
+	retries     int
+	maxRetries  int
+	ctx         context.Context
+	cancel      context.CancelFunc
+	program     *tea.Program
+	filterInput textinput.Model
+	width       int
+	height      int
 }
 
 func NewStream(c *client.Client) *Stream {
 	ctx, cancel := context.WithCancel(context.Background())
+	ti := textinput.New()
+	ti.Placeholder = "Filter by definition_id..."
+	ti.CharLimit = 64
+
 	return &Stream{
 		client:     c,
 		maxRetries: 3,
 		ctx:        ctx,
 		cancel:     cancel,
+		filterInput: ti,
 	}
 }
 
@@ -2014,14 +2029,21 @@ func (m *Stream) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paused = !m.paused
 			return m, nil
 		case "/":
-			// Toggle filter bar
-			if m.filterBar == "" {
-				m.filterBar = "filter:"
+			if m.filterInput.Focused() {
+				m.filterInput.Blur()
 			} else {
-				m.filterBar = ""
+				m.filterInput.Focus()
 			}
 			return m, nil
 		}
+	}
+
+	// If filter input is focused, update it
+	if m.filterInput.Focused() {
+		var cmd tea.Cmd
+		m.filterInput, cmd = m.filterInput.Update(msg)
+		return m, cmd
+	}
 	case streamEventMsg:
 		if !m.paused {
 			m.events = append(m.events, msg.Event)
@@ -2032,11 +2054,11 @@ func (m *Stream) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case streamErr:
 		m.retries++
-		if m.retries > m.maxRetries {
+		if m.retries >= m.maxRetries {
 			m.err = "Stream disconnected — press R to reconnect"
 			return m, nil
 		}
-		// Exponential backoff: 2s, 4s, 8s
+		// Exponential backoff: 2s, 4s (stop after 3)
 		backoff := time.Duration(1<<m.retries) * time.Second
 		return m, tea.Tick(backoff, func(time.Time) tea.Msg {
 			return tui.ScreenRefreshMsg{}
@@ -2058,8 +2080,10 @@ func (m *Stream) View() string {
 	header := components.TitleStyle.Render("Stream (Space: pause, R: reconnect, /: filter)")
 	lines := []string{header}
 
-	if m.filterBar != "" {
-		lines = append(lines, components.WarnStyle.Render(m.filterBar))
+	if m.filterInput.Focused() {
+		lines = append(lines, components.WarnStyle.Render("Filter: "+m.filterInput.View()))
+	} else if m.filterInput.Value() != "" {
+		lines = append(lines, components.DimStyle.Render("Filter: "+m.filterInput.Value()))
 	}
 
 	start := 0
@@ -2179,16 +2203,18 @@ func TestStream_Reconnect(t *testing.T) {
 	s := NewStream(c)
 	s.maxRetries = 3
 
-	// Simulate 3 errors → after 3rd, retries=3, still <= maxRetries, no error yet
-	for i := 0; i < 3; i++ {
-		s.Update(streamErr{fmt.Errorf("connection lost")})
+	// Simulate 2 errors → retries=2, still < maxRetries, no error yet
+	s.Update(streamErr{fmt.Errorf("connection lost")})
+	s.Update(streamErr{fmt.Errorf("connection lost")})
+	if s.err != "" {
+		t.Error("expected no error after 2 retries")
 	}
 
-	// 4th error should trigger the error message
+	// 3rd error → retries=3, >= maxRetries → stop
 	s.Update(streamErr{fmt.Errorf("connection lost")})
 
 	if s.err == "" {
-		t.Error("expected error message after max retries")
+		t.Error("expected error message after 3 retries")
 	}
 	if !strings.Contains(s.err, "Press R to reconnect") {
 		t.Errorf("unexpected error: %s", s.err)
