@@ -60,13 +60,13 @@ func main() {
 }
 ```
 
-- [ ] **Step 5: Verify build placeholder**
+- [ ] **Step 5: Verify module structure**
 
 ```bash
-go build -o /dev/null ./cmd/inspect 2>&1 || true
+ls cmd/inspect/go.mod cmd/inspect/main.go
 ```
 
-Expected: Compilation error (cmd package doesn't exist yet).
+Expected: Both files exist.
 
 - [ ] **Step 6: Commit**
 
@@ -80,6 +80,8 @@ git commit -m "feat: add inspect CLI module scaffolding"
 **Files:**
 - Create: `cmd/inspect/client/client.go`
 - Create: `cmd/inspect/client/client_test.go`
+- Create: `cmd/inspect/sse/parse.go`
+- Create: `cmd/inspect/sse/parse_test.go`
 
 - [ ] **Step 1: Write client types, constructor, and all methods**
 
@@ -101,6 +103,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tuanuet/lockman/cmd/inspect/sse"
 	"github.com/tuanuet/lockman/inspect"
 	"github.com/tuanuet/lockman/observe"
 )
@@ -225,26 +228,34 @@ func (c *Client) Stream(ctx context.Context) (<-chan observe.Event, <-chan error
 			return
 		}
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 1024*64), 1024*64)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-			var evt observe.Event
-			if err := json.Unmarshal([]byte(line[6:]), &evt); err != nil {
-				errCh <- fmt.Errorf("client: parse SSE event: %w", err)
-				continue
-			}
+		rawCh := make(chan json.RawMessage, 64)
+		rawErrCh := make(chan error, 1)
+		go sse.ParseEvents(resp.Body, rawCh, rawErrCh)
+
+		for {
 			select {
-			case eventCh <- evt:
+			case raw, ok := <-rawCh:
+				if !ok {
+					return
+				}
+				var evt observe.Event
+				if err := json.Unmarshal(raw, &evt); err != nil {
+					errCh <- fmt.Errorf("client: parse event: %w", err)
+					continue
+				}
+				select {
+				case eventCh <- evt:
+				case <-ctx.Done():
+					return
+				}
+			case err, ok := <-rawErrCh:
+				if !ok {
+					return
+				}
+				errCh <- fmt.Errorf("client: SSE parse: %w", err)
 			case <-ctx.Done():
 				return
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			errCh <- fmt.Errorf("client: stream read error: %w", err)
 		}
 	}()
 
@@ -346,7 +357,112 @@ func kindToString(k observe.EventKind) string {
 }
 ```
 
-- [ ] **Step 2: Write client tests**
+- [ ] **Step 2: Write SSE parser**
+
+Full `sse/parse.go`:
+
+```go
+package sse
+
+import (
+	"bufio"
+	"encoding/json"
+	"io"
+	"strings"
+)
+
+// ParseEvents reads an SSE stream and sends parsed JSON raw messages to the events channel.
+// Errors are sent to the errors channel. Both channels are closed when the stream ends.
+func ParseEvents(r io.Reader, events chan<- json.RawMessage, errors chan<- error) {
+	defer close(events)
+	defer close(errors)
+
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 1024*64), 1024*64)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var raw json.RawMessage
+		if err := json.Unmarshal([]byte(line[6:]), &raw); err != nil {
+			errors <- err
+			continue
+		}
+		events <- raw
+	}
+	if err := scanner.Err(); err != nil {
+		errors <- err
+	}
+}
+```
+
+Full `sse/parse_test.go`:
+
+```go
+package sse
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestParseEvents(t *testing.T) {
+	input := "data: {\"kind\":\"acquire_succeeded\"}\n\ndata: {\"kind\":\"contention\"}\n"
+	events := make(chan json.RawMessage, 10)
+	errors := make(chan error, 10)
+
+	go ParseEvents(strings.NewReader(input), events, errors)
+
+	var got []json.RawMessage
+	for e := range events {
+		got = append(got, e)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
+	}
+
+	var evt map[string]string
+	if err := json.Unmarshal(got[0], &evt); err != nil {
+		t.Fatal(err)
+	}
+	if evt["kind"] != "acquire_succeeded" {
+		t.Errorf("event 0 kind = %q", evt["kind"])
+	}
+}
+
+func TestParseEvents_Malformed(t *testing.T) {
+	input := "data: not-json\n"
+	events := make(chan json.RawMessage, 10)
+	errors := make(chan error, 10)
+
+	go ParseEvents(strings.NewReader(input), events, errors)
+
+	for range events {
+	}
+
+	select {
+	case err := <-errors:
+		if err == nil {
+			t.Error("expected non-nil error")
+		}
+	default:
+		t.Error("expected error for malformed JSON")
+	}
+}
+```
+
+- [ ] **Step 3: Run SSE tests**
+
+```bash
+go test ./cmd/inspect/sse/... -v
+```
+
+Expected: All tests pass.
+
+- [ ] **Step 4: Write client tests**
 
 Full `client_test.go`:
 
@@ -580,7 +696,7 @@ func TestClient_Stream_ContextCancel(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 5: Run tests**
 
 ```bash
 go test ./cmd/inspect/client/... -v
@@ -588,11 +704,11 @@ go test ./cmd/inspect/client/... -v
 
 Expected: All tests pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add cmd/inspect/client/
-git commit -m "feat: add HTTP client with Stream SSE, all endpoints, and tests"
+git add cmd/inspect/client/ cmd/inspect/sse/
+git commit -m "feat: add HTTP client with Stream SSE, SSE parser, all endpoints, and tests"
 ```
 
 ## Chunk 2: TUI Root + Components
@@ -1203,7 +1319,12 @@ func NewDashboard(c *client.Client) *Dashboard {
 }
 
 func (m *Dashboard) Init() tea.Cmd {
-	return m.refreshCmd()
+	return tea.Batch(
+		m.refreshCmd(),
+		tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+			return tui.ScreenRefreshMsg{}
+		}),
+	)
 }
 
 func (m *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1214,7 +1335,12 @@ func (m *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tui.ScreenRefreshMsg:
 		m.loading = true
 		m.err = ""
-		return m, m.refreshCmd()
+		return m, tea.Batch(
+			m.refreshCmd(),
+			tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+				return tui.ScreenRefreshMsg{}
+			}),
+		)
 	case tea.KeyMsg:
 		if msg.String() == "r" {
 			m.loading = true
@@ -1441,6 +1567,17 @@ func (m *Active) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selected < len(m.locks)-1 {
 				m.selected++
 			}
+		case "enter":
+			if m.selected >= 0 && m.selected < len(m.locks) {
+				l := m.locks[m.selected]
+				// Show lock details as toast (simple approach)
+				detail := fmt.Sprintf("Lock: %s/%s Owner: %s Acquired: %s",
+					l.DefinitionID, l.ResourceID, l.OwnerID, l.AcquiredAt.Format("15:04:05"))
+				return m, tea.Batch(
+					func() tea.Msg { return tui.ErrToastMsg(detail) },
+					func() tea.Msg { return tui.ClearToastMsg{} }, // auto-dismiss after 1 frame
+				)
+			}
 		}
 	case activeLocksMsg:
 		m.locks = msg.Locks
@@ -1466,20 +1603,23 @@ func (m *Active) View() string {
 		{Title: "Definition", Width: 25},
 		{Title: "Resource", Width: 25},
 		{Title: "Owner", Width: 15},
-		{Title: "Acquired At", Width: 25},
+		{Title: "Acquired At", Width: 12},
+		{Title: "Duration", Width: 12},
 	}
 
 	var rows [][]string
 	for _, l := range m.locks {
+		dur := time.Since(l.AcquiredAt).Round(time.Second)
 		rows = append(rows, []string{
 			l.DefinitionID,
 			l.ResourceID,
 			l.OwnerID,
 			l.AcquiredAt.Format("15:04:05"),
+			dur.String(),
 		})
 	}
 
-	header := components.TitleStyle.Render("Active Locks (S to sort, ↑/↓ to navigate)")
+	header := components.TitleStyle.Render("Active Locks (S to sort, ↑/↓ to navigate, Enter: details)")
 	table := components.Table(columns, rows, m.selected)
 
 	return lipgloss.NewStyle().Height(m.height - 4).Render(header + "\n" + table)
@@ -1832,6 +1972,7 @@ type Stream struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	program    *tea.Program
+	filterBar  string
 	width      int
 	height     int
 }
@@ -1872,6 +2013,14 @@ func (m *Stream) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ":
 			m.paused = !m.paused
 			return m, nil
+		case "/":
+			// Toggle filter bar
+			if m.filterBar == "" {
+				m.filterBar = "filter:"
+			} else {
+				m.filterBar = ""
+			}
+			return m, nil
 		}
 	case streamEventMsg:
 		if !m.paused {
@@ -1906,8 +2055,12 @@ func (m *Stream) View() string {
 		return components.ErrorStyle.Render(m.err)
 	}
 
-	header := components.TitleStyle.Render("Stream (Space: pause, R: reconnect)")
+	header := components.TitleStyle.Render("Stream (Space: pause, R: reconnect, /: filter)")
 	lines := []string{header}
+
+	if m.filterBar != "" {
+		lines = append(lines, components.WarnStyle.Render(m.filterBar))
+	}
 
 	start := 0
 	if len(m.events) > m.height-4 {
@@ -2533,6 +2686,16 @@ func TestSubcommands_Output(t *testing.T) {
 			check: func(output string) error {
 				if !strings.Contains(output, "ok") {
 					return fmt.Errorf("expected ok in health output")
+				}
+				return nil
+			},
+		},
+		{
+			subcommand: "events",
+			args:       []string{"--url", srv.URL + "/locks/inspect", "--kind", "contention"},
+			check: func(output string) error {
+				if !strings.Contains(output, "[]") {
+					return fmt.Errorf("expected empty array in events output")
 				}
 				return nil
 			},
