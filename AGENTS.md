@@ -12,6 +12,7 @@ It documents the commands, conventions, and guardrails expected here.
   - `.` (root SDK)
   - `./backend/redis` — Redis lease backend
   - `./benchmarks` — adoption benchmarks
+  - `./cmd/inspect` — Distributed lock inspector CLI
   - `./examples` — SDK and core examples
   - `./guard/postgres` — Postgres guarded-write helpers
   - `./idempotency/redis` — Redis idempotency state
@@ -64,6 +65,15 @@ Run from repository root unless noted otherwise.
   - `LOCKMAN_REDIS_URL=redis://localhost:6379/0 go run -tags lockman_examples ./examples/sdk/sync-approve-order`
 - Adapter examples (run from module root, no build tag):
   - `cd backend/redis && go run ./examples/sync-approve-order`
+
+### CLI Commands
+
+- Build CLI:
+  - `go build -o lockman-inspect ./cmd/inspect`
+- Run CLI:
+  - `go run ./cmd/inspect --url http://localhost:8080/locks/inspect`
+- Test CLI:
+  - `go test ./cmd/inspect/...`
 
 ### Benchmarks
 
