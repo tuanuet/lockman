@@ -4,6 +4,7 @@ use (
 	.
 	./backend/redis
 	./benchmarks
+	./cmd/inspect
 	./examples
 	./guard/postgres
 	./idempotency/redis
