@@ -4,6 +4,34 @@
 
 Full TUI application for inspecting lockman distributed locks via HTTP inspect endpoints. Written in Go with bubbletea + cobra.
 
+## Repository Placement
+
+The CLI lives as a new module under `cmd/inspect/` with its own `go.mod`:
+
+```
+cmd/inspect/
+├── go.mod                     # module github.com/tuanuet/lockman/cmd/inspect
+├── main.go                    # Entry point: calls cmd.Execute()
+├── cmd/
+│   └── root.go                # Cobra root: flags, subcommands, TUI launch
+├── client/
+│   └── client.go              # HTTP client wrapper
+├── tui/
+│   ├── app.go                 # Root model
+│   ├── screens/               # TUI screens (dashboard, active, events, stream, health)
+│   └── components/            # Shared components (table, tabbar, statusbar, filter)
+└── sse/
+    └── parse.go               # SSE frame parser (newline-delimited "data: " → JSON)
+```
+
+**Workspace changes:**
+- Add `./cmd/inspect` to `go.work`
+- `go get` dependencies: cobra, bubbletea, bubbles, lipgloss
+- CLI imports `github.com/tuanuet/lockman/inspect` and `github.com/tuanuet/lockman/observe` from parent module (resolved via `go.work`)
+
+**Binary name:** `lockman-inspect` (set via `cobra.Command.Use`)
+**Version:** `cmd/inspect/v0.1.0` (independent from root SDK)
+
 ## Architecture
 
 ```
@@ -27,11 +55,27 @@ inspect-cli/
 ```
 
 ### Root Model
-- Holds 5 child screen models as `tea.Model`
-- Active screen index (0-4), switchable via `Tab`/`Shift+Tab` or `1-5`
-- Shared HTTP client instance
-- Global error toast state
-- Delegates `Update`/`View` to active screen
+```go
+type App struct {
+    client     *client.Client
+    screens    []tea.Model
+    activeIdx  int
+    errToast   string
+    width      int
+    height     int
+}
+```
+
+**State ownership:**
+- **Root owns:** active screen index, client, window dimensions, error toast
+- **Each screen owns:** its data, loading state, scroll position, local filters
+- **Shared via messages:** Screens send `tea.Cmd` to root for refresh. Root sends `ScreenRefreshMsg` to active screen. Modal state lives in the screen that opened it.
+
+**Screen lifecycle:**
+- `Init()` → returns `tea.Cmd` to fetch initial data
+- `Update()` → handles local keys + global `tea.WindowSizeMsg`, `tea.KeyMsg{Type: tea.KeyTab}`
+- `View()` → renders screen content (no tabbar/statusbar — those are root's job)
+- Root wraps screen `View()` with tabbar (top) and statusbar (bottom)
 
 ## Client
 
@@ -54,12 +98,33 @@ type Filter struct {
     DefinitionID string
     ResourceID   string
     OwnerID      string
-    Kind         string
+    Kind         observe.EventKind  // maps to inspect.QueryOptions.Kind; 0 = all
     Since        time.Time
     Until        time.Time
-    Limit        int
+    Limit        int  // default 100, max 500
 }
 ```
+
+### Endpoint Mappings
+
+| Method | Endpoint | Request | Response |
+|--------|----------|---------|----------|
+| `Snapshot` | `GET /locks/inspect` | — | `inspect.Snapshot` |
+| `Active` | `GET /locks/inspect/active` | — | `[]inspect.RuntimeLockInfo` |
+| `Events` | `GET /locks/inspect/events` | `?definition_id=&resource_id=&owner_id=&kind=&since=&until=&limit=` | `[]observe.Event` |
+| `Stream` | `GET /locks/inspect/stream` | — | SSE stream of `observe.Event` |
+| `Health` | `GET /locks/inspect/health` | — | `map[string]string{"status":"ok"}` |
+
+**`observe.Event` fields displayed in CLI:**
+- `Timestamp` (formatted as `15:04:05`)
+- `Kind` (color-coded label)
+- `DefinitionID`
+- `ResourceID`
+- `OwnerID`
+- `Error` (shown inline if non-empty, e.g. for `acquire_failed`)
+
+**`Kind` string mapping for filter input:**
+Users type lowercase strings like `acquire_succeeded`, `contention`, `lease_lost` → parsed via `inspect.parseKind()` logic (same as HTTP handler). Invalid input → kind=0 (no filter).
 
 ### Connection
 - Flag: `--url` or env `LOCKMAN_INSPECT_URL`
@@ -90,9 +155,10 @@ type Filter struct {
 - `Space` pause/resume, `/` inline filter
 
 ### Health
-- Status indicator + JSON response view
-- Pipeline stats: buffer size, dropped count, failures
-- Refresh: `R` key
+- Status indicator from `/locks/inspect/health` (`{"status":"ok"}`)
+- Pipeline stats fetched from `/locks/inspect` Snapshot (buffer size, dropped count, failures)
+- Shutdown status from Snapshot
+- Refresh: `R` key fetches both endpoints
 
 ## Components
 - **TabBar**: Top row, highlights active screen, responsive width
@@ -101,10 +167,21 @@ type Filter struct {
 - **FilterModal**: Text input popup, apply/cancel
 
 ## Error Handling
-- Network errors → bottom toast, app stays alive
-- `404/500` → inline message in current screen
-- Stream disconnect → auto-reconnect after 2s (max 3 attempts)
-- `Esc` dismisses errors/modals
+
+### Error Taxonomy
+| Error Type | TUI Behavior | Subcommand Behavior |
+|------------|-------------|---------------------|
+| Connection refused / timeout | Toast: "Cannot reach <url>" + retry hint | Exit 1, stderr message |
+| HTTP 404 | Inline: "Inspect endpoint not found — check --url" | Exit 1, stderr message |
+| HTTP 500 | Inline: "Server error: <body>" | Exit 1, stderr message |
+| JSON decode failure | Toast: "Invalid response from server" | Exit 1, stderr message |
+| SSE parse error | Toast: "Stream parse error" + reconnect | N/A (subcommands don't stream) |
+| Context cancelled | Graceful shutdown | Exit 130 (SIGINT) |
+
+### Retry Policy
+- **TUI screens (non-stream):** No auto-retry. User presses `R` to retry manually.
+- **Stream:** Auto-reconnect on disconnect with exponential backoff: 2s, 4s, 8s. After 3 failed attempts, show toast: "Stream disconnected — press R to reconnect".
+- **`Esc`** dismisses toasts, closes modals, and navigates back from detail views.
 
 ## Global Key Bindings
 | Key | Action |
@@ -135,12 +212,32 @@ type Filter struct {
 | `#6272a4` (gray) | Dimmed text, timestamps |
 
 ## Dependencies
-- `github.com/spf13/cobra` — CLI entry, flags
-- `github.com/charmbracelet/bubbletea` — TUI framework
-- `github.com/charmbracelet/bubbles/*` — Input, list, table, viewport
-- `github.com/charmbracelet/lipgloss` — Styling
-- `github.com/tuanuet/lockman/inspect` — Types (Snapshot, RuntimeLockInfo)
-- `github.com/tuanuet/lockman/observe` — Event types
+
+### Go Modules
+- Module path: `github.com/tuanuet/lockman/cmd/inspect`
+- New `go.mod` in `cmd/inspect/` with `go 1.22`
+- Added to root `go.work`
+
+### Third-party
+| Package | Usage |
+|---------|-------|
+| `github.com/spf13/cobra` | CLI entry, flags, subcommands |
+| `github.com/charmbracelet/bubbletea` | TUI framework (Elm architecture) |
+| `github.com/charmbracelet/bubbles/*` | viewport, list, textinput, table, spinner |
+| `github.com/charmbracelet/lipgloss` | Styling, layout composition |
+
+### Internal (from parent module via go.work)
+| Package | Usage |
+|---------|-------|
+| `github.com/tuanuet/lockman/inspect` | `Snapshot`, `RuntimeLockInfo`, `WorkerClaimInfo`, `RenewalInfo`, `PipelineState` |
+| `github.com/tuanuet/lockman/observe` | `Event`, `EventKind` constants |
+
+### Standard Library
+- `net/http` — HTTP client, SSE connection
+- `encoding/json` — Response decoding
+- `bufio` — SSE frame parsing (line-by-line)
+- `context` — Request cancellation
+- `fmt`, `time`, `sort`, `strings` — Formatting, duration, sorting, parsing
 
 ## Commands
 
@@ -162,3 +259,32 @@ lockman-inspect health --url ...
 ```
 
 All commands share the same binary. Default behavior is full TUI. Subcommands output raw text for scripting.
+
+## Test Plan
+
+### Client Tests (`client/`)
+- `TestClient_Snapshot` — mock HTTP server returns valid JSON → decoded Snapshot
+- `TestClient_Active` — empty array vs populated array
+- `TestClient_Events` — filter params serialized correctly in query string
+- `TestClient_Events_KindMapping` — string "contention" → `observe.EventContention`
+- `TestClient_Stream` — SSE frame parsing: multi-line data, malformed lines, reconnect
+- `TestClient_Health` — returns map with "status":"ok"
+- `TestClient_ErrorCases` — 404, 500, connection refused, JSON decode failure
+
+### TUI Tests (`tui/`)
+- `TestApp_Init` — all 5 screens initialized, activeIdx=0
+- `TestApp_Navigation` — Tab/Shift+Tab cycles 0→1→2→3→4→0, 1-5 keys jump directly
+- `TestApp_ScreenRefreshMsg` — root dispatches to correct screen
+- `TestDashboard_View` — renders 3 columns with data
+- `TestActive_Sort` — toggle sort changes row order
+- `TestEvents_Filter` — filter modal applies, results match
+- `TestStream_PauseResume` — Space pauses event display, resumes on second Space
+- `TestStream_Reconnect` — disconnect triggers 3 retry attempts with backoff
+
+### Integration Tests
+- `TestEndToEnd_TUI` — start mock inspect server, launch TUI in headless mode, verify screen renders
+- `TestSubcommands_Output` — `snapshot`, `active`, `events`, `health` subcommands produce valid JSON/text output
+
+### CI
+- `go test ./cmd/inspect/...` in CI workflow
+- Compile check: `go build ./cmd/inspect`
