@@ -2,10 +2,26 @@
 
 Interactive TUI for inspecting lockman distributed locks.
 
+## Quick Start
+
+```bash
+# Terminal 1: start the demo server (generates lock traffic)
+go run ./examples/inspect-server
+
+# Terminal 2: open the interactive TUI
+go run ./cmd/inspect
+
+# Or use one-shot commands (while demo server is running)
+go run ./cmd/inspect snapshot
+go run ./cmd/inspect events --kind contention
+go run ./cmd/inspect health
+```
+
 ## Usage
 
 ```bash
 # Interactive TUI
+lockman-inspect
 lockman-inspect --url http://localhost:8080/locks/inspect
 
 # One-shot commands
@@ -18,6 +34,7 @@ lockman-inspect health --url ...
 ## Environment Variables
 
 - `LOCKMAN_INSPECT_URL` — default base URL
+- `DEMO_PORT` — override demo server port (default `:8080`)
 
 ## Screens
 
