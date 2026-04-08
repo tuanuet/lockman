@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-08
+
+- Add OTel and Prometheus observability examples:
+  - New `examples/observability/otel` demonstrating OpenTelemetry sink integration
+  - New `examples/observability/prometheus` demonstrating Prometheus metrics sink
+- Add PrometheusSink for metrics observability:
+  - New `observe/prometheus` package with Prometheus-compatible metrics export
+  - Support counters for acquire, release, claim, hold operations
+  - Support histograms for latency measurements
+- Refactor OTel sink into dedicated submodule:
+  - Move `OTelSink` to `observe/otel` submodule
+  - Add span support for lock lifecycle events
+  - Add metrics integration with outcome labels
+- Remove deprecated datadog observability example:
+  - Clean up unused datadog example code and dependencies
+- Add LOCKMAN_REDIS_URL support to prometheus example:
+  - Allow Redis backend configuration via environment variable
+- Update Go version to 1.25.0 and synchronize dependencies across modules
+- Unify LockKind type, add driver assertions, alias SDK errors:
+  - Consistent LockKind across backend interfaces
+  - Add driver interface assertions for compile-time verification
+  - Alias root SDK errors in lockkit for compatibility
+
 ## [1.4.3] - 2026-04-05
 
 - Add public `backend/memory` in-memory driver for unit testing:
