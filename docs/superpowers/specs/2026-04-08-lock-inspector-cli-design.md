@@ -29,8 +29,8 @@ cmd/inspect/
 - `go get` dependencies: cobra, bubbletea, bubbles, lipgloss
 - CLI imports `github.com/tuanuet/lockman/inspect` and `github.com/tuanuet/lockman/observe` from parent module (resolved via `go.work`)
 
-**Binary name:** `lockman-inspect` (set via `go build -o lockman-inspect` or `go install`)
-**Root command:** `lockman-inspect` (set via `cobra.Command.Use`)
+**Binary name:** Built as `lockman-inspect` (e.g. `go build -o lockman-inspect ./cmd/inspect`)
+**Cobra root command:** `Use: "lockman-inspect"` — matches binary name for consistent help text
 **Version:** `cmd/inspect/v0.1.0` (independent from root SDK)
 
 ## Architecture
@@ -305,7 +305,7 @@ All commands share the same binary. Default behavior is full TUI. Subcommands ou
 - `TestClient_Events_KindMapping` — string "contention" → `observe.EventContention`
 - `TestClient_Stream` — SSE frame parsing: multi-line data, malformed lines
 - `TestClient_Stream_ContextCancel` — context cancel closes both channels, goroutine exits
-- `TestClient_Stream_Reconnect` — TUI screen retries 3 times with backoff, then stops
+- `TestClient_Stream_ChannelDrain` — after cancel, both channels are closed and safe to drain
 - `TestClient_Health` — returns map with "status":"ok"
 - `TestClient_ErrorCases` — 404, 500, connection refused, JSON decode failure
 
@@ -317,6 +317,7 @@ All commands share the same binary. Default behavior is full TUI. Subcommands ou
 - `TestActive_Sort` — toggle sort changes row order
 - `TestEvents_Filter` — filter modal applies, results match
 - `TestStream_PauseResume` — Space pauses event display, resumes on second Space
+- `TestStream_Reconnect` — disconnect triggers 3 retry attempts with backoff (2s, 4s, 8s), then stops with "Press R to reconnect"
 - `TestStream_Reconnect` — disconnect triggers 3 retry attempts with backoff
 
 ### Integration Tests
