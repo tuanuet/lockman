@@ -2,7 +2,10 @@ module github.com/tuanuet/lockman/guard/postgres
 
 go 1.25.0
 
-require github.com/jackc/pgx/v5 v5.6.0
+require (
+	github.com/jackc/pgx/v5 v5.6.0
+	github.com/tuanuet/lockman v1.4.3
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

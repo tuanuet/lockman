@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/bsm/redislock v0.9.4
 	github.com/redis/go-redis/v9 v9.18.0
-	github.com/tuanuet/lockman v0.0.0
+	github.com/tuanuet/lockman v1.4.3
 	github.com/tuanuet/lockman/backend/redis v1.0.0
 	github.com/tuanuet/lockman/idempotency/redis v1.0.0
 )
