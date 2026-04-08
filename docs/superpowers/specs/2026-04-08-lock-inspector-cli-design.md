@@ -29,7 +29,8 @@ cmd/inspect/
 - `go get` dependencies: cobra, bubbletea, bubbles, lipgloss
 - CLI imports `github.com/tuanuet/lockman/inspect` and `github.com/tuanuet/lockman/observe` from parent module (resolved via `go.work`)
 
-**Binary name:** `lockman-inspect` (set via `cobra.Command.Use`)
+**Binary name:** `lockman-inspect` (set via `go build -o lockman-inspect` or `go install`)
+**Root command:** `lockman-inspect` (set via `cobra.Command.Use`)
 **Version:** `cmd/inspect/v0.1.0` (independent from root SDK)
 
 ## Architecture
@@ -124,12 +125,46 @@ type Filter struct {
 - `Error` (shown inline if non-empty, e.g. for `acquire_failed`)
 
 **`Kind` string mapping for filter input:**
-Users type lowercase strings like `acquire_succeeded`, `contention`, `lease_lost` → parsed via `inspect.parseKind()` logic (same as HTTP handler). Invalid input → kind=0 (no filter).
+Users type lowercase strings → parsed by CLI-local helper `parseEventKind(s)`:
+
+| Input | `observe.EventKind` |
+|-------|---------------------|
+| `acquire_started` | `EventAcquireStarted` |
+| `acquire_succeeded` | `EventAcquireSucceeded` |
+| `acquire_failed` | `EventAcquireFailed` |
+| `released` | `EventReleased` |
+| `contention` | `EventContention` |
+| `overlap` | `EventOverlap` |
+| `overlap_rejected` | `EventOverlapRejected` |
+| `lease_lost` | `EventLeaseLost` |
+| `renewal_succeeded` | `EventRenewalSucceeded` |
+| `renewal_failed` | `EventRenewalFailed` |
+| `shutdown_started` | `EventShutdownStarted` |
+| `shutdown_completed` | `EventShutdownCompleted` |
+| `client_started` | `EventClientStarted` |
+| `presence_checked` | `EventPresenceChecked` |
+| (invalid/empty) | `0` (no filter) |
 
 ### Connection
 - Flag: `--url` or env `LOCKMAN_INSPECT_URL`
 - Default: `http://localhost:8080/locks/inspect`
 - Stream: Parse SSE frames manually (`data: ` prefix → JSON decode)
+
+### Stream Lifecycle
+
+`Stream(ctx)` opens an SSE connection and returns two channels:
+- `events` — receives `observe.Event` as they arrive
+- `errors` — receives connection/parse errors (does NOT include `context.Canceled`)
+
+**Closure behavior:**
+- When `ctx` is cancelled → HTTP request cancelled → goroutine exits → both channels closed
+- Caller must drain both channels until closed before starting a new stream
+- Reconnect: caller creates a new context and calls `Stream()` again (client does NOT auto-reconnect internally; reconnect logic lives in the TUI screen model)
+
+**Reconnect flow (in TUI stream screen):**
+1. Stream errors → screen shows toast
+2. Wait 2s → create new context → call `Stream()` again
+3. Track retry count; after 3 failures → stop, show "Press R to reconnect"
 
 ## TUI Screens
 
@@ -147,7 +182,7 @@ Users type lowercase strings like `acquire_succeeded`, `contention`, `lease_lost
 - List: `[timestamp] kind definition resource`
 - Color-coded by kind (success=green, failed=red, contention=yellow)
 - `F` → filter modal (definition_id, resource_id, owner_id, kind)
-- Pagination: `Space` next, `b` previous
+- Pagination: `PgUp`/`PgDn` or scroll via mouse
 
 ### Stream
 - Auto-scrolling log feed (SSE)
@@ -199,7 +234,8 @@ Users type lowercase strings like `acquire_succeeded`, `contention`, `lease_lost
 | `Enter` | Active | View lock details |
 | `F` | Events | Open filter modal |
 | `S` | Active | Toggle sort |
-| `Space` | Stream, Events | Pause/resume |
+| `Space` | Stream | Pause/resume |
+| `PgUp`/`PgDn` | Events | Page up/down |
 | `/` | Stream | Inline filter |
 
 ## Color Palette
@@ -215,7 +251,7 @@ Users type lowercase strings like `acquire_succeeded`, `contention`, `lease_lost
 
 ### Go Modules
 - Module path: `github.com/tuanuet/lockman/cmd/inspect`
-- New `go.mod` in `cmd/inspect/` with `go 1.22`
+- New `go.mod` in `cmd/inspect/` with `go 1.25` (matches workspace)
 - Added to root `go.work`
 
 ### Third-party
@@ -267,7 +303,9 @@ All commands share the same binary. Default behavior is full TUI. Subcommands ou
 - `TestClient_Active` — empty array vs populated array
 - `TestClient_Events` — filter params serialized correctly in query string
 - `TestClient_Events_KindMapping` — string "contention" → `observe.EventContention`
-- `TestClient_Stream` — SSE frame parsing: multi-line data, malformed lines, reconnect
+- `TestClient_Stream` — SSE frame parsing: multi-line data, malformed lines
+- `TestClient_Stream_ContextCancel` — context cancel closes both channels, goroutine exits
+- `TestClient_Stream_Reconnect` — TUI screen retries 3 times with backoff, then stops
 - `TestClient_Health` — returns map with "status":"ok"
 - `TestClient_ErrorCases` — 404, 500, connection refused, JSON decode failure
 
